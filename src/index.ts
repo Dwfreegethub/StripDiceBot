@@ -6,13 +6,46 @@ async function main() {
 
     const bot = new BCConnection();
 
-    // Set up message handler before connecting
     bot.onMessage((data: any) => {
         log(`MSG [${data.Type}] from ${data.Sender}: ${data.Content}`);
 
-        // Echo whispers back - basic test
         if (data.Type === "Whisper") {
-            bot.whisper(data.Sender, `You said: ${data.Content}`);
+            const msg = data.Content.trim().toLowerCase();
+            const sender = data.Sender;
+
+            // Echo whispers back - basic test
+            bot.whisper(sender, `You said: ${data.Content}`);
+
+            // Test applying cuffs with timer lock
+            if (msg === "!testcuffs") {
+                bot.whisper(sender, "Applying ankle cuffs with timer lock...");
+                
+                // Step 1 - Apply the ankle cuffs
+                bot.applyItem(sender, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 0
+                });
+
+                // Step 2 - Apply timer password lock after short delay
+                setTimeout(() => {
+                    bot.applyItem(sender, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
+                        TypeRecord: { typed: 2 },
+                        Difficulty: 0,
+                        Effect: ["Slow", "Lock"],
+                        LockedBy: "TimerPasswordPadlock",
+                        LockMemberNumber: bot.getMemberNumber(),
+                        LockMemberName: "GameBot",
+                        Password: "DICE",
+                        Hint: "The game password",
+                        LockSet: true,
+                        RemoveItem: true,
+                        ShowTimer: true,
+                        EnableRandomInput: false,
+                        MemberNumberList: [],
+                        RemoveTimer: Date.now() + (5 * 60 * 1000) // 5 minutes from now
+                    });
+                }, 500); // 500ms delay between apply and lock
+            }
         }
     });
 
@@ -24,10 +57,7 @@ async function main() {
     bot.onMemberJoin((data: any) => {
         const memberNumber = data.SourceMemberNumber;
         const name = data.Character?.Nickname || data.Character?.Name || "stranger";
-
         log(`${name} (#${memberNumber}) joined the room.`);
-
-        // Greet the new arrival
         bot.sendChat(`Welcome to Strip Dice, ${name}! 🎲 Type !join to join the game or !help for more info.`);
     });
 
@@ -35,7 +65,6 @@ async function main() {
         log(`Member #${data.SourceMemberNumber} left the room.`);
     });
 
-    // Enable debug logging for all events
     bot.listenAll();
 
     try {

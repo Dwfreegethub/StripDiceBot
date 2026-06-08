@@ -9,15 +9,15 @@ export class BCConnection {
     private playerNumber: number = 0;
     private connected: boolean = false;
 
-   constructor() {
-		this.socket = io(BC_SERVER, {
-			transports: ["websocket"],
-			extraHeaders: {
-				"Origin": "https://bondageprojects.elementfx.com"
-			}
-		});
-	}
-    // Connect and login to BC
+    constructor() {
+        this.socket = io(BC_SERVER, {
+            transports: ["websocket"],
+            extraHeaders: {
+                "Origin": "https://bondageprojects.elementfx.com"
+            }
+        });
+    }
+
     public connect(): Promise<void> {
         return new Promise((resolve, reject) => {
 
@@ -29,7 +29,6 @@ export class BCConnection {
                 });
             });
 
-            // Login response
             this.socket.on("LoginResponse", (data: any) => {
                 if (typeof data === "string") {
                     logError(`Login failed: ${data}`);
@@ -40,22 +39,41 @@ export class BCConnection {
                 this.connected = true;
                 log(`Logged in successfully! Member #${this.playerNumber}`);
 
-                // Send appearance data back so we show as fully online on friend lists
                 this.socket.emit("AccountUpdate", {
-					 AssetFamily: "Female3DCG"
-                
+                    Inventory:            data.Inventory            ?? [],
+                    OnlineSettings:       data.OnlineSettings       ?? {}
                 });
-                log("AssetFamily set.");
 
+                this.socket.emit("AccountUpdate", {
+                    Game: data.Game ?? {}
+                });
+
+                this.socket.emit("AccountUpdate", {
+                    AssetFamily: "Female3DCG"
+                });
+
+                log("Initialization sequence sent.");
                 resolve();
             });
 
-            // Room create response
             this.socket.on("ChatRoomCreateResponse", (data: any) => {
                 if (data === "ChatRoomCreated") {
                     log("Room created successfully!");
+                } else if (data === "RoomAlreadyExist") {
+                    log("Room already exists, joining instead...");
+                    this.socket.emit("ChatRoomJoin", {
+                        Name: secrets.roomName
+                    });
                 } else {
                     logError(`Room creation failed: ${JSON.stringify(data)}`);
+                }
+            });
+
+            this.socket.on("ChatRoomJoinResponse", (data: any) => {
+                if (data === "JoinedRoom" || data === "ok") {
+                    log("Joined existing room successfully!");
+                } else {
+                    logError(`Failed to join room: ${JSON.stringify(data)}`);
                 }
             });
 
@@ -72,26 +90,24 @@ export class BCConnection {
         });
     }
 
-    // Create a new room
     public joinRoom(): void {
         log(`Creating room: ${secrets.roomName}`);
         this.socket.emit("ChatRoomCreate", {
-			Name: secrets.roomName,
-			Description: "A Strip Dice game room - type !join to play!",
-			Background: "NightClub",
-			Space: "X",
-			Game: "",
-			Admin: [this.playerNumber, 208543],
-			Ban: [],
-			Limit: 10,
-			BlockCategory: [],
-			Language: "EN",
-			Visibility: ["Admin"],
-			Access: ["All"],
+            Name: secrets.roomName,
+            Description: "A Strip Dice game room - type !join to play!",
+            Background: "NightClub",
+            Space: "X",
+            Game: "",
+            Admin: [this.playerNumber, 208543],
+            Ban: [],
+            Limit: 10,
+            BlockCategory: [],
+            Language: "EN",
+            Visibility: ["Admin"],
+            Access: ["All"],
         });
     }
 
-    // Send a chat message to the room
     public sendChat(message: string): void {
         this.socket.emit("ChatRoomChat", {
             Type: "Chat",
@@ -100,7 +116,6 @@ export class BCConnection {
         });
     }
 
-    // Whisper to a specific player
     public whisper(targetNumber: number, message: string): void {
         this.socket.emit("ChatRoomChat", {
             Type: "Whisper",
@@ -110,7 +125,18 @@ export class BCConnection {
         });
     }
 
-    // Listen to all incoming events (for debugging)
+    // Apply or update an item on a target player
+    public applyItem(targetNumber: number, group: string, name: string, color: string, property: any): void {
+        this.socket.emit("ChatRoomCharacterItemUpdate", {
+            Target: targetNumber,
+            Group: group,
+            Name: name,
+            Color: color,
+            Difficulty: 2,
+            Property: property
+        });
+    }
+
     public listenAll(): void {
         const events = [
             "ChatRoomSync",
@@ -128,27 +154,22 @@ export class BCConnection {
         });
     }
 
-    // Handle incoming chat messages
     public onMessage(handler: (data: any) => void): void {
         this.socket.on("ChatRoomMessage", handler);
     }
 
-    // Handle room sync (initial room state)
     public onRoomSync(handler: (data: any) => void): void {
         this.socket.on("ChatRoomSync", handler);
     }
 
-    // Handle item changes (clothing removal detection)
     public onItemChange(handler: (data: any) => void): void {
         this.socket.on("ChatRoomSyncItem", handler);
     }
 
-    // Handle member joining the room
     public onMemberJoin(handler: (data: any) => void): void {
         this.socket.on("ChatRoomSyncMemberJoin", handler);
     }
 
-    // Handle member leaving the room
     public onMemberLeave(handler: (data: any) => void): void {
         this.socket.on("ChatRoomSyncMemberLeave", handler);
     }
