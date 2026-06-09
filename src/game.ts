@@ -238,6 +238,10 @@ export class StripDiceGame {
             this.handleHelp(memberNumber);
             return;
         }
+        if (msg === "!about") {
+            this.handleAbout(memberNumber);
+            return;
+        }
         if (msg.startsWith("!feedback ")) {
             this.handleFeedback(memberNumber, name, message);
             return;
@@ -257,6 +261,38 @@ export class StripDiceGame {
         }
         if (msg === "!continue") {
             this.handleContinue(memberNumber);
+            return;
+        }
+        if (msg === "!join") {
+            this.handleJoin(memberNumber, name);
+            return;
+        }
+        if (msg === "!start") {
+            this.handleStart(memberNumber);
+            return;
+        }
+        if (msg === "!cancel") {
+            this.handleCancel(memberNumber);
+            return;
+        }
+        if (msg === "!ready") {
+            this.handleReady(memberNumber);
+            return;
+        }
+        if (msg === "!naked") {
+            this.handleNoWearing(memberNumber);
+            return;
+        }
+        if (msg === "!same") {
+            this.handleSame(memberNumber);
+            return;
+        }
+        if (msg === "!help") {
+            this.handleHelp(memberNumber);
+            return;
+        }
+        if (msg === "!about") {
+            this.handleAbout(memberNumber);
             return;
         }
     }
@@ -510,6 +546,17 @@ export class StripDiceGame {
         this.startTurnTimer();
     }
 
+    private handleAbout(memberNumber: number): void {
+        this.bot.whisper(memberNumber,
+            `=== About StripDiceBot ===\n` +
+            `Created and owned by Missy 💕\n` +
+            `Source code & updates: https://github.com/Dwfreegethub/StripDiceBot\n` +
+            `\n` +
+            `⚠️ Currently in early beta — expect bugs and improvements!\n` +
+            `Have a suggestion? Whisper !feedback [your thoughts]`
+        );
+    }
+
     private handleFeedback(memberNumber: number, name: string, message: string): void {
         const text = message.trim().slice("!feedback ".length).trim();
         if (!text) {
@@ -540,6 +587,7 @@ export class StripDiceGame {
             `!locktime [mins] - Set end game lock duration (admin only)\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!feedback [text] - Send feedback to the developers\n` +
+            `!about - About this bot\n` +
             `!help - Show this message`
         );
     }

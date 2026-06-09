@@ -3,18 +3,26 @@ import { log, logError, logEvent } from "./logger";
 import { secrets } from "./secrets";
 
 const BC_SERVER = "https://bondage-club-server.herokuapp.com/";
+const HEARTBEAT_TIMEOUT = 3 * 60 * 1000; // 3 minutes without ServerInfo = assume void
 
 export class BCConnection {
     private socket: Socket;
     private playerNumber: number = 0;
     private connected: boolean = false;
+    private heartbeatTimer: NodeJS.Timeout | null = null;
+    private onReconnectCallback: (() => void) | null = null;
+    private isReconnecting: boolean = false;
 
     constructor() {
         this.socket = io(BC_SERVER, {
             transports: ["websocket"],
             extraHeaders: {
                 "Origin": "https://bondageprojects.elementfx.com"
-            }
+            },
+            reconnection: true,
+            reconnectionDelay: 5000,
+            reconnectionDelayMax: 30000,
+            reconnectionAttempts: Infinity,
         });
     }
 
@@ -22,7 +30,11 @@ export class BCConnection {
         return new Promise((resolve, reject) => {
 
             this.socket.on("connect", () => {
-                log("Socket connected. Logging in...");
+                if (this.isReconnecting) {
+                    log("Reconnected to server. Logging back in...");
+                } else {
+                    log("Socket connected. Logging in...");
+                }
                 this.socket.emit("AccountLogin", {
                     AccountName: secrets.username,
                     Password: secrets.password,
@@ -32,28 +44,35 @@ export class BCConnection {
             this.socket.on("LoginResponse", (data: any) => {
                 if (typeof data === "string") {
                     logError(`Login failed: ${data}`);
-                    reject(new Error(data));
+                    if (!this.isReconnecting) reject(new Error(data));
                     return;
                 }
                 this.playerNumber = data.MemberNumber;
                 this.connected = true;
-                log(`Logged in successfully! Member #${this.playerNumber}`);
 
                 this.socket.emit("AccountUpdate", {
                     Inventory:      data.Inventory      ?? [],
                     OnlineSettings: data.OnlineSettings ?? {}
                 });
+                this.socket.emit("AccountUpdate", { Game: data.Game ?? {} });
+                this.socket.emit("AccountUpdate", { AssetFamily: "Female3DCG" });
 
-                this.socket.emit("AccountUpdate", {
-                    Game: data.Game ?? {}
-                });
+                if (this.isReconnecting) {
+                    log(`Re-logged in as #${this.playerNumber}. Rejoining room...`);
+                    this.joinRoom();
+                    if (this.onReconnectCallback) this.onReconnectCallback();
+                    this.isReconnecting = false;
+                } else {
+                    log(`Logged in successfully! Member #${this.playerNumber}`);
+                    log("Initialization sequence sent.");
+                    resolve();
+                }
 
-                this.socket.emit("AccountUpdate", {
-                    AssetFamily: "Female3DCG"
-                });
+                this.resetHeartbeat();
+            });
 
-                log("Initialization sequence sent.");
-                resolve();
+            this.socket.on("ServerInfo", () => {
+                this.resetHeartbeat();
             });
 
             this.socket.on("ChatRoomCreateResponse", (data: any) => {
@@ -61,9 +80,7 @@ export class BCConnection {
                     log("Room created successfully!");
                 } else if (data === "RoomAlreadyExist") {
                     log("Room already exists, joining instead...");
-                    this.socket.emit("ChatRoomJoin", {
-                        Name: secrets.roomName
-                    });
+                    this.socket.emit("ChatRoomJoin", { Name: secrets.roomName });
                 } else {
                     logError(`Room creation failed: ${JSON.stringify(data)}`);
                 }
@@ -79,15 +96,44 @@ export class BCConnection {
 
             this.socket.on("connect_error", (err: any) => {
                 logError(`Connection error: ${err.message}`);
-                reject(err);
+                if (!this.isReconnecting) reject(err);
             });
 
             this.socket.on("disconnect", (reason: string) => {
                 log(`Disconnected: ${reason}`);
                 this.connected = false;
+                this.isReconnecting = true;
+                this.clearHeartbeat();
+                if (reason === "io server disconnect") {
+                    // Server forced disconnect — manually reconnect
+                    this.socket.connect();
+                }
+                // All other reasons: Socket.IO auto-reconnects
             });
 
         });
+    }
+
+    private resetHeartbeat(): void {
+        this.clearHeartbeat();
+        this.heartbeatTimer = setTimeout(() => {
+            logError("No ServerInfo received in 3 minutes — possible void. Forcing reconnect...");
+            this.connected = false;
+            this.isReconnecting = true;
+            this.socket.disconnect();
+            this.socket.connect();
+        }, HEARTBEAT_TIMEOUT);
+    }
+
+    private clearHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearTimeout(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+    }
+
+    public onReconnect(callback: () => void): void {
+        this.onReconnectCallback = callback;
     }
 
     public joinRoom(): void {

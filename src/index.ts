@@ -8,6 +8,11 @@ async function main() {
     const bot = new BCConnection();
     const game = new StripDiceGame(bot);
 
+    // Strip OOC wrappers: (!roll) or [!roll] -> !roll
+    function stripOOC(msg: string): string {
+        return msg.trim().replace(/^[\(\[]\s*(.*?)\s*[\)\]]$/, '$1');
+    }
+
     bot.onMessage((data: any) => {
         log(`MSG [${data.Type}] from ${data.Sender}: ${data.Content}`);
 
@@ -15,7 +20,7 @@ async function main() {
         const name: string = game.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
 
         if (data.Type === "Whisper") {
-            const msg = data.Content.trim().toLowerCase();
+            const msg = stripOOC(data.Content).trim().toLowerCase();
 
             // Test command - keep during development
             if (msg === "!testcuffs") {
@@ -47,11 +52,11 @@ async function main() {
             }
 
             // Pass to game handler
-            game.handleWhisper(memberNumber, name, data.Content);
+            game.handleWhisper(memberNumber, name, stripOOC(data.Content));
         }
 
         if (data.Type === "Chat") {
-            game.handleChat(memberNumber, name, data.Content);
+            game.handleChat(memberNumber, name, stripOOC(data.Content));
         }
         if (data.Type === "Status" && data.Content === "Wardrobe") {
             game.handleWardrobe(memberNumber, name);
@@ -89,6 +94,11 @@ async function main() {
         const memberNumber = data.SourceMemberNumber;
         log(`Member #${memberNumber} left the room.`);
         game.onMemberLeave(memberNumber);
+    });
+
+    bot.onReconnect(() => {
+        log("Reconnect complete. Re-announcing bot...");
+        bot.sendChat("StripDiceBot reconnected! 🎲 Whisper !join to play or !help for info.");
     });
 
     bot.listenAll();
