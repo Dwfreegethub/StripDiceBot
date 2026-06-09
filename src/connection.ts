@@ -40,8 +40,8 @@ export class BCConnection {
                 log(`Logged in successfully! Member #${this.playerNumber}`);
 
                 this.socket.emit("AccountUpdate", {
-                    Inventory:            data.Inventory            ?? [],
-                    OnlineSettings:       data.OnlineSettings       ?? {}
+                    Inventory:      data.Inventory      ?? [],
+                    OnlineSettings: data.OnlineSettings ?? {}
                 });
 
                 this.socket.emit("AccountUpdate", {
@@ -125,8 +125,7 @@ export class BCConnection {
         });
     }
 
-    // Apply or update an item on a target player
-    public applyItem(targetNumber: number, group: string, name: string, color: string, property: any): void {
+    public applyItem(targetNumber: number, group: string, name: string, color: string | string[], property: any): void {
         this.socket.emit("ChatRoomCharacterItemUpdate", {
             Target: targetNumber,
             Group: group,
@@ -137,6 +136,17 @@ export class BCConnection {
         });
     }
 
+    public removeItem(targetNumber: number, group: string): void {
+        this.socket.emit("ChatRoomCharacterItemUpdate", {
+            Target: targetNumber,
+            Group: group,
+            Name: null,
+            Color: null,
+            Difficulty: 0,
+            Property: {}
+        });
+    }
+
     public listenAll(): void {
         const events = [
             "ChatRoomSync",
@@ -144,6 +154,8 @@ export class BCConnection {
             "ChatRoomSyncMemberLeave",
             "ChatRoomMessage",
             "ChatRoomSyncItem",
+            "ChatRoomSyncCharacter",
+            "ChatRoomSyncExpression",
             "ServerInfo",
             "AccountBeep",
         ];

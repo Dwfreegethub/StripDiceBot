@@ -1,34 +1,32 @@
 import { BCConnection } from "./connection";
+import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 
 async function main() {
     log("StripDiceBot starting...");
 
     const bot = new BCConnection();
+    const game = new StripDiceGame(bot);
 
     bot.onMessage((data: any) => {
         log(`MSG [${data.Type}] from ${data.Sender}: ${data.Content}`);
 
+        const memberNumber: number = data.Sender;
+        const name: string = game.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
+
         if (data.Type === "Whisper") {
             const msg = data.Content.trim().toLowerCase();
-            const sender = data.Sender;
 
-            // Echo whispers back - basic test
-            bot.whisper(sender, `You said: ${data.Content}`);
-
-            // Test applying cuffs with timer lock
+            // Test command - keep during development
             if (msg === "!testcuffs") {
-                bot.whisper(sender, "Applying ankle cuffs with timer lock...");
-                
-                // Step 1 - Apply the ankle cuffs
-                bot.applyItem(sender, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
+                bot.whisper(memberNumber, "Applying ankle cuffs with timer lock...");
+                bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
                     TypeRecord: { typed: 2 },
-                    Difficulty: 0
+                    Difficulty: 0,
+                    Effect: ["Slow"]
                 });
-
-                // Step 2 - Apply timer password lock after short delay
                 setTimeout(() => {
-                    bot.applyItem(sender, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
+                    bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
                         TypeRecord: { typed: 2 },
                         Difficulty: 0,
                         Effect: ["Slow", "Lock"],
@@ -42,27 +40,39 @@ async function main() {
                         ShowTimer: true,
                         EnableRandomInput: false,
                         MemberNumberList: [],
-                        RemoveTimer: Date.now() + (5 * 60 * 1000) // 5 minutes from now
+                        RemoveTimer: Date.now() + (5 * 60 * 1000)
                     });
-                }, 500); // 500ms delay between apply and lock
+                }, 500);
+                return;
             }
+
+            // Pass to game handler
+            game.handleWhisper(memberNumber, name, data.Content);
+        }
+
+        if (data.Type === "Chat") {
+            game.handleChat(memberNumber, name, data.Content);
         }
     });
 
     bot.onRoomSync((data: any) => {
         log(`Room synced. Players in room: ${data.Character?.length ?? 0}`);
-        bot.sendChat("StripDiceBot is online! Type !help to learn how to play.");
+        game.onRoomSync(data.Character ?? []);
+        bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
     });
 
     bot.onMemberJoin((data: any) => {
         const memberNumber = data.SourceMemberNumber;
-        const name = data.Character?.Nickname || data.Character?.Name || "stranger";
+        const name = data.Character?.Nickname || data.Character?.Name || `Player #${memberNumber}`;
         log(`${name} (#${memberNumber}) joined the room.`);
-        bot.sendChat(`Welcome to Strip Dice, ${name}! 🎲 Type !join to join the game or !help for more info.`);
+        bot.sendChat(`Welcome to Strip Dice, ${name}! 🎲 Whisper !join to play or !help for info.`);
+        game.onMemberJoin(memberNumber, name);
     });
 
     bot.onMemberLeave((data: any) => {
-        log(`Member #${data.SourceMemberNumber} left the room.`);
+        const memberNumber = data.SourceMemberNumber;
+        log(`Member #${memberNumber} left the room.`);
+        game.onMemberLeave(memberNumber);
     });
 
     bot.listenAll();
