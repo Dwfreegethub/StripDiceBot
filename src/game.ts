@@ -1,5 +1,7 @@
 import { BCConnection } from "./connection";
 import { log } from "./logger";
+import * as fs from "fs";
+import * as path from "path";
 
 // ============================================================
 // TEST MODE - set to false for production
@@ -101,6 +103,7 @@ enum GameState {
     Rolling,        // Active game, waiting for current player to roll
     WaitingRemove,  // Player lost, waiting for !removed
     WaitingBondage, // Player naked, bot applying bondage
+    SafewordPause,  // A player called safeword, waiting for !continue or timeout
     GameOver        // All players bound, applying locks
 }
 
@@ -150,6 +153,7 @@ export class StripDiceGame {
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
     private isFirstRoll: boolean = true;    // Track if this is the very first roll
+    private safewordMember: number | null = null;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -210,7 +214,7 @@ export class StripDiceGame {
             this.handleWearing(memberNumber, message);
             return;
         }
-        if (msg === "!nowearing") {
+        if (msg === "!naked") {
             this.handleNoWearing(memberNumber);
             return;
         }
@@ -234,6 +238,10 @@ export class StripDiceGame {
             this.handleHelp(memberNumber);
             return;
         }
+        if (msg.startsWith("!feedback ")) {
+            this.handleFeedback(memberNumber, name, message);
+            return;
+        }
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
@@ -245,6 +253,10 @@ export class StripDiceGame {
         }
         if (msg === "!removed") {
             this.handleRemoved(memberNumber, name);
+            return;
+        }
+        if (msg === "!continue") {
+            this.handleContinue(memberNumber);
             return;
         }
     }
@@ -259,7 +271,7 @@ export class StripDiceGame {
             return;
         }
         if (this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !nowearing if you have nothing on.");
+            this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !naked if you have nothing on.");
             return;
         }
 
@@ -287,7 +299,7 @@ export class StripDiceGame {
                 `Last time you wore: ${last.join(", ")}\n` +
                 `Whisper !same to use the same outfit, or:\n` +
                 `!wearing [items] to declare a new outfit\n` +
-                `!nowearing if you have nothing on\n` +
+                `!naked if you have nothing on\n` +
                 `Then whisper !ready when done.`
             );
         } else {
@@ -300,7 +312,7 @@ export class StripDiceGame {
                 `  !wearing shoes socks top bottom panties\n` +
                 `  !wearing shoes top bottom (no socks, no underwear)\n` +
                 `  !wearing shoes socks top bottom bra panties\n` +
-                `Or whisper !nowearing if you have nothing on.\n` +
+                `Or whisper !naked if you have nothing on.\n` +
                 `Whisper !ready when done.`
             );
         }
@@ -403,7 +415,7 @@ export class StripDiceGame {
         const player = this.players.get(memberNumber)!;
 
         if (player.clothing.length === 0 && !player.isNaked) {
-            this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !nowearing.");
+            this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
             return;
         }
 
@@ -433,32 +445,83 @@ export class StripDiceGame {
     }
 
     private handleSafeword(memberNumber: number, name: string): void {
-        const player = this.players.get(memberNumber);
-
-        if (!player) {
-            this.bot.whisper(memberNumber, "Safeword acknowledged. Attempting to remove all restraints...");
-            this.removeAllItems(memberNumber);
-            return;
-        }
-
         this.bot.sendChat(`🔴 SAFEWORD - ${name} has called safeword! Removing all restraints...`);
         this.bot.whisper(memberNumber, "Safeword acknowledged. Removing all restraints now.");
         this.removeAllItems(memberNumber);
 
-        // Reset player bondage state
+        const player = this.players.get(memberNumber);
+        if (!player || this.state === GameState.Idle || this.state === GameState.Registration) return;
+
+        // Reset player state
         player.bondageApplied = 0;
         player.isNaked = false;
         player.isFullyBound = false;
 
-        // If game was waiting on this player, advance
-        if (this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage) {
-            const currentPlayer = this.getCurrentPlayer();
-            if (currentPlayer?.memberNumber === memberNumber) {
-                this.currentDiceMax = 100;
-                this.state = GameState.Rolling;
-                this.advanceTurn();
-            }
+        this.clearTurnTimer();
+        this.safewordMember = memberNumber;
+        this.state = GameState.SafewordPause;
+
+        const others = [...this.players.values()].filter(p => p.memberNumber !== memberNumber);
+        if (others.length === 0) {
+            this.bot.sendChat(`Game ended. Type !join to start a new game.`);
+            this.resetGame();
+            return;
         }
+
+        this.bot.sendChat(`Should the game continue without ${name}? Type !continue in chat within 60 seconds, otherwise the game will end.`);
+        this.turnTimer = setTimeout(() => {
+            if (this.state === GameState.SafewordPause) {
+                this.bot.sendChat(`No response — ending the game.`);
+                this.resetGame();
+            }
+        }, 60000);
+    }
+
+    private handleContinue(memberNumber: number): void {
+        if (this.state !== GameState.SafewordPause) return;
+        if (!this.players.has(memberNumber)) return;
+
+        const safeworded = this.safewordMember;
+        this.safewordMember = null;
+        this.clearTurnTimer();
+
+        if (safeworded !== null) {
+            const player = this.players.get(safeworded);
+            if (player) {
+                this.bot.sendChat(`${player.name} has been removed from the game. Continuing...`);
+            }
+            this.players.delete(safeworded);
+            this.turnOrder = this.turnOrder.filter(n => n !== safeworded);
+        }
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return;
+        }
+
+        this.currentDiceMax = 100;
+        this.state = GameState.Rolling;
+        // Make sure currentTurnIndex is still valid
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+        this.announceCurrentTurn();
+        this.startTurnTimer();
+    }
+
+    private handleFeedback(memberNumber: number, name: string, message: string): void {
+        const text = message.trim().slice("!feedback ".length).trim();
+        if (!text) {
+            this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
+            return;
+        }
+        const timestamp = new Date().toISOString();
+        const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
+        const filePath = path.join(__dirname, "..", "feedback.log");
+        fs.appendFileSync(filePath, line, "utf8");
+        log(`Feedback from ${name}: ${text}`);
+        this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
     }
 
     private handleHelp(memberNumber: number): void {
@@ -467,7 +530,7 @@ export class StripDiceGame {
             `!join - Join the game\n` +
             `!wearing [items] - Declare your clothing\n` +
             `  Valid items: shoes socks top bottom bra panties\n` +
-            `!nowearing - Declare you have no clothing on\n` +
+            `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
             `!ready - Confirm you are ready to play\n` +
             `!start - Start the game early\n` +
@@ -476,6 +539,7 @@ export class StripDiceGame {
             `!removed - Confirm you removed a clothing item (in room chat)\n` +
             `!locktime [mins] - Set end game lock duration (admin only)\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
+            `!feedback [text] - Send feedback to the developers\n` +
             `!help - Show this message`
         );
     }
@@ -518,6 +582,13 @@ export class StripDiceGame {
             this.currentDiceMax = roll;
             this.advanceTurn();
         }
+    }
+
+    public handleWardrobe(memberNumber: number, name: string): void {
+        if (this.state !== GameState.WaitingRemove) return;
+        const currentPlayer = this.getCurrentPlayer();
+        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
+        this.handleRemoved(memberNumber, name);
     }
 
     private handleRemoved(memberNumber: number, name: string): void {
@@ -585,8 +656,11 @@ export class StripDiceGame {
             if (!player.ready) {
                 this.bot.whisper(player.memberNumber,
                     `Game is starting soon! Please whisper:\n` +
+                    (this.lastClothing.has(player.memberNumber)
+                        ? `!same - use your last outfit (${this.lastClothing.get(player.memberNumber)!.join(", ")})\n`
+                        : ``) +
                     `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
-                    `!nowearing - if you have nothing on\n` +
+                    `!naked - if you have nothing on\n` +
                     `Then whisper !ready`
                 );
             }
@@ -656,7 +730,7 @@ export class StripDiceGame {
             const nextItem = player.clothing[player.clothingRemoved];
             if (nextItem) {
                 this.state = GameState.WaitingRemove;
-                this.bot.sendChat(`😳 ${player.name} rolled a 1! Remove your ${nextItem}! Type !removed when done.`);
+                this.bot.sendChat(`😳 ${player.name} rolled a 1! Remove your ${nextItem}!`);
                 this.startTurnTimer(60000);
 
                 if (player.clothingRemoved + 1 >= player.clothing.length) {
@@ -802,6 +876,7 @@ export class StripDiceGame {
         this.currentTurnIndex = 0;
         this.currentDiceMax = 100;
         this.isFirstRoll = true;
+        this.safewordMember = null;
         this.clearCountdown();
         this.clearTurnTimer();
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
@@ -837,7 +912,11 @@ export class StripDiceGame {
         if (!player) return;
 
         this.turnTimer = setTimeout(() => {
-            this.handleTurnTimeout(player);
+            if (this.state === GameState.WaitingRemove) {
+                this.handleRemoveTimeout(player);
+            } else {
+                this.handleTurnTimeout(player);
+            }
         }, ms);
     }
 
@@ -846,6 +925,13 @@ export class StripDiceGame {
             clearTimeout(this.turnTimer);
             this.turnTimer = null;
         }
+    }
+
+    private handleRemoveTimeout(player: Player): void {
+        this.bot.whisper(player.memberNumber,
+            `If you've already removed your item, whisper !removed to continue the game.`
+        );
+        this.startTurnTimer(60000);
     }
 
     private handleTurnTimeout(player: Player): void {
