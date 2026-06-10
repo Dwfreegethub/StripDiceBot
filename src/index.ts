@@ -92,7 +92,7 @@ async function main() {
             `FEEDBACK: Whisper !feedback [your thoughts] — we read everything!\n\n` +
             `Whisper !join to play!`
         );
-        game.onMemberJoin(memberNumber, name);
+        game.onMemberJoin(memberNumber, name, data.Character);
     });
 
     bot.onMemberLeave((data: any) => {
