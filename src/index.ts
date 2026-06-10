@@ -71,6 +71,7 @@ async function main() {
             bot.makeRoomPublic();
         }
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
+        bot.sendChat("🔧 Bot restarted — lock fix applied.");
     });
 
     bot.onMemberJoin((data: any) => {

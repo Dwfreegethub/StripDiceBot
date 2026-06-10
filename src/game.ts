@@ -200,7 +200,7 @@ const BONDAGE_OUTFITS: BondageOutfit[] = [
                 name: "LeatherDeluxeLegCuffs",
                 color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
                 property: {
-                    TypeRecord: { typed: 0 }
+                    TypeRecord: { typed: 2 }
                 }
             },
             {
@@ -217,13 +217,19 @@ const BONDAGE_OUTFITS: BondageOutfit[] = [
                 group: "ItemBoots",
                 name: "BalletHeels1",
                 color: ["#717171"],
-                property: {}
+                property: {
+                    TypeRecord: { typed: 0 },
+                    Difficulty: 0
+                }
             },
             {
                 group: "ItemTorso",
                 name: "LeatherStrapHarness",
                 color: ["#C6C6C6"],
-                property: {}
+                property: {
+                    TypeRecord: { typed: 0 },
+                    Difficulty: 0
+                }
             },
             {
                 group: "ItemTorso2",
@@ -382,6 +388,10 @@ export class StripDiceGame {
             return;
         }
 
+        if (msg === "!roll") {
+            this.handleRoll(memberNumber, name);
+            return;
+        }
         if (msg === "!join") {
             this.handleJoin(memberNumber, name);
             return;
@@ -895,7 +905,7 @@ export class StripDiceGame {
             `!ready - Confirm you are ready to play\n` +
             `!start - Start the game early\n` +
             `!cancel - Cancel the countdown\n` +
-            `!roll - Roll the dice on your turn (in room chat)\n` +
+            `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
             `!removed - Confirm you removed a clothing item (in room chat)\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!feedback [text] - Send feedback to the developers\n` +
@@ -1081,7 +1091,7 @@ export class StripDiceGame {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.sendChat(`🎲 ${player.name}'s turn! Roll a D${this.currentDiceMax} by typing !roll`);
+        this.bot.whisper(player.memberNumber, `🎲 It's your turn! Roll a D${this.currentDiceMax} by typing !roll (in chat or whispered to me).`);
     }
 
     private advanceTurn(): void {

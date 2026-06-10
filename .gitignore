@@ -2,3 +2,6 @@ node_modules/
 build/
 src/secrets.ts
 *.log
+wrapper.output
+decoded*.json
+decoded*_raw.txt
