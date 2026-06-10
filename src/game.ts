@@ -121,6 +121,7 @@ interface Player {
     timeoutWarned: boolean;     // Has been warned once for timeout
     timeoutCount: number;       // Number of times skipped
     ready: boolean;             // Has declared clothing and said !ready
+    midGameJoin: boolean;       // Joined while a game was already in progress
 }
 
 // ============================================================
@@ -154,6 +155,7 @@ export class StripDiceGame {
     private gamePassword: string = "";
     private isFirstRoll: boolean = true;    // Track if this is the very first roll
     private safewordMember: number | null = null;
+    private allowMidGameJoin: boolean = false;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -230,6 +232,10 @@ export class StripDiceGame {
             this.handleLockTime(memberNumber, message);
             return;
         }
+        if (msg.startsWith("!midgamejoin ")) {
+            this.handleMidGameJoinToggle(memberNumber, message);
+            return;
+        }
         if (msg === "!safeword") {
             this.handleSafeword(memberNumber, name);
             return;
@@ -302,7 +308,10 @@ export class StripDiceGame {
     // ============================================================
 
     private handleJoin(memberNumber: number, name: string): void {
-        if (this.state !== GameState.Idle && this.state !== GameState.Registration && this.state !== GameState.Countdown) {
+        const gameInProgress = this.state !== GameState.Idle && this.state !== GameState.Registration && this.state !== GameState.Countdown;
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage;
+
+        if (gameInProgress && (!this.allowMidGameJoin || !midGame)) {
             this.bot.whisper(memberNumber, "Sorry, a game is already in progress. Wait for the next round!");
             return;
         }
@@ -322,11 +331,16 @@ export class StripDiceGame {
             timeoutWarned: false,
             timeoutCount: 0,
             ready: false,
+            midGameJoin: midGame,
         };
         this.players.set(memberNumber, player);
-        this.state = GameState.Registration;
 
-        this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
+        if (midGame) {
+            this.bot.sendChat(`${name} is joining mid-game! They'll enter the turn rotation once ready.`);
+        } else {
+            this.state = GameState.Registration;
+            this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
+        }
 
         const last = this.lastClothing.get(memberNumber);
         if (last && last.length > 0) {
@@ -353,7 +367,7 @@ export class StripDiceGame {
             );
         }
 
-        this.checkAllJoined();
+        if (!midGame) this.checkAllJoined();
     }
 
     private handleStart(memberNumber: number): void {
@@ -459,6 +473,15 @@ export class StripDiceGame {
         if (player.clothing.length > 0) {
             this.lastClothing.set(memberNumber, [...player.clothing]);
         }
+
+        if (player.midGameJoin) {
+            player.midGameJoin = false;
+            this.turnOrder.push(memberNumber);
+            this.bot.whisper(memberNumber, "You're ready! You've been added to the turn rotation.");
+            this.bot.sendChat(`${player.name} has joined the game and entered the turn rotation!`);
+            return;
+        }
+
         this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
         this.bot.sendChat(`${player.name} is ready!`);
         this.checkAllReady();
@@ -478,6 +501,21 @@ export class StripDiceGame {
         this.lockDurationMinutes = minutes;
         this.bot.whisper(memberNumber, `Lock duration set to ${minutes} minutes.`);
         this.bot.sendChat(`🔒 End game locks will be set to ${minutes} minutes.`);
+    }
+
+    private handleMidGameJoinToggle(memberNumber: number, message: string): void {
+        if (memberNumber !== 208543 && memberNumber !== this.bot.getMemberNumber()) {
+            this.bot.whisper(memberNumber, "Only the game admin can change this setting.");
+            return;
+        }
+        const setting = message.trim().toLowerCase().split(/\s+/)[1];
+        if (setting !== "on" && setting !== "off") {
+            this.bot.whisper(memberNumber, "Invalid option. Use !midgamejoin on or !midgamejoin off.");
+            return;
+        }
+        this.allowMidGameJoin = setting === "on";
+        this.bot.whisper(memberNumber, `Mid-game joining is now ${this.allowMidGameJoin ? "ENABLED" : "DISABLED"}.`);
+        this.bot.sendChat(`ℹ️ Mid-game joining has been turned ${this.allowMidGameJoin ? "ON" : "OFF"} by the admin.`);
     }
 
     private handleSafeword(memberNumber: number, name: string): void {
@@ -585,6 +623,7 @@ export class StripDiceGame {
             `!roll - Roll the dice on your turn (in room chat)\n` +
             `!removed - Confirm you removed a clothing item (in room chat)\n` +
             `!locktime [mins] - Set end game lock duration (admin only)\n` +
+            `!midgamejoin on/off - Allow players to join games already in progress (admin only)\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!feedback [text] - Send feedback to the developers\n` +
             `!about - About this bot\n` +
