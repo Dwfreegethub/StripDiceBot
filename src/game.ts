@@ -36,61 +36,233 @@ const CLOTHING_ALIASES: Record<string, string> = {
 };
 
 // ============================================================
-// BONDAGE ITEMS - fixed list Option A
-// Add more items here as we confirm asset names
+// BONDAGE OUTFITS - multiple sets, one is randomly chosen per
+// player when they start receiving bondage items.
+// Add more outfits here as we confirm asset names.
 // ============================================================
-const BONDAGE_ITEMS = [
+interface BondageItem {
+    group: string;
+    name: string;
+    color: string | string[];
+    property: any;
+}
+
+interface BondageOutfit {
+    name: string;
+    items: BondageItem[];
+}
+
+const BONDAGE_OUTFITS: BondageOutfit[] = [
     {
-        group: "ItemFeet",
-        name: "HighStyleSteelAnkleCuffs",
-        color: "#A23939",
-        property: {
-            TypeRecord: { typed: 2 },
-            Difficulty: 0,
-            Effect: ["Slow"]
-        }
+        name: "Steel Restraints",
+        items: [
+            {
+                group: "ItemFeet",
+                name: "HighStyleSteelAnkleCuffs",
+                color: "#A23939",
+                property: {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 0,
+                    Effect: ["Slow"]
+                }
+            },
+            {
+                group: "ItemNeck",
+                name: "SlenderSteelCollar",
+                color: "#FFFFFF",
+                property: {
+                    Difficulty: 0,
+                    Effect: []
+                }
+            },
+            {
+                group: "ItemTorso",
+                name: "ExtremeCorset",
+                color: "#FFFFFF",
+                property: {
+                    Difficulty: 0,
+                    Effect: []
+                }
+            },
+            {
+                group: "ItemArms",
+                name: "HighStyleSteelCuffs",
+                color: ["#FFFFFF", "#FFFFFF"],
+                property: {
+                    TypeRecord: { typed: 1 },
+                    Difficulty: 0,
+                    Effect: ["Block", "BlockWardrobe"],
+                    SetPose: ["BackBoxTie"],
+                    AllowActivePose: ["BackBoxTie"]
+                }
+            },
+            {
+                group: "ItemNeckRestraints",
+                name: "CollarChainLong",
+                color: "#FFFFFF",
+                property: {
+                    Difficulty: 0,
+                    Effect: []
+                }
+            },
+            // TODO: Add armbinder once asset name confirmed
+            // TODO: Add gag once asset name confirmed (known issues)
+        ]
     },
     {
-        group: "ItemNeck",
-        name: "SlenderSteelCollar",
-        color: "#FFFFFF",
-        property: {
-            Difficulty: 0,
-            Effect: []
-        }
+        name: "BondageDice",
+        items: [
+            {
+                group: "ItemFeet",
+                name: "LeatherDeluxeAnkleCuffs",
+                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
+                property: {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 0
+                }
+            },
+            {
+                group: "ItemLegs",
+                name: "LeatherDeluxeLegCuffs",
+                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
+                property: {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 0,
+                    Effect: ["Slow"],
+                    SetPose: ["BaseLower"],
+                    AllowActivePose: ["BaseLower", "Kneel", "LegsOpen", "LegsClosed", "Spread", "Hogtied", "AllFours"]
+                }
+            },
+            {
+                group: "ItemPelvis",
+                name: "HempRope",
+                color: ["#009993"],
+                property: {
+                    TypeRecord: { typed: 3 },
+                    Difficulty: 5,
+                    Effect: ["CrotchRope"],
+                    OverridePriority: 21
+                }
+            },
+            {
+                group: "ItemTorso2",
+                name: "HempRopeHarness",
+                color: ["#000000"],
+                property: {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 1,
+                    Effect: ["CrotchRope"],
+                    Attribute: ["IsHipHarness"],
+                    OverridePriority: 25
+                }
+            },
+            {
+                group: "ItemTorso",
+                name: "Corset4",
+                color: ["#009993"],
+                property: {
+                    Difficulty: 0
+                }
+            },
+            {
+                group: "ItemArms",
+                name: "ShinyArmbinder",
+                color: ["#009993", "#5D5D5D", "#CACACA", "Default"],
+                property: {
+                    TypeRecord: { typed: 3 },
+                    Difficulty: 0
+                }
+            },
+            {
+                group: "ItemNeckRestraints",
+                name: "ChokeChain",
+                color: ["Default", "Default"],
+                property: {
+                    Difficulty: 0,
+                    OverridePriority: 31
+                }
+            },
+            {
+                group: "ItemNeck",
+                name: "BordelleCollar",
+                color: ["Default"],
+                property: {
+                    Difficulty: 0
+                }
+            },
+        ]
     },
     {
-        group: "ItemTorso",
-        name: "ExtremeCorset",
-        color: "#FFFFFF",
-        property: {
-            Difficulty: 0,
-            Effect: []
-        }
-    },
-    {
-        group: "ItemArms",
-        name: "HighStyleSteelCuffs",
-        color: ["#FFFFFF", "#FFFFFF"],
-        property: {
-            TypeRecord: { typed: 1 },
-            Difficulty: 0,
-            Effect: ["Block", "BlockWardrobe"],
-            SetPose: ["BackBoxTie"],
-            AllowActivePose: ["BackBoxTie"]
-        }
-    },
-    {
-        group: "ItemNeckRestraints",
-        name: "CollarChainLong",
-        color: "#FFFFFF",
-        property: {
-            Difficulty: 0,
-            Effect: []
-        }
-    },
-    // TODO: Add armbinder once asset name confirmed
-    // TODO: Add gag once asset name confirmed (known issues)
+        name: "DroneSlave",
+        items: [
+            {
+                group: "ItemLegs",
+                name: "LeatherDeluxeLegCuffs",
+                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
+                property: {
+                    TypeRecord: { typed: 0 }
+                }
+            },
+            {
+                group: "ItemFeet",
+                name: "SpreaderMetal",
+                color: ["#717171"],
+                property: {
+                    TypeRecord: { typed: 0 },
+                    SetPose: ["LegsOpen"],
+                    AllowActivePose: ["LegsOpen"]
+                }
+            },
+            {
+                group: "ItemBoots",
+                name: "BalletHeels1",
+                color: ["#717171"],
+                property: {}
+            },
+            {
+                group: "ItemTorso",
+                name: "LeatherStrapHarness",
+                color: ["#C6C6C6"],
+                property: {}
+            },
+            {
+                group: "ItemTorso2",
+                name: "FuturisticHarness",
+                color: ["#BDBDBD", "#BDBDBD", "#BDBDBD", "#BDBDBD"],
+                property: {
+                    TypeRecord: { typed: 2 },
+                    Difficulty: 0
+                }
+            },
+            {
+                group: "ItemArms",
+                name: "SmoothLeatherArmbinder1",
+                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
+                property: {
+                    TypeRecord: { b: 0, s: 3 },
+                    Difficulty: 40,
+                    Block: ["ItemHands"],
+                    Effect: ["Block", "BlockWardrobe"]
+                }
+            },
+            {
+                group: "ItemNeck",
+                name: "LatexPostureCollar",
+                color: ["#C5C5C5"],
+                property: {
+                    OverridePriority: 35
+                }
+            },
+            {
+                group: "ItemNeckRestraints",
+                name: "CollarChainMedium",
+                color: ["#717171"],
+                property: {
+                    OverridePriority: 14
+                }
+            },
+        ]
+    }
 ];
 
 // ============================================================
@@ -124,6 +296,7 @@ interface Player {
     midGameJoin: boolean;       // Joined while a game was already in progress
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
     pendingClothing: string[];  // Items collected so far during guided Q&A
+    bondageOutfit: BondageItem[] | null; // Outfit assigned once this player starts receiving bondage
 }
 
 // ============================================================
@@ -249,6 +422,10 @@ export class StripDiceGame {
             this.handleMidGameJoinToggle(memberNumber, message);
             return;
         }
+        if (msg.startsWith("!testoutfit ")) {
+            this.handleTestOutfit(memberNumber, message);
+            return;
+        }
         if (msg === "!safeword") {
             this.handleSafeword(memberNumber, name);
             return;
@@ -347,6 +524,7 @@ export class StripDiceGame {
             midGameJoin: midGame,
             clothingQuestionIndex: null,
             pendingClothing: [],
+            bondageOutfit: null,
         };
         this.players.set(memberNumber, player);
 
@@ -556,8 +734,12 @@ export class StripDiceGame {
         this.checkAllReady();
     }
 
+    private isAdmin(memberNumber: number): boolean {
+        return memberNumber === 208543 || memberNumber === this.bot.getMemberNumber();
+    }
+
     private handleLockTime(memberNumber: number, message: string): void {
-        if (memberNumber !== 208543 && memberNumber !== this.bot.getMemberNumber()) {
+        if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can set the lock duration.");
             return;
         }
@@ -573,7 +755,7 @@ export class StripDiceGame {
     }
 
     private handleMidGameJoinToggle(memberNumber: number, message: string): void {
-        if (memberNumber !== 208543 && memberNumber !== this.bot.getMemberNumber()) {
+        if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can change this setting.");
             return;
         }
@@ -585,6 +767,28 @@ export class StripDiceGame {
         this.allowMidGameJoin = setting === "on";
         this.bot.whisper(memberNumber, `Mid-game joining is now ${this.allowMidGameJoin ? "ENABLED" : "DISABLED"}.`);
         this.bot.sendChat(`ℹ️ Mid-game joining has been turned ${this.allowMidGameJoin ? "ON" : "OFF"} by the admin.`);
+    }
+
+    private handleTestOutfit(memberNumber: number, message: string): void {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return;
+        }
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+            return;
+        }
+        const requested = message.trim().slice("!testoutfit ".length).trim();
+        const outfit = BONDAGE_OUTFITS.find(o => o.name.toLowerCase() === requested.toLowerCase());
+        if (!outfit) {
+            const names = BONDAGE_OUTFITS.map(o => o.name).join(", ");
+            this.bot.whisper(memberNumber, `Unknown outfit "${requested}". Available outfits: ${names}`);
+            return;
+        }
+        player.bondageOutfit = outfit.items;
+        player.bondageApplied = 0;
+        this.bot.whisper(memberNumber, `Your next bondage outfit has been forced to: ${outfit.name}`);
     }
 
     private handleSafeword(memberNumber: number, name: string): void {
@@ -599,6 +803,7 @@ export class StripDiceGame {
         player.bondageApplied = 0;
         player.isNaked = false;
         player.isFullyBound = false;
+        player.bondageOutfit = null;
 
         this.clearTurnTimer();
         this.safewordMember = memberNumber;
@@ -679,7 +884,7 @@ export class StripDiceGame {
     }
 
     private handleHelp(memberNumber: number): void {
-        this.bot.whisper(memberNumber,
+        let text =
             `=== Strip Dice Commands ===\n` +
             `!join - Join the game\n` +
             `!wearing - Go through your outfit one item at a time (yes/no)\n` +
@@ -692,13 +897,20 @@ export class StripDiceGame {
             `!cancel - Cancel the countdown\n` +
             `!roll - Roll the dice on your turn (in room chat)\n` +
             `!removed - Confirm you removed a clothing item (in room chat)\n` +
-            `!locktime [mins] - Set end game lock duration (admin only)\n` +
-            `!midgamejoin on/off - Allow players to join games already in progress (admin only)\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!feedback [text] - Send feedback to the developers\n` +
             `!about - About this bot\n` +
-            `!help - Show this message`
-        );
+            `!help - Show this message`;
+
+        if (this.isAdmin(memberNumber)) {
+            text +=
+                `\n\n=== Admin Commands ===\n` +
+                `!locktime [mins] - Set end game lock duration\n` +
+                `!midgamejoin on/off - Allow players to join games already in progress\n` +
+                `!testoutfit [name] - Force your next bondage outfit (for testing)`;
+        }
+
+        this.bot.whisper(memberNumber, text);
     }
 
     private handleRoll(memberNumber: number, name: string): void {
@@ -903,7 +1115,12 @@ export class StripDiceGame {
     }
 
     private applyNextBondageItem(player: Player): void {
-        const item = BONDAGE_ITEMS[player.bondageApplied];
+        if (!player.bondageOutfit) {
+            player.bondageOutfit = BONDAGE_OUTFITS[Math.floor(Math.random() * BONDAGE_OUTFITS.length)].items;
+            log(`${player.name} assigned bondage outfit: ${this.getBondageOutfitName(player.bondageOutfit)}`);
+        }
+
+        const item = player.bondageOutfit[player.bondageApplied];
 
         if (!item) {
             player.isFullyBound = true;
@@ -950,7 +1167,7 @@ export class StripDiceGame {
 
             player.bondageApplied++;
 
-            if (player.bondageApplied >= BONDAGE_ITEMS.length) {
+            if (player.bondageApplied >= player.bondageOutfit!.length) {
                 player.isFullyBound = true;
                 this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
@@ -991,7 +1208,7 @@ export class StripDiceGame {
 
         for (const player of boundPlayers) {
             for (let i = 0; i < player.bondageApplied; i++) {
-                const item = BONDAGE_ITEMS[i];
+                const item = player.bondageOutfit?.[i];
                 if (!item) continue;
 
                 setTimeout(() => {
@@ -1123,6 +1340,10 @@ export class StripDiceGame {
 
     private getPlayerName(memberNumber: number): string {
         return this.players.get(memberNumber)?.name ?? this.nameCache.get(memberNumber) ?? `Player #${memberNumber}`;
+    }
+
+    private getBondageOutfitName(items: BondageItem[]): string {
+        return BONDAGE_OUTFITS.find(o => o.items === items)?.name ?? "Unknown";
     }
 
     private shuffleArray(array: any[]): void {
