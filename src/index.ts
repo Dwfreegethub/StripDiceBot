@@ -66,6 +66,10 @@ async function main() {
     bot.onRoomSync((data: any) => {
         log(`Room synced. Players in room: ${data.Character?.length ?? 0}`);
         game.onRoomSync(data.Character ?? []);
+        if (data.Visibility?.[0] !== "All" || data.Private) {
+            log("Room is not public, updating room settings to make it public...");
+            bot.makeRoomPublic();
+        }
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
     });
 

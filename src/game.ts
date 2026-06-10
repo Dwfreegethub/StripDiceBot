@@ -330,7 +330,7 @@ export class StripDiceGame {
     private gamePassword: string = "";
     private isFirstRoll: boolean = true;    // Track if this is the very first roll
     private safewordMember: number | null = null;
-    private allowMidGameJoin: boolean = false;
+    private allowMidGameJoin: boolean = true;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -1171,7 +1171,16 @@ export class StripDiceGame {
                 player.isFullyBound = true;
                 this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
-                this.checkGameEndCondition();
+
+                if (this.checkGameEndCondition()) return;
+
+                if (this.currentTurnIndex >= this.turnOrder.length) {
+                    this.currentTurnIndex = 0;
+                }
+                this.currentDiceMax = 100;
+                this.state = GameState.Rolling;
+                this.announceCurrentTurn();
+                this.startTurnTimer();
             } else {
                 this.bot.sendChat(`✅ ${player.name} has been restrained! Back to the game...`);
                 this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
@@ -1183,16 +1192,19 @@ export class StripDiceGame {
         }, 500);
     }
 
-    private checkGameEndCondition(): void {
+    private checkGameEndCondition(): boolean {
         const activePlayers = [...this.players.values()].filter(p => !p.isFullyBound);
 
         if (activePlayers.length === 0) {
             this.endGame();
+            return true;
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
             this.applyEndGameLocks();
+            return true;
         }
+        return false;
     }
 
     private endGame(): void {

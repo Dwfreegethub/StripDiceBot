@@ -149,8 +149,29 @@ export class BCConnection {
             Limit: 10,
             BlockCategory: [],
             Language: "EN",
-            Visibility: ["Admin"],
+            Visibility: ["All"],
             Access: ["All"],
+        });
+    }
+
+    public makeRoomPublic(): void {
+        this.socket.emit("ChatRoomAdmin", {
+            MemberNumber: this.playerNumber,
+            Action: "Update",
+            Room: {
+                Name: secrets.roomName,
+                Description: "A Strip Dice game room - type !join to play!",
+                Background: "NightClub",
+                Space: "X",
+                Game: "",
+                Admin: [this.playerNumber, 208543],
+                Ban: [],
+                Limit: 10,
+                BlockCategory: [],
+                Language: "EN",
+                Visibility: ["All"],
+                Access: ["All"],
+            },
         });
     }
 
