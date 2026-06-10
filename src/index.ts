@@ -1,8 +1,16 @@
+import * as fs from "fs";
+import * as path from "path";
 import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 
 async function main() {
+    const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
+    if (fs.existsSync(pendingUpdatePath)) {
+        fs.unlinkSync(pendingUpdatePath);
+        log("Removed leftover pending_update.txt from previous restart.");
+    }
+
     log("StripDiceBot starting...");
 
     const bot = new BCConnection();

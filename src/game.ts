@@ -558,6 +558,9 @@ export class StripDiceGame {
     // ============================================================
 
     private handleJoin(memberNumber: number, name: string): void {
+        if (this.state === GameState.Idle && this.checkPendingUpdate()) {
+            return;
+        }
         if (this.bondagePhaseStarted) {
             this.bot.whisper(memberNumber, "The game is already in the bondage phase. You'll be able to join the next round!");
             return;
@@ -1510,7 +1513,39 @@ export class StripDiceGame {
         this.lockPermissionWarned.clear();
         this.clearCountdown();
         this.clearTurnTimer();
+
+        if (this.checkPendingUpdate()) return;
+
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
+    }
+
+    // ============================================================
+    // GRACEFUL UPDATE / REBOOT
+    // ============================================================
+
+    private checkPendingUpdate(): boolean {
+        const updatePath = path.join(__dirname, "..", "pending_update.txt");
+        if (!fs.existsSync(updatePath)) return false;
+
+        let note = "";
+        try {
+            note = fs.readFileSync(updatePath, "utf8").trim();
+        } catch {
+            note = "";
+        }
+
+        const message = note
+            ? `⚙️ Update incoming (${note}) — StripDiceBot will be right back!`
+            : `⚙️ Update incoming — StripDiceBot will be right back!`;
+
+        this.bot.sendChat(message);
+        log(`Pending update detected${note ? ` (${note})` : ""}. Restarting...`);
+
+        setTimeout(() => {
+            process.exit(0);
+        }, 2000);
+
+        return true;
     }
 
     private removeAllItems(memberNumber: number): void {
