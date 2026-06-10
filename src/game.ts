@@ -470,6 +470,14 @@ export class StripDiceGame {
             this.handleTestOutfit(memberNumber, message);
             return;
         }
+        if (msg.startsWith("!setstatus ")) {
+            this.handleSetStatus(memberNumber, message);
+            return;
+        }
+        if (msg === "!feedback list") {
+            this.handleFeedbackList(memberNumber);
+            return;
+        }
         if (msg === "!safeword") {
             this.handleSafeword(memberNumber, name);
             return;
@@ -848,6 +856,38 @@ export class StripDiceGame {
         this.bot.whisper(memberNumber, `Your next bondage outfit has been forced to: ${outfit.name}`);
     }
 
+    private handleSetStatus(memberNumber: number, message: string): void {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return;
+        }
+        const parts = message.trim().split(/\s+/);
+        const playerId = parts[1];
+        const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
+        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "implemented", "partly_implemented"];
+
+        if (!playerId || !/^\d+$/.test(playerId)) {
+            this.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
+            return;
+        }
+        if (!validStatuses.includes(status)) {
+            this.bot.whisper(memberNumber, `Invalid status. Valid statuses: ${validStatuses.join(", ")}`);
+            return;
+        }
+
+        const entry = this.feedbackStatus[playerId];
+        if (!entry || entry.items.length === 0) {
+            this.bot.whisper(memberNumber, `No feedback found for player #${playerId}.`);
+            return;
+        }
+
+        for (const item of entry.items) {
+            item.status = status;
+        }
+        this.saveFeedbackStatus();
+        this.bot.whisper(memberNumber, `Updated ${entry.items.length} feedback item(s) for ${entry.name} (#${playerId}) to "${status}".`);
+    }
+
     private handleSafeword(memberNumber: number, name: string): void {
         this.bot.sendChat(`🔴 SAFEWORD - ${name} has called safeword! Removing all restraints...`);
         this.bot.whisper(memberNumber, "Safeword acknowledged. Removing all restraints now.");
@@ -982,6 +1022,29 @@ export class StripDiceGame {
         );
     }
 
+    private handleFeedbackList(memberNumber: number): void {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return;
+        }
+
+        const entries = Object.entries(this.feedbackStatus);
+        if (entries.length === 0) {
+            this.bot.whisper(memberNumber, "No feedback recorded yet.");
+            return;
+        }
+
+        const lines: string[] = [];
+        for (const [playerId, entry] of entries) {
+            lines.push(`${entry.name} (#${playerId}):`);
+            entry.items.forEach((item, i) => {
+                lines.push(`  ${i + 1}. [${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}] ${item.text}`);
+            });
+        }
+
+        this.bot.whisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
+    }
+
     private handleHelp(memberNumber: number): void {
         let text =
             `=== Strip Dice Commands ===\n` +
@@ -1007,7 +1070,9 @@ export class StripDiceGame {
                 `\n\n=== Admin Commands ===\n` +
                 `!locktime [mins] - Set end game lock duration\n` +
                 `!midgamejoin on/off - Allow players to join games already in progress\n` +
-                `!testoutfit [name] - Force your next bondage outfit (for testing)`;
+                `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
+                `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
+                `!feedback list - View a summary of all tracked feedback`;
         }
 
         this.bot.whisper(memberNumber, text);
