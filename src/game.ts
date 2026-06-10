@@ -122,6 +122,8 @@ interface Player {
     timeoutCount: number;       // Number of times skipped
     ready: boolean;             // Has declared clothing and said !ready
     midGameJoin: boolean;       // Joined while a game was already in progress
+    clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
+    pendingClothing: string[];  // Items collected so far during guided Q&A
 }
 
 // ============================================================
@@ -200,6 +202,13 @@ export class StripDiceGame {
     public handleWhisper(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
 
+        // Guided clothing Q&A takes priority over other commands while active
+        const player = this.players.get(memberNumber);
+        if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.handleGuidedAnswer(memberNumber, msg);
+            return;
+        }
+
         if (msg === "!join") {
             this.handleJoin(memberNumber, name);
             return;
@@ -210,6 +219,10 @@ export class StripDiceGame {
         }
         if (msg === "!cancel") {
             this.handleCancel(memberNumber);
+            return;
+        }
+        if (msg === "!wearing") {
+            this.startGuidedClothing(memberNumber);
             return;
         }
         if (msg.startsWith("!wearing ")) {
@@ -332,6 +345,8 @@ export class StripDiceGame {
             timeoutCount: 0,
             ready: false,
             midGameJoin: midGame,
+            clothingQuestionIndex: null,
+            pendingClothing: [],
         };
         this.players.set(memberNumber, player);
 
@@ -348,14 +363,16 @@ export class StripDiceGame {
                 `Welcome back to Strip Dice! 🎲\n` +
                 `Last time you wore: ${last.join(", ")}\n` +
                 `Whisper !same to use the same outfit, or:\n` +
-                `!wearing [items] to declare a new outfit\n` +
+                `!wearing - go through your outfit one item at a time (yes/no)\n` +
+                `!wearing [items] to declare a new outfit directly\n` +
                 `!naked if you have nothing on\n` +
                 `Then whisper !ready when done.`
             );
         } else {
             this.bot.whisper(memberNumber,
                 `Welcome to Strip Dice! 🎲\n` +
-                `Please whisper what clothing you are wearing:\n` +
+                `Whisper !wearing and I'll ask about your outfit one item at a time (yes/no).\n` +
+                `Or declare it all at once:\n` +
                 `!wearing shoes socks top bottom bra panties\n` +
                 `(only include items you actually have on)\n` +
                 `Examples:\n` +
@@ -418,11 +435,61 @@ export class StripDiceGame {
 
         // Sort by game order
         player.clothing = CLOTHING_SLOTS.filter(slot => declared.includes(slot));
+        player.isNaked = false;
         player.ready = false;
+        player.clothingQuestionIndex = null;
         this.bot.whisper(memberNumber,
             `Got it! Your clothing list in order: ${player.clothing.join(", ")}.\n` +
             `Whisper !ready when done, or !wearing again to change.`
         );
+    }
+
+    private startGuidedClothing(memberNumber: number): void {
+        if (!this.players.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+            return;
+        }
+        const player = this.players.get(memberNumber)!;
+        player.clothingQuestionIndex = 0;
+        player.pendingClothing = [];
+        player.ready = false;
+        this.bot.whisper(memberNumber, "Let's go through your outfit one item at a time. Answer yes or no.");
+        this.askClothingQuestion(memberNumber);
+    }
+
+    private askClothingQuestion(memberNumber: number): void {
+        const player = this.players.get(memberNumber)!;
+        const idx = player.clothingQuestionIndex!;
+
+        if (idx >= CLOTHING_SLOTS.length) {
+            player.clothing = CLOTHING_SLOTS.filter(slot => player.pendingClothing.includes(slot));
+            player.isNaked = player.clothing.length === 0;
+            player.clothingQuestionIndex = null;
+            if (player.clothing.length > 0) {
+                this.bot.whisper(memberNumber,
+                    `Got it! Your clothing list: ${player.clothing.join(", ")}.\n` +
+                    `Whisper !ready when done, or !wearing to redo this.`
+                );
+            } else {
+                this.bot.whisper(memberNumber, "Got it — you're starting naked! Whisper !ready when done.");
+            }
+            return;
+        }
+
+        this.bot.whisper(memberNumber, `Do you have ${CLOTHING_SLOTS[idx]} on? (yes/no)`);
+    }
+
+    private handleGuidedAnswer(memberNumber: number, msg: string): void {
+        const player = this.players.get(memberNumber)!;
+        const idx = player.clothingQuestionIndex!;
+        const item = CLOTHING_SLOTS[idx];
+
+        if (msg === "yes" || msg === "y") {
+            player.pendingClothing.push(item);
+        }
+
+        player.clothingQuestionIndex = idx + 1;
+        this.askClothingQuestion(memberNumber);
     }
 
     private handleSame(memberNumber: number): void {
@@ -439,6 +506,7 @@ export class StripDiceGame {
         player.clothing = [...last];
         player.isNaked = false;
         player.ready = false;
+        player.clothingQuestionIndex = null;
         this.bot.whisper(memberNumber,
             `Using your last outfit: ${player.clothing.join(", ")}.\n` +
             `Whisper !ready when done, or !wearing to change.`
@@ -454,6 +522,7 @@ export class StripDiceGame {
         player.clothing = [];
         player.isNaked = true;
         player.ready = false;
+        player.clothingQuestionIndex = null;
         this.bot.whisper(memberNumber, "Got it — you're starting naked! Bondage will be applied directly when you lose. Whisper !ready when done.");
     }
 
@@ -613,7 +682,8 @@ export class StripDiceGame {
         this.bot.whisper(memberNumber,
             `=== Strip Dice Commands ===\n` +
             `!join - Join the game\n` +
-            `!wearing [items] - Declare your clothing\n` +
+            `!wearing - Go through your outfit one item at a time (yes/no)\n` +
+            `!wearing [items] - Declare your clothing all at once\n` +
             `  Valid items: shoes socks top bottom bra panties\n` +
             `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
@@ -746,6 +816,7 @@ export class StripDiceGame {
                     (this.lastClothing.has(player.memberNumber)
                         ? `!same - use your last outfit (${this.lastClothing.get(player.memberNumber)!.join(", ")})\n`
                         : ``) +
+                    `!wearing - go through your outfit one item at a time (yes/no)\n` +
                     `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
                     `!naked - if you have nothing on\n` +
                     `Then whisper !ready`
