@@ -8,7 +8,6 @@ const HEARTBEAT_TIMEOUT = 3 * 60 * 1000; // 3 minutes without ServerInfo = assum
 export class BCConnection {
     private socket: Socket;
     private playerNumber: number = 0;
-    private connected: boolean = false;
     private heartbeatTimer: NodeJS.Timeout | null = null;
     private onReconnectCallback: (() => void) | null = null;
     private isReconnecting: boolean = false;
@@ -48,7 +47,6 @@ export class BCConnection {
                     return;
                 }
                 this.playerNumber = data.MemberNumber;
-                this.connected = true;
 
                 this.socket.emit("AccountUpdate", {
                     Inventory:      data.Inventory      ?? [],
@@ -101,7 +99,6 @@ export class BCConnection {
 
             this.socket.on("disconnect", (reason: string) => {
                 log(`Disconnected: ${reason}`);
-                this.connected = false;
                 this.isReconnecting = true;
                 this.clearHeartbeat();
                 if (reason === "io server disconnect") {
@@ -118,7 +115,6 @@ export class BCConnection {
         this.clearHeartbeat();
         this.heartbeatTimer = setTimeout(() => {
             logError("No ServerInfo received in 3 minutes — possible void. Forcing reconnect...");
-            this.connected = false;
             this.isReconnecting = true;
             this.socket.disconnect();
             this.socket.connect();
@@ -136,9 +132,8 @@ export class BCConnection {
         this.onReconnectCallback = callback;
     }
 
-    public joinRoom(): void {
-        log(`Creating room: ${secrets.roomName}`);
-        this.socket.emit("ChatRoomCreate", {
+    private roomConfig(): Record<string, unknown> {
+        return {
             Name: secrets.roomName,
             Description: "A Strip Dice game room - type !join to play!",
             Background: "NightClub",
@@ -151,27 +146,19 @@ export class BCConnection {
             Language: "EN",
             Visibility: ["All"],
             Access: ["All"],
-        });
+        };
+    }
+
+    public joinRoom(): void {
+        log(`Creating room: ${secrets.roomName}`);
+        this.socket.emit("ChatRoomCreate", this.roomConfig());
     }
 
     public makeRoomPublic(): void {
         this.socket.emit("ChatRoomAdmin", {
             MemberNumber: this.playerNumber,
             Action: "Update",
-            Room: {
-                Name: secrets.roomName,
-                Description: "A Strip Dice game room - type !join to play!",
-                Background: "NightClub",
-                Space: "X",
-                Game: "",
-                Admin: [this.playerNumber, 208543],
-                Ban: [],
-                Limit: 10,
-                BlockCategory: [],
-                Language: "EN",
-                Visibility: ["All"],
-                Access: ["All"],
-            },
+            Room: this.roomConfig(),
         });
     }
 
@@ -262,9 +249,5 @@ export class BCConnection {
 
     public getMemberNumber(): number {
         return this.playerNumber;
-    }
-
-    public isConnected(): boolean {
-        return this.connected;
     }
 }

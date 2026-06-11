@@ -216,6 +216,18 @@ function generatePassword(): string {
 }
 
 // ============================================================
+// COMMAND DISPATCH TABLE
+// ============================================================
+type CommandHandler = (memberNumber: number, name: string, msg: string, message: string) => void;
+
+interface CommandDef {
+    handler: CommandHandler;
+    whisperOnly?: boolean; // Only dispatched from handleWhisper
+    chatOnly?: boolean;    // Only dispatched from handleChat
+    prefix?: boolean;      // Match if msg starts with the command string, instead of equals
+}
+
+// ============================================================
 // GAME CLASS
 // ============================================================
 export class StripDiceGame {
@@ -245,10 +257,12 @@ export class StripDiceGame {
     private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
     private playerRecords: Record<string, PlayerRecord> = {};
     private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
+    private feedbackMemberNumbers: Set<number> = new Set();
 
     constructor(bot: BCConnection) {
         this.bot = bot;
         this.loadFeedbackStatus();
+        this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
         this.loadPlayerRecords();
     }
 
@@ -333,6 +347,50 @@ export class StripDiceGame {
     // PUBLIC - command handlers
     // ============================================================
 
+    // Commands shared by handleWhisper and handleChat (plus a few that are
+    // restricted to one source via whisperOnly/chatOnly). Order matters for
+    // prefix entries: more specific matches (e.g. "!feedback list") must
+    // come before broader prefixes (e.g. "!feedback ").
+    private readonly commandTable: Record<string, CommandDef> = {
+        "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!join": { handler: (mn, name) => this.handleJoin(mn, name) },
+        "!start": { handler: (mn) => this.handleStart(mn) },
+        "!cancel": { handler: (mn) => this.handleCancel(mn) },
+        "!wearing": { handler: (mn) => this.startGuidedClothing(mn), whisperOnly: true },
+        "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), whisperOnly: true, prefix: true },
+        "!naked": { handler: (mn) => this.handleNoWearing(mn) },
+        "!same": { handler: (mn) => this.handleSame(mn) },
+        "!ready": { handler: (mn) => this.handleReady(mn) },
+        "!locktime ": { handler: (mn, _name, _msg, message) => this.handleLockTime(mn, message), whisperOnly: true, prefix: true },
+        "!lock10": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!lock15": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!lock20": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!midgamejoin ": { handler: (mn, _name, _msg, message) => this.handleMidGameJoinToggle(mn, message), whisperOnly: true, prefix: true },
+        "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
+        "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
+        "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
+        "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
+        "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
+        "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
+        "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
+        "!help": { handler: (mn) => this.handleHelp(mn) },
+        "!about": { handler: (mn) => this.handleAbout(mn) },
+        "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
+        "!removed": { handler: (mn, name) => this.handleRemoved(mn, name), chatOnly: true },
+        "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
+    };
+
+    private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
+        for (const [command, def] of Object.entries(this.commandTable)) {
+            const matches = def.prefix ? msg.startsWith(command) : msg === command;
+            if (!matches) continue;
+            if (def.whisperOnly && source !== "whisper") continue;
+            if (def.chatOnly && source !== "chat") continue;
+            def.handler(memberNumber, name, msg, message);
+            return;
+        }
+    }
+
     public handleWhisper(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
 
@@ -343,147 +401,12 @@ export class StripDiceGame {
             return;
         }
 
-        if (msg === "!roll") {
-            this.handleRoll(memberNumber, name);
-            return;
-        }
-        if (msg === "!join") {
-            this.handleJoin(memberNumber, name);
-            return;
-        }
-        if (msg === "!start") {
-            this.handleStart(memberNumber);
-            return;
-        }
-        if (msg === "!cancel") {
-            this.handleCancel(memberNumber);
-            return;
-        }
-        if (msg === "!wearing") {
-            this.startGuidedClothing(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!wearing ")) {
-            this.handleWearing(memberNumber, message);
-            return;
-        }
-        if (msg === "!naked") {
-            this.handleNoWearing(memberNumber);
-            return;
-        }
-        if (msg === "!same") {
-            this.handleSame(memberNumber);
-            return;
-        }
-        if (msg === "!ready") {
-            this.handleReady(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!locktime ")) {
-            this.handleLockTime(memberNumber, message);
-            return;
-        }
-        if (msg === "!lock10" || msg === "!lock15" || msg === "!lock20") {
-            this.handleLockPreset(memberNumber, name, msg);
-            return;
-        }
-        if (msg.startsWith("!midgamejoin ")) {
-            this.handleMidGameJoinToggle(memberNumber, message);
-            return;
-        }
-        if (msg.startsWith("!testoutfit ")) {
-            this.handleTestOutfit(memberNumber, message);
-            return;
-        }
-        if (msg.startsWith("!setstatus ")) {
-            this.handleSetStatus(memberNumber, message);
-            return;
-        }
-        if (msg === "!feedback list") {
-            this.handleFeedbackList(memberNumber);
-            return;
-        }
-        if (msg === "!safeword") {
-            this.handleSafeword(memberNumber, name);
-            return;
-        }
-        if (msg === "!reset") {
-            this.handleReset(memberNumber);
-            return;
-        }
-        if (msg === "!released" || msg === "!stuck") {
-            this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
-            return;
-        }
-        if (msg === "!help") {
-            this.handleHelp(memberNumber);
-            return;
-        }
-        if (msg === "!about") {
-            this.handleAbout(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!feedback ")) {
-            this.handleFeedback(memberNumber, name, message);
-            return;
-        }
+        this.dispatchCommand(memberNumber, name, message, msg, "whisper");
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
-
-        if (msg === "!roll") {
-            this.handleRoll(memberNumber, name);
-            return;
-        }
-        if (msg === "!removed") {
-            this.handleRemoved(memberNumber, name);
-            return;
-        }
-        if (msg === "!continue") {
-            this.handleContinue(memberNumber);
-            return;
-        }
-        if (msg === "!join") {
-            this.handleJoin(memberNumber, name);
-            return;
-        }
-        if (msg === "!start") {
-            this.handleStart(memberNumber);
-            return;
-        }
-        if (msg === "!cancel") {
-            this.handleCancel(memberNumber);
-            return;
-        }
-        if (msg === "!ready") {
-            this.handleReady(memberNumber);
-            return;
-        }
-        if (msg === "!naked") {
-            this.handleNoWearing(memberNumber);
-            return;
-        }
-        if (msg === "!same") {
-            this.handleSame(memberNumber);
-            return;
-        }
-        if (msg === "!lock10" || msg === "!lock15" || msg === "!lock20") {
-            this.handleLockPreset(memberNumber, name, msg);
-            return;
-        }
-        if (msg === "!released" || msg === "!stuck") {
-            this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
-            return;
-        }
-        if (msg === "!help") {
-            this.handleHelp(memberNumber);
-            return;
-        }
-        if (msg === "!about") {
-            this.handleAbout(memberNumber);
-            return;
-        }
+        this.dispatchCommand(memberNumber, name, message, msg, "chat");
     }
 
     // ============================================================
@@ -608,12 +531,9 @@ export class StripDiceGame {
     }
 
     private handleWearing(memberNumber: number, message: string): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
 
-        const player = this.players.get(memberNumber)!;
         const parts = message.trim().toLowerCase().split(/\s+/).slice(1);
         const declared: string[] = [];
 
@@ -641,11 +561,8 @@ export class StripDiceGame {
     }
 
     private startGuidedClothing(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         player.clothingQuestionIndex = 0;
         player.pendingClothing = [];
         player.ready = false;
@@ -689,16 +606,13 @@ export class StripDiceGame {
     }
 
     private handleSame(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         const last = this.lastClothing.get(memberNumber);
         if (!last || last.length === 0) {
             this.bot.whisper(memberNumber, "No previous outfit on record. Please use !wearing to declare your clothing.");
             return;
         }
-        const player = this.players.get(memberNumber)!;
         player.clothing = [...last];
         player.isNaked = false;
         player.ready = false;
@@ -710,11 +624,8 @@ export class StripDiceGame {
     }
 
     private handleNoWearing(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         player.clothing = [];
         player.isNaked = true;
         player.ready = false;
@@ -723,11 +634,8 @@ export class StripDiceGame {
     }
 
     private handleReady(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
 
         if (player.clothing.length === 0 && !player.isNaked) {
             this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
@@ -754,6 +662,27 @@ export class StripDiceGame {
 
     private isAdmin(memberNumber: number): boolean {
         return memberNumber === 208543 || memberNumber === this.bot.getMemberNumber();
+    }
+
+    // Looks up a player, whispering the standard "not joined" message and
+    // returning null if they haven't joined the current game.
+    private requirePlayer(memberNumber: number): Player | null {
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+            return null;
+        }
+        return player;
+    }
+
+    // Whispers the standard "admin only" message and returns false if the
+    // given member is not the game admin.
+    private requireAdmin(memberNumber: number): boolean {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return false;
+        }
+        return true;
     }
 
     private handleLockTime(memberNumber: number, message: string): void {
@@ -800,10 +729,7 @@ export class StripDiceGame {
     }
 
     private handleReset(memberNumber: number): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
         if (this.state === GameState.Idle && this.players.size === 0) {
             this.bot.whisper(memberNumber, "No game is currently running.");
             return;
@@ -821,15 +747,9 @@ export class StripDiceGame {
     }
 
     private handleTestOutfit(memberNumber: number, message: string): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
-        const player = this.players.get(memberNumber);
-        if (!player) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         const requested = message.trim().slice("!testoutfit ".length).trim();
         const outfit = BONDAGE_OUTFITS.find(o => o.name.toLowerCase() === requested.toLowerCase());
         if (!outfit) {
@@ -843,10 +763,7 @@ export class StripDiceGame {
     }
 
     private handleSetStatus(memberNumber: number, message: string): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
         const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
@@ -967,6 +884,7 @@ export class StripDiceGame {
             log("ERROR: Failed to write feedback.log: " + err);
         }
         log(`Feedback from ${name}: ${text}`);
+        this.feedbackMemberNumbers.add(memberNumber);
 
         const key = String(memberNumber);
         const entry = this.feedbackStatus[key] ?? { name, items: [] };
@@ -1065,7 +983,7 @@ export class StripDiceGame {
             this.playerRecords = {};
         }
 
-        for (const memberNumber of this.loadFeedbackMemberNumbers()) {
+        for (const memberNumber of this.feedbackMemberNumbers) {
             const record = this.playerRecords[String(memberNumber)];
             if (record) record.feedbackGiven = true;
         }
@@ -1109,7 +1027,7 @@ export class StripDiceGame {
                 lastSeen: now,
                 gamesPlayed: 0,
                 gamesWon: 0,
-                feedbackGiven: this.loadFeedbackMemberNumbers().has(memberNumber),
+                feedbackGiven: this.feedbackMemberNumbers.has(memberNumber),
             };
         }
         this.savePlayerRecords();
@@ -1130,10 +1048,7 @@ export class StripDiceGame {
     }
 
     private handleFeedbackList(memberNumber: number): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
 
         const entries = Object.entries(this.feedbackStatus);
         if (entries.length === 0) {
@@ -1373,6 +1288,30 @@ export class StripDiceGame {
         }
     }
 
+    // Builds the Property object for a padlocked bondage item, used both
+    // when applying a fresh bondage item mid-game and when locking everyone
+    // up at the end of the game.
+    private buildLockedItemProperty(
+        item: BondageItem,
+        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
+    ): any {
+        return {
+            ...item.property,
+            Effect: [...(item.property.Effect || []), "Lock"],
+            LockedBy: "TimerPasswordPadlock",
+            LockMemberNumber: this.bot.getMemberNumber(),
+            LockMemberName: "GameBot",
+            Password: this.gamePassword,
+            Hint: options.hint,
+            LockSet: true,
+            RemoveItem: options.removeItem,
+            ShowTimer: options.showTimer,
+            EnableRandomInput: false,
+            MemberNumberList: [],
+            RemoveTimer: options.removeTimer
+        };
+    }
+
     private applyNextBondageItem(player: Player): void {
         if (!player.bondageOutfit) {
             const pool = this.getEligibleOutfits(player.memberNumber);
@@ -1381,12 +1320,12 @@ export class StripDiceGame {
                 this.resetGame();
                 return;
             }
-            player.bondageOutfit = pool[Math.floor(Math.random() * pool.length)].items;
+            player.bondageOutfit = pool[Math.floor(Math.random() * pool.length)];
             log(`${player.name} assigned bondage outfit: ${this.getBondageOutfitName(player.bondageOutfit)}`);
             this.bondagePhaseStarted = true;
         }
 
-        const item = player.bondageOutfit[player.bondageApplied];
+        const item = player.bondageOutfit.items[player.bondageApplied];
 
         if (!item) {
             player.isFullyBound = true;
@@ -1414,27 +1353,18 @@ export class StripDiceGame {
                 item.group,
                 item.name,
                 item.color,
-                {
-                    ...item.property,
-                    Effect: [...(item.property.Effect || []), "Lock"],
-                    LockedBy: "TimerPasswordPadlock",
-                    LockMemberNumber: this.bot.getMemberNumber(),
-                    LockMemberName: "GameBot",
-                    Password: this.gamePassword,
-                    Hint: "Game in progress...",
-                    LockSet: true,
-                    RemoveItem: false,
-                    ShowTimer: false,
-                    EnableRandomInput: false,
-                    MemberNumberList: [],
-                    RemoveTimer: Date.now() + (24 * 60 * 60 * 1000)
-                }
+                this.buildLockedItemProperty(item, {
+                    hint: "Game in progress...",
+                    removeItem: false,
+                    showTimer: false,
+                    removeTimer: Date.now() + (24 * 60 * 60 * 1000)
+                })
             );
             this.verifyLockApplied(player, item.group, item.name);
 
             player.bondageApplied++;
 
-            if (player.bondageApplied >= player.bondageOutfit!.length) {
+            if (player.bondageApplied >= player.bondageOutfit!.items.length) {
                 player.isFullyBound = true;
                 this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
@@ -1492,13 +1422,13 @@ export class StripDiceGame {
 
         for (const player of boundPlayers) {
             const pool = this.getEligibleOutfits(player.memberNumber);
-            if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.length === 0) {
+            if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.items.length === 0) {
                 this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
                 this.resetGame();
                 return;
             }
             for (let i = 0; i < player.bondageApplied; i++) {
-                const item = player.bondageOutfit?.[i];
+                const item = player.bondageOutfit?.items[i];
                 if (!item) continue;
 
                 setTimeout(() => {
@@ -1507,21 +1437,12 @@ export class StripDiceGame {
                         item.group,
                         item.name,
                         item.color,
-                        {
-                            ...item.property,
-                            Effect: [...(item.property.Effect || []), "Lock"],
-                            LockedBy: "TimerPasswordPadlock",
-                            LockMemberNumber: this.bot.getMemberNumber(),
-                            LockMemberName: "GameBot",
-                            Password: this.gamePassword,
-                            Hint: `Released in ${this.lockDurationMinutes} minutes`,
-                            LockSet: true,
-                            RemoveItem: true,
-                            ShowTimer: true,
-                            EnableRandomInput: false,
-                            MemberNumberList: [],
-                            RemoveTimer: lockEndTime
-                        }
+                        this.buildLockedItemProperty(item, {
+                            hint: `Released in ${this.lockDurationMinutes} minutes`,
+                            removeItem: true,
+                            showTimer: true,
+                            removeTimer: lockEndTime
+                        })
                     );
                     this.verifyLockApplied(player, item.group, item.name);
                 }, i * 300);
@@ -1566,7 +1487,7 @@ export class StripDiceGame {
     private scheduleLockReleaseCheck(player: Player): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
-        const items = (player.bondageOutfit ?? []).slice(0, player.bondageApplied).map(i => i.name);
+        const items = (player.bondageOutfit?.items ?? []).slice(0, player.bondageApplied).map(i => i.name);
 
         // Small buffer added so the BC server has time to process the RemoveTimer before we ask.
         const delay = (this.lockDurationMinutes * 60 * 1000) + 10000;
@@ -1791,8 +1712,8 @@ export class StripDiceGame {
         return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
     }
 
-    private getBondageOutfitName(items: BondageItem[]): string {
-        return BONDAGE_OUTFITS.find(o => o.items === items)?.name ?? "Unknown";
+    private getBondageOutfitName(outfit: BondageOutfit): string {
+        return outfit.name;
     }
 
     // Players who have set their pronouns to HeHim get outfits without
