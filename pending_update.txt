@@ -1,2 +1,3 @@
 lock time options: 10/15/20 min, default 10
 new player stakes confirmation
+bug fixes: turn deadlock, outfit crash guards, file write safety, removed testcuffs

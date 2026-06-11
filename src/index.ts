@@ -48,35 +48,6 @@ async function main() {
         if (data.Type === "Whisper") {
             const msg = stripOOC(data.Content).trim().toLowerCase();
 
-            // Test command - keep during development
-            if (msg === "!testcuffs") {
-                bot.whisper(memberNumber, "Applying ankle cuffs with timer lock...");
-                bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"]
-                });
-                setTimeout(() => {
-                    bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                        TypeRecord: { typed: 2 },
-                        Difficulty: 0,
-                        Effect: ["Slow", "Lock"],
-                        LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: bot.getMemberNumber(),
-                        LockMemberName: "GameBot",
-                        Password: "DICE",
-                        Hint: "The game password",
-                        LockSet: true,
-                        RemoveItem: true,
-                        ShowTimer: true,
-                        EnableRandomInput: false,
-                        MemberNumberList: [],
-                        RemoveTimer: Date.now() + (5 * 60 * 1000)
-                    });
-                }, 500);
-                return;
-            }
-
             // Pass to game handler
             game.handleWhisper(memberNumber, name, stripOOC(data.Content));
         }

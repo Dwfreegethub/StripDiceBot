@@ -11,6 +11,7 @@ const TEST_MODE = true;
 const TEST_PASSWORD = "TEST1234";
 const DEFAULT_LOCK_MINUTES = 10;
 const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
+const STARTING_DICE_MAX = 100;
 
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
@@ -88,32 +89,46 @@ function cleanDecodedProperty(property: any): any {
 }
 
 function loadBondageOutfits(): BondageOutfit[] {
-    const filePath = path.join(__dirname, "..", "outfits.json");
-    const raw = fs.readFileSync(filePath, "utf8");
-    const data: { outfits: OutfitDefinition[] } = JSON.parse(raw);
+    try {
+        const filePath = path.join(__dirname, "..", "outfits.json");
+        const raw = fs.readFileSync(filePath, "utf8");
+        const data: { outfits: OutfitDefinition[] } = JSON.parse(raw);
 
-    return data.outfits.map(def => {
-        if (def.code && def.groups) {
-            const appearance: any[] = JSON.parse(LZString.decompressFromBase64(def.code));
-            const items: BondageItem[] = def.groups.map(group => {
-                const entry = appearance.find(e => e.Group === group);
-                if (!entry) {
-                    throw new Error(`Outfit "${def.name}": group "${group}" not found in appearance code`);
+        const outfits: BondageOutfit[] = [];
+
+        for (const def of data.outfits) {
+            if (def.code && def.groups) {
+                const decompressed = LZString.decompressFromBase64(def.code);
+                if (!decompressed) {
+                    log(`Outfit "${def.name}": failed to decompress appearance code, skipping.`);
+                    continue;
                 }
-                return {
-                    group: entry.Group,
-                    name: entry.Name,
-                    color: entry.Color,
-                    property: cleanDecodedProperty(entry.Property)
-                };
-            });
-            return { name: def.name, items };
+                const appearance: any[] = JSON.parse(decompressed);
+                const items: BondageItem[] = def.groups.map(group => {
+                    const entry = appearance.find(e => e.Group === group);
+                    if (!entry) {
+                        throw new Error(`Outfit "${def.name}": group "${group}" not found in appearance code`);
+                    }
+                    return {
+                        group: entry.Group,
+                        name: entry.Name,
+                        color: entry.Color,
+                        property: cleanDecodedProperty(entry.Property)
+                    };
+                });
+                outfits.push({ name: def.name, items });
+            } else if (def.items) {
+                outfits.push({ name: def.name, items: def.items });
+            } else {
+                throw new Error(`Outfit "${def.name}" has neither "items" nor "code"+"groups"`);
+            }
         }
-        if (def.items) {
-            return { name: def.name, items: def.items };
-        }
-        throw new Error(`Outfit "${def.name}" has neither "items" nor "code"+"groups"`);
-    });
+
+        return outfits;
+    } catch (err) {
+        log(`FATAL: Could not load outfits.json — check the file exists and is valid JSON: ${err}`);
+        process.exit(1);
+    }
 }
 
 const BONDAGE_OUTFITS: BondageOutfit[] = loadBondageOutfits();
@@ -149,7 +164,7 @@ interface Player {
     midGameJoin: boolean;       // Joined while a game was already in progress
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
     pendingClothing: string[];  // Items collected so far during guided Q&A
-    bondageOutfit: BondageItem[] | null; // Outfit assigned once this player starts receiving bondage
+    bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
 }
 
 // ============================================================
@@ -209,7 +224,7 @@ export class StripDiceGame {
     private players: Map<number, Player> = new Map();
     private turnOrder: number[] = [];
     private currentTurnIndex: number = 0;
-    private currentDiceMax: number = 100;
+    private currentDiceMax: number = STARTING_DICE_MAX;
     private countdownTimer: NodeJS.Timeout | null = null;
     private turnTimer: NodeJS.Timeout | null = null;
     private lockDurationMinutes: number = DEFAULT_LOCK_MINUTES;
@@ -218,7 +233,6 @@ export class StripDiceGame {
     private pronounsCache: Map<number, string> = new Map();
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
-    private isFirstRoll: boolean = true;    // Track if this is the very first roll
     private safewordMember: number | null = null;
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
@@ -258,9 +272,40 @@ export class StripDiceGame {
         if (this.state !== GameState.Idle && this.players.has(memberNumber)) {
             const player = this.players.get(memberNumber)!;
             this.bot.sendChat(`${player.name} has left the room and been removed from the game.`);
+
+            const removedIndex = this.turnOrder.indexOf(memberNumber);
+            const wasCurrentTurn = removedIndex !== -1 && removedIndex === this.currentTurnIndex;
+
             this.players.delete(memberNumber);
             this.turnOrder = this.turnOrder.filter(n => n !== memberNumber);
-            this.checkGameEndCondition();
+
+            if (this.players.size === 0) {
+                this.bot.sendChat(`No players remaining. Resetting.`);
+                this.resetGame();
+                return;
+            }
+
+            if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
+                this.currentTurnIndex--;
+            }
+            const turnIndexOutOfRange = this.currentTurnIndex >= this.turnOrder.length;
+            if (turnIndexOutOfRange) {
+                this.currentTurnIndex = 0;
+            }
+
+            if (this.checkGameEndCondition()) return;
+
+            const turnInProgressState = this.state === GameState.Rolling ||
+                this.state === GameState.WaitingRemove ||
+                this.state === GameState.WaitingBondage;
+
+            if (turnInProgressState && (wasCurrentTurn || turnIndexOutOfRange)) {
+                this.clearTurnTimer();
+                this.currentDiceMax = STARTING_DICE_MAX;
+                this.state = GameState.Rolling;
+                this.announceCurrentTurn();
+                this.startTurnTimer();
+            }
         }
     }
 
@@ -792,7 +837,7 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, `Unknown outfit "${requested}". Available outfits: ${names}`);
             return;
         }
-        player.bondageOutfit = outfit.items;
+        player.bondageOutfit = outfit;
         player.bondageApplied = 0;
         this.bot.whisper(memberNumber, `Your next bondage outfit has been forced to: ${outfit.name}`);
     }
@@ -886,7 +931,7 @@ export class StripDiceGame {
             return;
         }
 
-        this.currentDiceMax = 100;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         // Make sure currentTurnIndex is still valid
         if (this.currentTurnIndex >= this.turnOrder.length) {
@@ -916,7 +961,11 @@ export class StripDiceGame {
         const timestamp = centralTimestamp();
         const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
         const filePath = path.join(__dirname, "..", "feedback.log");
-        fs.appendFileSync(filePath, line, "utf8");
+        try {
+            fs.appendFileSync(filePath, line, "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write feedback.log: " + err);
+        }
         log(`Feedback from ${name}: ${text}`);
 
         const key = String(memberNumber);
@@ -949,7 +998,11 @@ export class StripDiceGame {
     }
 
     private saveFeedbackStatus(): void {
-        fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
+        try {
+            fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write feedback_status.json: " + err);
+        }
     }
 
     private notifyFeedbackStatus(memberNumber: number, name: string): void {
@@ -1019,7 +1072,11 @@ export class StripDiceGame {
     }
 
     private savePlayerRecords(): void {
-        fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
+        try {
+            fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write players.json: " + err);
+        }
     }
 
     // Reads feedback.log and returns the set of member numbers that have
@@ -1149,20 +1206,6 @@ export class StripDiceGame {
         const roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
 
-        // --------------------------------------------------------
-        // TODO: First roll special case
-        // If this.isFirstRoll === true AND roll === 1:
-        //   - Announce that the first player wins
-        //   - All other players must strip and get bound immediately
-        //   - Skip normal game flow
-        // --------------------------------------------------------
-        if (this.isFirstRoll && roll === 1) {
-            // Placeholder - just treat as normal loss for now
-            log("TODO: First roll = 1 special case triggered");
-        }
-
-        this.isFirstRoll = false;
-
         if (roll === 1) {
             this.handleLoss(currentPlayer);
         } else {
@@ -1191,8 +1234,7 @@ export class StripDiceGame {
         this.bot.sendChat(`✅ ${name} has removed their item. Continuing the game...`);
 
         // Loser rolls first next round with fresh D100
-        this.currentDiceMax = 100;
-        this.isFirstRoll = false;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         this.startTurnTimer();
         this.bot.sendChat(`🎲 ${name} rolls first this round! Type !roll (D${this.currentDiceMax})`);
@@ -1267,7 +1309,6 @@ export class StripDiceGame {
 
     private startGame(): void {
         this.state = GameState.Rolling;
-        this.isFirstRoll = true;
 
         // Generate password
         this.gamePassword = TEST_MODE ? TEST_PASSWORD : generatePassword();
@@ -1277,7 +1318,7 @@ export class StripDiceGame {
         this.turnOrder = [...this.players.keys()];
         this.shuffleArray(this.turnOrder);
         this.currentTurnIndex = 0;
-        this.currentDiceMax = 100;
+        this.currentDiceMax = STARTING_DICE_MAX;
 
         const orderNames = this.turnOrder.map(n => this.getPlayerName(n)).join(" → ");
         this.bot.sendChat(`🎲 === STRIP DICE BEGINS === 🎲`);
@@ -1335,6 +1376,11 @@ export class StripDiceGame {
     private applyNextBondageItem(player: Player): void {
         if (!player.bondageOutfit) {
             const pool = this.getEligibleOutfits(player.memberNumber);
+            if (pool.length === 0) {
+                this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                this.resetGame();
+                return;
+            }
             player.bondageOutfit = pool[Math.floor(Math.random() * pool.length)].items;
             log(`${player.name} assigned bondage outfit: ${this.getBondageOutfitName(player.bondageOutfit)}`);
             this.bondagePhaseStarted = true;
@@ -1398,14 +1444,14 @@ export class StripDiceGame {
                 if (this.currentTurnIndex >= this.turnOrder.length) {
                     this.currentTurnIndex = 0;
                 }
-                this.currentDiceMax = 100;
+                this.currentDiceMax = STARTING_DICE_MAX;
                 this.state = GameState.Rolling;
                 this.announceCurrentTurn();
                 this.startTurnTimer();
             } else {
                 this.bot.sendChat(`✅ ${player.name} has been restrained! Back to the game...`);
                 this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
-                this.currentDiceMax = 100;
+                this.currentDiceMax = STARTING_DICE_MAX;
                 this.state = GameState.Rolling;
                 this.announceCurrentTurn();
                 this.startTurnTimer();
@@ -1445,6 +1491,12 @@ export class StripDiceGame {
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
 
         for (const player of boundPlayers) {
+            const pool = this.getEligibleOutfits(player.memberNumber);
+            if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.length === 0) {
+                this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                this.resetGame();
+                return;
+            }
             for (let i = 0; i < player.bondageApplied; i++) {
                 const item = player.bondageOutfit?.[i];
                 if (!item) continue;
@@ -1540,7 +1592,11 @@ export class StripDiceGame {
         const itemList = pending.items.length > 0 ? pending.items.join(", ") : "(none)";
         const line = `[${timestamp}] ${pending.name} (#${memberNumber}): items=[${itemList}] status=${status}\n`;
         const filePath = path.join(__dirname, "..", "lock_release_log.txt");
-        fs.appendFileSync(filePath, line, "utf8");
+        try {
+            fs.appendFileSync(filePath, line, "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write lock_release_log.txt: " + err);
+        }
 
         if (released) {
             this.bot.whisper(memberNumber, "Great, glad everything came off! Thanks for confirming. 💕");
@@ -1554,8 +1610,7 @@ export class StripDiceGame {
         this.players.clear();
         this.turnOrder = [];
         this.currentTurnIndex = 0;
-        this.currentDiceMax = 100;
-        this.isFirstRoll = true;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
@@ -1712,7 +1767,7 @@ export class StripDiceGame {
         if (this.currentTurnIndex >= this.turnOrder.length) {
             this.currentTurnIndex = 0;
         }
-        this.currentDiceMax = 100;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         this.announceCurrentTurn();
         this.startTurnTimer();
@@ -1733,7 +1788,7 @@ export class StripDiceGame {
     }
 
     private getPlayerName(memberNumber: number): string {
-        return this.players.get(memberNumber)?.name ?? this.nameCache.get(memberNumber) ?? `Player #${memberNumber}`;
+        return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
     }
 
     private getBondageOutfitName(items: BondageItem[]): string {
@@ -1751,7 +1806,7 @@ export class StripDiceGame {
         return BONDAGE_OUTFITS;
     }
 
-    private shuffleArray(array: any[]): void {
+    private shuffleArray<T>(array: T[]): void {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
