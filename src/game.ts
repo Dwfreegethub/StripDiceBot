@@ -14,6 +14,29 @@ const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
 const STARTING_DICE_MAX = 100;
 
 // ============================================================
+// ITEM REMOVAL - end-of-game bondage cleanup
+// ============================================================
+const REMOVAL_SLOTS = [
+    "ItemFeet",
+    "ItemBoots",
+    "ItemLegs",
+    "ItemPelvis",
+    "ItemBreast",
+    "ItemTorso",
+    "ItemTorso2",
+    "ItemArms",
+    "ItemHands",
+    "ItemNeck",
+    "ItemNeckRestraints",
+    "ItemMouth",
+    "ItemHead",
+];
+const REMOVAL_SLOT_DELAY_MS = 200; // Stagger between each slot's removal attempt
+const REMOVAL_UNLOCK_GAP_MS = 500; // Gap between unlocking an item and removing it
+const REMOVAL_RETRY_DELAY_MS = 1000;
+const MAX_REMOVAL_ATTEMPTS = 5;
+
+// ============================================================
 // CLOTHING SLOTS - ordered loss sequence
 // ============================================================
 const CLOTHING_SLOTS = ["shoes", "socks", "top", "bottom", "bra", "panties"];
@@ -738,8 +761,10 @@ export class StripDiceGame {
         this.clearCountdown();
         this.clearTurnTimer();
 
+        let removalDelay = 0;
         for (const player of this.players.values()) {
-            this.removeAllItems(player.memberNumber);
+            this.removeAllItems(player.memberNumber, removalDelay);
+            removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
         }
 
         this.bot.sendChat(`🛑 The game has been reset by an admin.`);
@@ -1452,9 +1477,12 @@ export class StripDiceGame {
             this.scheduleLockReleaseCheck(player);
         }
 
+        // Give in-flight item removals/applies time to reach the server before
+        // resetGame() clears player state — bigger games need more time.
+        const resetDelay = (this.players.size * REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS) + 2000;
         setTimeout(() => {
             this.resetGame();
-        }, 5000);
+        }, resetDelay);
     }
 
     // ============================================================
@@ -1573,27 +1601,13 @@ export class StripDiceGame {
         return true;
     }
 
-    private removeAllItems(memberNumber: number): void {
-        const slotsToRemove = [
-            "ItemFeet",
-            "ItemBoots",
-            "ItemLegs",
-            "ItemPelvis",
-            "ItemBreast",
-            "ItemTorso",
-            "ItemTorso2",
-            "ItemArms",
-            "ItemHands",
-            "ItemNeck",
-            "ItemNeckRestraints",
-            "ItemMouth",
-            "ItemHead",
-        ];
-
-        slotsToRemove.forEach((group, index) => {
+    // startDelay lets callers stagger removal across multiple players so their
+    // slot-removal emits don't all flood the server at once.
+    private removeAllItems(memberNumber: number, startDelay: number = 0): void {
+        REMOVAL_SLOTS.forEach((group, index) => {
             setTimeout(() => {
                 this.removeSlotVerified(memberNumber, group);
-            }, index * 200);
+            }, startDelay + index * REMOVAL_SLOT_DELAY_MS);
         });
     }
 
@@ -1604,19 +1618,24 @@ export class StripDiceGame {
 
         if (current?.Property?.LockedBy) {
             this.bot.applyItem(memberNumber, group, current.Name, current.Color, cleanDecodedProperty(current.Property));
-            setTimeout(() => this.bot.removeItem(memberNumber, group), 300);
+            setTimeout(() => this.bot.removeItem(memberNumber, group), REMOVAL_UNLOCK_GAP_MS);
         } else {
             this.bot.removeItem(memberNumber, group);
         }
 
-        if (attempt >= 5) return;
-
         setTimeout(() => {
             const after = this.itemStateCache.get(`${memberNumber}:${group}`);
-            if (after?.Name) {
+            if (!after?.Name) return;
+
+            if (attempt < MAX_REMOVAL_ATTEMPTS) {
                 this.removeSlotVerified(memberNumber, group, attempt + 1);
+            } else {
+                log(`REMOVAL_FAILED: memberNumber=${memberNumber} group=${group} after ${MAX_REMOVAL_ATTEMPTS} attempts`);
+                this.bot.whisper(memberNumber,
+                    `⚠️ I wasn't able to remove your ${after.Name} automatically. You may need to remove it manually or ask someone to help.`
+                );
             }
-        }, 1000);
+        }, REMOVAL_RETRY_DELAY_MS);
     }
 
     // ============================================================
