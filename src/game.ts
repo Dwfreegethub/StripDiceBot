@@ -2,6 +2,7 @@ import { BCConnection } from "./connection";
 import { log } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
+import * as LZString from "lz-string";
 
 // ============================================================
 // TEST MODE - set to false for production
@@ -52,224 +53,60 @@ interface BondageOutfit {
     items: BondageItem[];
 }
 
-const BONDAGE_OUTFITS: BondageOutfit[] = [
-    {
-        name: "Steel Restraints",
-        items: [
-            {
-                group: "ItemFeet",
-                name: "HighStyleSteelAnkleCuffs",
-                color: "#A23939",
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"]
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "SlenderSteelCollar",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "ExtremeCorset",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "HighStyleSteelCuffs",
-                color: ["#FFFFFF", "#FFFFFF"],
-                property: {
-                    TypeRecord: { typed: 1 },
-                    Difficulty: 0,
-                    Effect: ["Block", "BlockWardrobe"],
-                    SetPose: ["BackBoxTie"],
-                    AllowActivePose: ["BackBoxTie"]
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "CollarChainLong",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            // TODO: Add armbinder once asset name confirmed
-            // TODO: Add gag once asset name confirmed (known issues)
-        ]
-    },
-    {
-        name: "BondageDice",
-        items: [
-            {
-                group: "ItemFeet",
-                name: "LeatherDeluxeAnkleCuffs",
-                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemLegs",
-                name: "LeatherDeluxeLegCuffs",
-                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"],
-                    SetPose: ["BaseLower"],
-                    AllowActivePose: ["BaseLower", "Kneel", "LegsOpen", "LegsClosed", "Spread", "Hogtied", "AllFours"]
-                }
-            },
-            {
-                group: "ItemPelvis",
-                name: "HempRope",
-                color: ["#009993"],
-                property: {
-                    TypeRecord: { typed: 3 },
-                    Difficulty: 5,
-                    Effect: ["CrotchRope"],
-                    OverridePriority: 21
-                }
-            },
-            {
-                group: "ItemTorso2",
-                name: "HempRopeHarness",
-                color: ["#000000"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 1,
-                    Effect: ["CrotchRope"],
-                    Attribute: ["IsHipHarness"],
-                    OverridePriority: 25
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "Corset4",
-                color: ["#009993"],
-                property: {
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "ShinyArmbinder",
-                color: ["#009993", "#5D5D5D", "#CACACA", "Default"],
-                property: {
-                    TypeRecord: { typed: 3 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "ChokeChain",
-                color: ["Default", "Default"],
-                property: {
-                    Difficulty: 0,
-                    OverridePriority: 31
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "BordelleCollar",
-                color: ["Default"],
-                property: {
-                    Difficulty: 0
-                }
-            },
-        ]
-    },
-    {
-        name: "DroneSlave",
-        items: [
-            {
-                group: "ItemLegs",
-                name: "LeatherDeluxeLegCuffs",
-                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
-                property: {
-                    TypeRecord: { typed: 2 }
-                }
-            },
-            {
-                group: "ItemFeet",
-                name: "SpreaderMetal",
-                color: ["#717171"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    SetPose: ["LegsOpen"],
-                    AllowActivePose: ["LegsOpen"]
-                }
-            },
-            {
-                group: "ItemBoots",
-                name: "BalletHeels1",
-                color: ["#717171"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "LeatherStrapHarness",
-                color: ["#C6C6C6"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemTorso2",
-                name: "FuturisticHarness",
-                color: ["#BDBDBD", "#BDBDBD", "#BDBDBD", "#BDBDBD"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "SmoothLeatherArmbinder1",
-                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
-                property: {
-                    TypeRecord: { b: 0, s: 3 },
-                    Difficulty: 40,
-                    Block: ["ItemHands"],
-                    Effect: ["Block", "BlockWardrobe"]
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "LatexPostureCollar",
-                color: ["#C5C5C5"],
-                property: {
-                    OverridePriority: 35
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "CollarChainMedium",
-                color: ["#717171"],
-                property: {
-                    OverridePriority: 14
-                }
-            },
-        ]
+// Raw shape of an entry in outfits.json. Either a curated "items" array,
+// or a BC appearance share code plus the list of item groups to extract from it.
+interface OutfitDefinition {
+    name: string;
+    items?: BondageItem[];
+    code?: string;
+    groups?: string[];
+}
+
+// Strips owner/lock-specific fields from a decoded appearance item's Property
+// so the bot can apply its own lock on top of it.
+function cleanDecodedProperty(property: any): any {
+    if (!property) return {};
+    const {
+        LockedBy, LockMemberNumber, LockMemberName, Password, Hint, LockSet,
+        RemoveItem, ShowTimer, EnableRandomInput, MemberNumberList, RemoveTimer,
+        ...rest
+    } = property;
+    if (Array.isArray(rest.Effect)) {
+        rest.Effect = rest.Effect.filter((e: string) => e !== "Lock");
     }
-];
+    return rest;
+}
+
+function loadBondageOutfits(): BondageOutfit[] {
+    const filePath = path.join(__dirname, "..", "outfits.json");
+    const raw = fs.readFileSync(filePath, "utf8");
+    const data: { outfits: OutfitDefinition[] } = JSON.parse(raw);
+
+    return data.outfits.map(def => {
+        if (def.code && def.groups) {
+            const appearance: any[] = JSON.parse(LZString.decompressFromBase64(def.code));
+            const items: BondageItem[] = def.groups.map(group => {
+                const entry = appearance.find(e => e.Group === group);
+                if (!entry) {
+                    throw new Error(`Outfit "${def.name}": group "${group}" not found in appearance code`);
+                }
+                return {
+                    group: entry.Group,
+                    name: entry.Name,
+                    color: entry.Color,
+                    property: cleanDecodedProperty(entry.Property)
+                };
+            });
+            return { name: def.name, items };
+        }
+        if (def.items) {
+            return { name: def.name, items: def.items };
+        }
+        throw new Error(`Outfit "${def.name}" has neither "items" nor "code"+"groups"`);
+    });
+}
+
+const BONDAGE_OUTFITS: BondageOutfit[] = loadBondageOutfits();
 
 // ============================================================
 // GAME STATES
@@ -1023,11 +860,35 @@ export class StripDiceGame {
             `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
         );
 
-        this.bot.whisper(memberNumber,
+        this.sendLongWhisper(memberNumber,
             `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
             lines.join("\n") +
             `\n\nThanks for helping us improve the game! 💕`
         );
+    }
+
+    // Whispers tend to get silently dropped by the BC server if they exceed
+    // its max chat message length, so split long messages on line boundaries.
+    private sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
+        if (text.length <= maxLen) {
+            this.bot.whisper(memberNumber, text);
+            return;
+        }
+
+        const chunks: string[] = [];
+        let chunk = "";
+        for (const line of text.split("\n")) {
+            if (chunk && chunk.length + 1 + line.length > maxLen) {
+                chunks.push(chunk);
+                chunk = "";
+            }
+            chunk = chunk ? `${chunk}\n${line}` : line;
+        }
+        if (chunk) chunks.push(chunk);
+
+        chunks.forEach((c, i) => {
+            setTimeout(() => this.bot.whisper(memberNumber, c), i * 300);
+        });
     }
 
     private handleFeedbackList(memberNumber: number): void {
@@ -1050,7 +911,7 @@ export class StripDiceGame {
             });
         }
 
-        this.bot.whisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
+        this.sendLongWhisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
     }
 
     private handleHelp(memberNumber: number): void {
