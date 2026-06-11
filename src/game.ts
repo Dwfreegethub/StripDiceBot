@@ -324,6 +324,10 @@ export class StripDiceGame {
             this.handleSafeword(memberNumber, name);
             return;
         }
+        if (msg === "!reset") {
+            this.handleReset(memberNumber);
+            return;
+        }
         if (msg === "!released" || msg === "!stuck") {
             this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
             return;
@@ -679,6 +683,27 @@ export class StripDiceGame {
         this.bot.sendChat(`ℹ️ Mid-game joining has been turned ${this.allowMidGameJoin ? "ON" : "OFF"} by the admin.`);
     }
 
+    private handleReset(memberNumber: number): void {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return;
+        }
+        if (this.state === GameState.Idle && this.players.size === 0) {
+            this.bot.whisper(memberNumber, "No game is currently running.");
+            return;
+        }
+
+        this.clearCountdown();
+        this.clearTurnTimer();
+
+        for (const player of this.players.values()) {
+            this.removeAllItems(player.memberNumber);
+        }
+
+        this.bot.sendChat(`🛑 The game has been reset by an admin.`);
+        this.resetGame();
+    }
+
     private handleTestOutfit(memberNumber: number, message: string): void {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can use this command.");
@@ -938,6 +963,7 @@ export class StripDiceGame {
             text +=
                 `\n\n=== Admin Commands ===\n` +
                 `!locktime [mins] - Set end game lock duration\n` +
+                `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
                 `!midgamejoin on/off - Allow players to join games already in progress\n` +
                 `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
                 `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
