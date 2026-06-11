@@ -961,6 +961,7 @@ export class StripDiceGame {
         }
 
         this.clearTurnTimer();
+        currentPlayer.timeoutCount = 0;
 
         const roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
@@ -1497,9 +1498,37 @@ export class StripDiceGame {
             player.timeoutWarned = false;
             player.timeoutCount++;
             this.bot.sendChat(`⏭️ ${player.name} was skipped for inactivity.`);
-            // TODO: If timeoutCount >= 3, consider removing player from room
-            this.advanceTurn();
+
+            if (player.timeoutCount >= 2) {
+                this.removeAfkPlayer(player);
+            } else {
+                this.advanceTurn();
+            }
         }
+    }
+
+    private removeAfkPlayer(player: Player): void {
+        this.bot.whisper(player.memberNumber, "You've been removed from the game for inactivity (skipped your turn twice in a row).");
+        this.bot.sendChat(`👋 ${player.name} has been removed from the game for inactivity.`);
+
+        this.players.delete(player.memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return;
+        }
+
+        if (this.checkGameEndCondition()) return;
+
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+        this.currentDiceMax = 100;
+        this.state = GameState.Rolling;
+        this.announceCurrentTurn();
+        this.startTurnTimer();
     }
 
     // ============================================================
