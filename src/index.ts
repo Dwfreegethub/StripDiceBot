@@ -17,10 +17,17 @@ process.on("unhandledRejection", (reason: any) => {
 
 async function main() {
     const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
+    let updateNote: string | null = null;
     if (fs.existsSync(pendingUpdatePath)) {
+        try {
+            updateNote = fs.readFileSync(pendingUpdatePath, "utf8").trim();
+        } catch {
+            updateNote = "";
+        }
         fs.unlinkSync(pendingUpdatePath);
-        log("Removed leftover pending_update.txt from previous restart.");
+        log(`Removed pending_update.txt from previous restart (note: "${updateNote}").`);
     }
+    let restartAnnounced = false;
 
     log("StripDiceBot starting...");
 
@@ -99,7 +106,17 @@ async function main() {
         }
 
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
-        bot.sendChat("🔧 Bot restarted — lock fix applied.");
+
+        if (!restartAnnounced) {
+            restartAnnounced = true;
+            if (updateNote !== null) {
+                bot.sendChat(updateNote
+                    ? `⚙️ Update applied — ${updateNote}. Back online!`
+                    : `⚙️ Update applied. Back online!`);
+            } else {
+                bot.sendChat("Sorry for the interruption — I'm back!");
+            }
+        }
     });
 
     bot.onMemberJoin((data: any) => {
