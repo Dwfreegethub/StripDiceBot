@@ -4,6 +4,17 @@ import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 
+process.on("uncaughtException", (err: Error) => {
+    logError(`Uncaught exception: ${err.stack || err.message || err}`);
+    process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+    const details = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    logError(`Unhandled rejection: ${details}`);
+    process.exit(1);
+});
+
 async function main() {
     const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
     if (fs.existsSync(pendingUpdatePath)) {
@@ -107,6 +118,10 @@ async function main() {
         const memberNumber = data.SourceMemberNumber;
         log(`Member #${memberNumber} left the room.`);
         game.onMemberLeave(memberNumber);
+    });
+
+    bot.onItemChange((data: any) => {
+        game.onItemChange(data);
     });
 
     bot.onReconnect(() => {

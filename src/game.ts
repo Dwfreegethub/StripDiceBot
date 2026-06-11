@@ -362,7 +362,7 @@ export class StripDiceGame {
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
-    private playerPermissions: Map<number, { itemPermission: number; whiteList: number[] }> = new Map();
+    private itemStateCache: Map<string, any> = new Map();
     private lockPermissionWarned: Set<number> = new Set();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
     private feedbackNotified: Set<number> = new Set();
@@ -380,7 +380,6 @@ export class StripDiceGame {
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
         this.roomMembers.add(memberNumber);
         this.nameCache.set(memberNumber, name);
-        if (character) this.updatePlayerPermission(memberNumber, character);
         if (memberNumber === this.bot.getMemberNumber()) return;
         this.notifyFeedbackStatus(memberNumber, name);
     }
@@ -403,9 +402,15 @@ export class StripDiceGame {
                 this.roomMembers.add(char.MemberNumber);
                 const name = char.Nickname || char.Name;
                 if (name) this.nameCache.set(char.MemberNumber, name);
-                this.updatePlayerPermission(char.MemberNumber, char);
             }
         }
+    }
+
+    public onItemChange(data: any): void {
+        const target = data?.Target;
+        const item = data?.Item;
+        if (typeof target !== "number" || !item?.Group) return;
+        this.itemStateCache.set(`${target}:${item.Group}`, item);
     }
 
     // ============================================================
@@ -1312,31 +1317,28 @@ export class StripDiceGame {
 
         // Apply lock after short delay
         setTimeout(() => {
-            if (this.hasLockPermission(player.memberNumber)) {
-                this.bot.applyItem(
-                    player.memberNumber,
-                    item.group,
-                    item.name,
-                    item.color,
-                    {
-                        ...item.property,
-                        Effect: [...(item.property.Effect || []), "Lock"],
-                        LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: this.bot.getMemberNumber(),
-                        LockMemberName: "GameBot",
-                        Password: this.gamePassword,
-                        Hint: "Game in progress...",
-                        LockSet: true,
-                        RemoveItem: false,
-                        ShowTimer: false,
-                        EnableRandomInput: false,
-                        MemberNumberList: [],
-                        RemoveTimer: Date.now() + (24 * 60 * 60 * 1000)
-                    }
-                );
-            } else {
-                this.notifyLockPermissionIssue(player);
-            }
+            this.bot.applyItem(
+                player.memberNumber,
+                item.group,
+                item.name,
+                item.color,
+                {
+                    ...item.property,
+                    Effect: [...(item.property.Effect || []), "Lock"],
+                    LockedBy: "TimerPasswordPadlock",
+                    LockMemberNumber: this.bot.getMemberNumber(),
+                    LockMemberName: "GameBot",
+                    Password: this.gamePassword,
+                    Hint: "Game in progress...",
+                    LockSet: true,
+                    RemoveItem: false,
+                    ShowTimer: false,
+                    EnableRandomInput: false,
+                    MemberNumberList: [],
+                    RemoveTimer: Date.now() + (24 * 60 * 60 * 1000)
+                }
+            );
+            this.verifyLockApplied(player, item.group, item.name);
 
             player.bondageApplied++;
 
@@ -1392,12 +1394,6 @@ export class StripDiceGame {
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
 
         for (const player of boundPlayers) {
-            if (!this.hasLockPermission(player.memberNumber)) {
-                this.notifyLockPermissionIssue(player);
-                this.bot.sendChat(`⚠️ ${player.name}'s restraints could not be locked (permission needed).`);
-                continue;
-            }
-
             for (let i = 0; i < player.bondageApplied; i++) {
                 const item = player.bondageOutfit?.[i];
                 if (!item) continue;
@@ -1424,6 +1420,7 @@ export class StripDiceGame {
                             RemoveTimer: lockEndTime
                         }
                     );
+                    this.verifyLockApplied(player, item.group, item.name);
                 }, i * 300);
             }
 
@@ -1437,20 +1434,20 @@ export class StripDiceGame {
     }
 
     // ============================================================
-    // LOCK PERMISSION CHECK
+    // LOCK VERIFICATION
     // ============================================================
 
-    private updatePlayerPermission(memberNumber: number, character: any): void {
-        const itemPermission = typeof character.ItemPermission === "number" ? character.ItemPermission : 0;
-        const whiteList = Array.isArray(character.WhiteList) ? character.WhiteList : [];
-        this.playerPermissions.set(memberNumber, { itemPermission, whiteList });
-    }
+    private verifyLockApplied(player: Player, group: string, itemName: string): void {
+        setTimeout(() => {
+            const current = this.itemStateCache.get(`${player.memberNumber}:${group}`);
+            if (!current || current.Name !== itemName) return;
 
-    private hasLockPermission(memberNumber: number): boolean {
-        const perm = this.playerPermissions.get(memberNumber);
-        if (!perm) return true;
-        if (perm.itemPermission === 0) return true;
-        return perm.whiteList.includes(this.bot.getMemberNumber());
+            const isLocked = !!current.Property?.LockedBy;
+            if (!isLocked) {
+                log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${group}/${itemName} — likely missing whitelist permission.`);
+                this.notifyLockPermissionIssue(player);
+            }
+        }, 1000);
     }
 
     private notifyLockPermissionIssue(player: Player): void {
