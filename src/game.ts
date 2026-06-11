@@ -1,5 +1,5 @@
 import { BCConnection } from "./connection";
-import { log } from "./logger";
+import { log, centralTimestamp } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
 import * as LZString from "lz-string";
@@ -856,7 +856,7 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
             return;
         }
-        const timestamp = new Date().toISOString();
+        const timestamp = centralTimestamp();
         const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
         const filePath = path.join(__dirname, "..", "feedback.log");
         fs.appendFileSync(filePath, line, "utf8");
@@ -1391,7 +1391,7 @@ export class StripDiceGame {
         this.pendingLockConfirmations.delete(memberNumber);
 
         const status = released ? "released" : "stuck";
-        const timestamp = new Date().toISOString();
+        const timestamp = centralTimestamp();
         const itemList = pending.items.length > 0 ? pending.items.join(", ") : "(none)";
         const line = `[${timestamp}] ${pending.name} (#${memberNumber}): items=[${itemList}] status=${status}\n`;
         const filePath = path.join(__dirname, "..", "lock_release_log.txt");
