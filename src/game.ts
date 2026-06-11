@@ -175,6 +175,19 @@ const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
 };
 
 // ============================================================
+// PLAYER TRACKING
+// ============================================================
+interface PlayerRecord {
+    memberNumber: number;
+    name: string;
+    firstSeen: string;
+    lastSeen: string;
+    gamesPlayed: number;
+    gamesWon: number;
+    feedbackGiven: boolean;
+}
+
+// ============================================================
 // PASSWORD GENERATOR
 // ============================================================
 function generatePassword(): string {
@@ -214,10 +227,13 @@ export class StripDiceGame {
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
     private feedbackNotified: Set<number> = new Set();
     private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
+    private playerRecords: Record<string, PlayerRecord> = {};
+    private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
 
     constructor(bot: BCConnection) {
         this.bot = bot;
         this.loadFeedbackStatus();
+        this.loadPlayerRecords();
     }
 
     // ============================================================
@@ -230,6 +246,8 @@ export class StripDiceGame {
         const pronouns = extractPronouns(character);
         if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
         if (memberNumber === this.bot.getMemberNumber()) return;
+        this.recordPlayerSeen(memberNumber, name);
+        this.sendWelcomeWhisper(memberNumber, name);
         this.notifyFeedbackStatus(memberNumber, name);
     }
 
@@ -869,6 +887,12 @@ export class StripDiceGame {
         this.feedbackStatus[key] = entry;
         this.saveFeedbackStatus();
 
+        const playerRecord = this.playerRecords[key];
+        if (playerRecord && !playerRecord.feedbackGiven) {
+            playerRecord.feedbackGiven = true;
+            this.savePlayerRecords();
+        }
+
         this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
     }
 
@@ -928,6 +952,85 @@ export class StripDiceGame {
         chunks.forEach((c, i) => {
             setTimeout(() => this.bot.whisper(memberNumber, c), i * 300);
         });
+    }
+
+    // ============================================================
+    // PLAYER TRACKING
+    // ============================================================
+
+    private sendWelcomeWhisper(memberNumber: number, name: string): void {
+        this.bot.whisper(memberNumber,
+            `Welcome, ${name}! StripDiceBot has been getting regular updates thanks to player feedback. ` +
+            `Play a round and let us know what you think — type !join to jump in or !help to see the rules. 🎲`
+        );
+    }
+
+    private loadPlayerRecords(): void {
+        try {
+            const raw = fs.readFileSync(this.playerRecordsPath, "utf8");
+            this.playerRecords = JSON.parse(raw);
+        } catch {
+            this.playerRecords = {};
+        }
+
+        for (const memberNumber of this.loadFeedbackMemberNumbers()) {
+            const record = this.playerRecords[String(memberNumber)];
+            if (record) record.feedbackGiven = true;
+        }
+    }
+
+    private savePlayerRecords(): void {
+        fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
+    }
+
+    // Reads feedback.log and returns the set of member numbers that have
+    // submitted feedback, e.g. lines like "... Missy (#208543): ...".
+    private loadFeedbackMemberNumbers(): Set<number> {
+        const memberNumbers = new Set<number>();
+        try {
+            const raw = fs.readFileSync(path.join(__dirname, "..", "feedback.log"), "utf8");
+            for (const match of raw.matchAll(/\(#(\d+)\)/g)) {
+                memberNumbers.add(Number(match[1]));
+            }
+        } catch {
+            // No feedback log yet
+        }
+        return memberNumbers;
+    }
+
+    private recordPlayerSeen(memberNumber: number, name: string): void {
+        const key = String(memberNumber);
+        const now = centralTimestamp();
+        const existing = this.playerRecords[key];
+        if (existing) {
+            existing.name = name;
+            existing.lastSeen = now;
+        } else {
+            this.playerRecords[key] = {
+                memberNumber,
+                name,
+                firstSeen: now,
+                lastSeen: now,
+                gamesPlayed: 0,
+                gamesWon: 0,
+                feedbackGiven: this.loadFeedbackMemberNumbers().has(memberNumber),
+            };
+        }
+        this.savePlayerRecords();
+    }
+
+    // Called once a game reaches its conclusion (either a winner is found or
+    // everyone is bound), crediting every participant with a completed game.
+    private recordGameCompletion(winnerMemberNumber: number | null): void {
+        for (const player of this.players.values()) {
+            const record = this.playerRecords[String(player.memberNumber)];
+            if (!record) continue;
+            record.gamesPlayed++;
+            if (winnerMemberNumber !== null && player.memberNumber === winnerMemberNumber) {
+                record.gamesWon++;
+            }
+        }
+        this.savePlayerRecords();
     }
 
     private handleFeedbackList(memberNumber: number): void {
@@ -1274,11 +1377,13 @@ export class StripDiceGame {
         const activePlayers = [...this.players.values()].filter(p => !p.isFullyBound);
 
         if (activePlayers.length === 0) {
+            this.recordGameCompletion(null);
             this.endGame();
             return true;
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
+            this.recordGameCompletion(winner.memberNumber);
             if (winner.bondageApplied > 0) {
                 this.removeAllItems(winner.memberNumber);
             }
