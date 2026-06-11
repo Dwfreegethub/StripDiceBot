@@ -51,6 +51,21 @@
         "timestamp": "2026-06-10T12:52:15.659Z",
         "text": "Look for the options to make sure players cannot mess with other players locks",
         "status": "reviewing"
+      },
+      {
+        "timestamp": "2026-06-11T03:57:55.004Z",
+        "text": "If a player is skiped 2x in a row remove them from the game",
+        "status": "reviewing"
+      },
+      {
+        "timestamp": "2026-06-11T04:11:48.326Z",
+        "text": "Add a admin command to reset the game and have the bot remove bondage items from players",
+        "status": "reviewing"
+      },
+      {
+        "timestamp": "2026-06-11T04:35:49.057Z",
+        "text": "Research how to check for male and make a male outfit",
+        "status": "reviewing"
       }
     ]
   },

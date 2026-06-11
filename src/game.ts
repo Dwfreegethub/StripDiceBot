@@ -1237,6 +1237,9 @@ export class StripDiceGame {
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
+            if (winner.bondageApplied > 0) {
+                this.removeAllItems(winner.memberNumber);
+            }
             this.applyEndGameLocks();
             return true;
         }
@@ -1409,21 +1412,47 @@ export class StripDiceGame {
     private removeAllItems(memberNumber: number): void {
         const slotsToRemove = [
             "ItemFeet",
+            "ItemBoots",
+            "ItemLegs",
+            "ItemPelvis",
+            "ItemBreast",
+            "ItemTorso",
+            "ItemTorso2",
+            "ItemArms",
             "ItemHands",
             "ItemNeck",
             "ItemNeckRestraints",
-            "ItemArms",
             "ItemMouth",
             "ItemHead",
-            "ItemLegs",
-            "ItemTorso",
         ];
 
         slotsToRemove.forEach((group, index) => {
             setTimeout(() => {
-                this.bot.removeItem(memberNumber, group);
+                this.removeSlotVerified(memberNumber, group);
             }, index * 200);
         });
+    }
+
+    // Removes whatever is in a slot, unlocking it first if needed, then
+    // re-checks the cached item state and retries until the slot is clear.
+    private removeSlotVerified(memberNumber: number, group: string, attempt: number = 1): void {
+        const current = this.itemStateCache.get(`${memberNumber}:${group}`);
+
+        if (current?.Property?.LockedBy) {
+            this.bot.applyItem(memberNumber, group, current.Name, current.Color, cleanDecodedProperty(current.Property));
+            setTimeout(() => this.bot.removeItem(memberNumber, group), 300);
+        } else {
+            this.bot.removeItem(memberNumber, group);
+        }
+
+        if (attempt >= 5) return;
+
+        setTimeout(() => {
+            const after = this.itemStateCache.get(`${memberNumber}:${group}`);
+            if (after?.Name) {
+                this.removeSlotVerified(memberNumber, group, attempt + 1);
+            }
+        }, 1000);
     }
 
     // ============================================================
