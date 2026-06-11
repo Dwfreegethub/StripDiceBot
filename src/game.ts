@@ -10,6 +10,7 @@ import * as LZString from "lz-string";
 const TEST_MODE = true;
 const TEST_PASSWORD = "TEST1234";
 const DEFAULT_LOCK_MINUTES = 10;
+const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
 
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
@@ -222,6 +223,7 @@ export class StripDiceGame {
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
+    private pendingJoinConfirmations: Map<number, number> = new Map();
     private itemStateCache: Map<string, any> = new Map();
     private lockPermissionWarned: Set<number> = new Set();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
@@ -463,6 +465,16 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !naked if you have nothing on.");
             return;
         }
+
+        const pendingSince = this.pendingJoinConfirmations.get(memberNumber);
+        if (pendingSince === undefined || Date.now() - pendingSince > JOIN_CONFIRMATION_WINDOW_MS) {
+            this.pendingJoinConfirmations.set(memberNumber, Date.now());
+            this.bot.whisper(memberNumber,
+                `Current lock duration is ${this.lockDurationMinutes} minutes. Type !join again to confirm you agree to these stakes.`
+            );
+            return;
+        }
+        this.pendingJoinConfirmations.delete(memberNumber);
 
         const player: Player = {
             memberNumber,
