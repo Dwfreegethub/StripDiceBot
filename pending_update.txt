@@ -1,0 +1,5 @@
+lock time options: 10/15/20 min, default 10
+new player stakes confirmation
+bug fixes: turn deadlock, outfit crash guards, file write safety, removed testcuffs
+improved removal reliability: sequential players, longer unlock gap, failure notifications, smarter reset delay
+welcome message on join, player tracking (players.json)

@@ -5,3 +5,8 @@ src/secrets.ts
 wrapper.output
 decoded*.json
 decoded*_raw.txt
+stripdicebot.out
+lock_release_log.txt
+feedback_status.json
+players.json
+feedback.log

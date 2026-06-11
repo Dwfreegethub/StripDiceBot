@@ -4,12 +4,30 @@ import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 
+process.on("uncaughtException", (err: Error) => {
+    logError(`Uncaught exception: ${err.stack || err.message || err}`);
+    process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+    const details = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    logError(`Unhandled rejection: ${details}`);
+    process.exit(1);
+});
+
 async function main() {
     const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
+    let updateNote: string | null = null;
     if (fs.existsSync(pendingUpdatePath)) {
+        try {
+            updateNote = fs.readFileSync(pendingUpdatePath, "utf8").trim();
+        } catch {
+            updateNote = "";
+        }
         fs.unlinkSync(pendingUpdatePath);
-        log("Removed leftover pending_update.txt from previous restart.");
+        log(`Removed pending_update.txt from previous restart (note: "${updateNote}").`);
     }
+    let restartAnnounced = false;
 
     log("StripDiceBot starting...");
 
@@ -30,35 +48,6 @@ async function main() {
         if (data.Type === "Whisper") {
             const msg = stripOOC(data.Content).trim().toLowerCase();
 
-            // Test command - keep during development
-            if (msg === "!testcuffs") {
-                bot.whisper(memberNumber, "Applying ankle cuffs with timer lock...");
-                bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"]
-                });
-                setTimeout(() => {
-                    bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                        TypeRecord: { typed: 2 },
-                        Difficulty: 0,
-                        Effect: ["Slow", "Lock"],
-                        LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: bot.getMemberNumber(),
-                        LockMemberName: "GameBot",
-                        Password: "DICE",
-                        Hint: "The game password",
-                        LockSet: true,
-                        RemoveItem: true,
-                        ShowTimer: true,
-                        EnableRandomInput: false,
-                        MemberNumberList: [],
-                        RemoveTimer: Date.now() + (5 * 60 * 1000)
-                    });
-                }, 500);
-                return;
-            }
-
             // Pass to game handler
             game.handleWhisper(memberNumber, name, stripOOC(data.Content));
         }
@@ -78,8 +67,27 @@ async function main() {
             log("Room is not public, updating room settings to make it public...");
             bot.makeRoomPublic();
         }
+
+        const myIndex = (data.Character ?? []).findIndex((c: any) => c.MemberNumber === bot.getMemberNumber());
+        if (myIndex > 0) {
+            log(`GameBot is at position ${myIndex} — moving to the leftmost spot...`);
+            for (let i = 0; i < myIndex; i++) {
+                bot.moveLeft();
+            }
+        }
+
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
-        bot.sendChat("🔧 Bot restarted — lock fix applied.");
+
+        if (!restartAnnounced) {
+            restartAnnounced = true;
+            if (updateNote !== null) {
+                bot.sendChat(updateNote
+                    ? `⚙️ Update applied — ${updateNote}. Back online!`
+                    : `⚙️ Update applied. Back online!`);
+            } else {
+                bot.sendChat("Sorry for the interruption — I'm back!");
+            }
+        }
     });
 
     bot.onMemberJoin((data: any) => {
@@ -107,6 +115,10 @@ async function main() {
         const memberNumber = data.SourceMemberNumber;
         log(`Member #${memberNumber} left the room.`);
         game.onMemberLeave(memberNumber);
+    });
+
+    bot.onItemChange((data: any) => {
+        game.onItemChange(data);
     });
 
     bot.onReconnect(() => {

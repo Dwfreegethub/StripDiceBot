@@ -1,14 +1,40 @@
 import { BCConnection } from "./connection";
-import { log } from "./logger";
+import { log, centralTimestamp } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
+import * as LZString from "lz-string";
 
 // ============================================================
 // TEST MODE - set to false for production
 // ============================================================
 const TEST_MODE = true;
 const TEST_PASSWORD = "TEST1234";
-const TEST_LOCK_MINUTES = 5;
+const DEFAULT_LOCK_MINUTES = 10;
+const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
+const STARTING_DICE_MAX = 100;
+
+// ============================================================
+// ITEM REMOVAL - end-of-game bondage cleanup
+// ============================================================
+const REMOVAL_SLOTS = [
+    "ItemFeet",
+    "ItemBoots",
+    "ItemLegs",
+    "ItemPelvis",
+    "ItemBreast",
+    "ItemTorso",
+    "ItemTorso2",
+    "ItemArms",
+    "ItemHands",
+    "ItemNeck",
+    "ItemNeckRestraints",
+    "ItemMouth",
+    "ItemHead",
+];
+const REMOVAL_SLOT_DELAY_MS = 200; // Stagger between each slot's removal attempt
+const REMOVAL_UNLOCK_GAP_MS = 500; // Gap between unlocking an item and removing it
+const REMOVAL_RETRY_DELAY_MS = 1000;
+const MAX_REMOVAL_ATTEMPTS = 5;
 
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
@@ -52,224 +78,83 @@ interface BondageOutfit {
     items: BondageItem[];
 }
 
-const BONDAGE_OUTFITS: BondageOutfit[] = [
-    {
-        name: "Steel Restraints",
-        items: [
-            {
-                group: "ItemFeet",
-                name: "HighStyleSteelAnkleCuffs",
-                color: "#A23939",
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"]
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "SlenderSteelCollar",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "ExtremeCorset",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "HighStyleSteelCuffs",
-                color: ["#FFFFFF", "#FFFFFF"],
-                property: {
-                    TypeRecord: { typed: 1 },
-                    Difficulty: 0,
-                    Effect: ["Block", "BlockWardrobe"],
-                    SetPose: ["BackBoxTie"],
-                    AllowActivePose: ["BackBoxTie"]
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "CollarChainLong",
-                color: "#FFFFFF",
-                property: {
-                    Difficulty: 0,
-                    Effect: []
-                }
-            },
-            // TODO: Add armbinder once asset name confirmed
-            // TODO: Add gag once asset name confirmed (known issues)
-        ]
-    },
-    {
-        name: "BondageDice",
-        items: [
-            {
-                group: "ItemFeet",
-                name: "LeatherDeluxeAnkleCuffs",
-                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemLegs",
-                name: "LeatherDeluxeLegCuffs",
-                color: ["#909090", "#131313", "#006460", "#909090", "Default"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"],
-                    SetPose: ["BaseLower"],
-                    AllowActivePose: ["BaseLower", "Kneel", "LegsOpen", "LegsClosed", "Spread", "Hogtied", "AllFours"]
-                }
-            },
-            {
-                group: "ItemPelvis",
-                name: "HempRope",
-                color: ["#009993"],
-                property: {
-                    TypeRecord: { typed: 3 },
-                    Difficulty: 5,
-                    Effect: ["CrotchRope"],
-                    OverridePriority: 21
-                }
-            },
-            {
-                group: "ItemTorso2",
-                name: "HempRopeHarness",
-                color: ["#000000"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 1,
-                    Effect: ["CrotchRope"],
-                    Attribute: ["IsHipHarness"],
-                    OverridePriority: 25
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "Corset4",
-                color: ["#009993"],
-                property: {
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "ShinyArmbinder",
-                color: ["#009993", "#5D5D5D", "#CACACA", "Default"],
-                property: {
-                    TypeRecord: { typed: 3 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "ChokeChain",
-                color: ["Default", "Default"],
-                property: {
-                    Difficulty: 0,
-                    OverridePriority: 31
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "BordelleCollar",
-                color: ["Default"],
-                property: {
-                    Difficulty: 0
-                }
-            },
-        ]
-    },
-    {
-        name: "DroneSlave",
-        items: [
-            {
-                group: "ItemLegs",
-                name: "LeatherDeluxeLegCuffs",
-                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
-                property: {
-                    TypeRecord: { typed: 2 }
-                }
-            },
-            {
-                group: "ItemFeet",
-                name: "SpreaderMetal",
-                color: ["#717171"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    SetPose: ["LegsOpen"],
-                    AllowActivePose: ["LegsOpen"]
-                }
-            },
-            {
-                group: "ItemBoots",
-                name: "BalletHeels1",
-                color: ["#717171"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemTorso",
-                name: "LeatherStrapHarness",
-                color: ["#C6C6C6"],
-                property: {
-                    TypeRecord: { typed: 0 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemTorso2",
-                name: "FuturisticHarness",
-                color: ["#BDBDBD", "#BDBDBD", "#BDBDBD", "#BDBDBD"],
-                property: {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0
-                }
-            },
-            {
-                group: "ItemArms",
-                name: "SmoothLeatherArmbinder1",
-                color: ["#717171", "#717171", "#717171", "#717171", "#717171"],
-                property: {
-                    TypeRecord: { b: 0, s: 3 },
-                    Difficulty: 40,
-                    Block: ["ItemHands"],
-                    Effect: ["Block", "BlockWardrobe"]
-                }
-            },
-            {
-                group: "ItemNeck",
-                name: "LatexPostureCollar",
-                color: ["#C5C5C5"],
-                property: {
-                    OverridePriority: 35
-                }
-            },
-            {
-                group: "ItemNeckRestraints",
-                name: "CollarChainMedium",
-                color: ["#717171"],
-                property: {
-                    OverridePriority: 14
-                }
-            },
-        ]
+// Raw shape of an entry in outfits.json. Either a curated "items" array,
+// or a BC appearance share code plus the list of item groups to extract from it.
+interface OutfitDefinition {
+    name: string;
+    items?: BondageItem[];
+    code?: string;
+    groups?: string[];
+}
+
+// BC sends each character's body/appearance as an array of items keyed by
+// "Group". There's no explicit IsMale/BodyType flag, but the "Pronouns"
+// group ("HeHim" / "SheHer" / "TheyThem") reflects how the player has set
+// up their character and is the closest available signal for tailoring
+// outfit selection.
+function extractPronouns(character: any): string | undefined {
+    return character?.Appearance?.find((a: any) => a.Group === "Pronouns")?.Name;
+}
+
+// Strips owner/lock-specific fields from a decoded appearance item's Property
+// so the bot can apply its own lock on top of it.
+function cleanDecodedProperty(property: any): any {
+    if (!property) return {};
+    const {
+        LockedBy, LockMemberNumber, LockMemberName, Password, Hint, LockSet,
+        RemoveItem, ShowTimer, EnableRandomInput, MemberNumberList, RemoveTimer,
+        ...rest
+    } = property;
+    if (Array.isArray(rest.Effect)) {
+        rest.Effect = rest.Effect.filter((e: string) => e !== "Lock");
     }
-];
+    return rest;
+}
+
+function loadBondageOutfits(): BondageOutfit[] {
+    try {
+        const filePath = path.join(__dirname, "..", "outfits.json");
+        const raw = fs.readFileSync(filePath, "utf8");
+        const data: { outfits: OutfitDefinition[] } = JSON.parse(raw);
+
+        const outfits: BondageOutfit[] = [];
+
+        for (const def of data.outfits) {
+            if (def.code && def.groups) {
+                const decompressed = LZString.decompressFromBase64(def.code);
+                if (!decompressed) {
+                    log(`Outfit "${def.name}": failed to decompress appearance code, skipping.`);
+                    continue;
+                }
+                const appearance: any[] = JSON.parse(decompressed);
+                const items: BondageItem[] = def.groups.map(group => {
+                    const entry = appearance.find(e => e.Group === group);
+                    if (!entry) {
+                        throw new Error(`Outfit "${def.name}": group "${group}" not found in appearance code`);
+                    }
+                    return {
+                        group: entry.Group,
+                        name: entry.Name,
+                        color: entry.Color,
+                        property: cleanDecodedProperty(entry.Property)
+                    };
+                });
+                outfits.push({ name: def.name, items });
+            } else if (def.items) {
+                outfits.push({ name: def.name, items: def.items });
+            } else {
+                throw new Error(`Outfit "${def.name}" has neither "items" nor "code"+"groups"`);
+            }
+        }
+
+        return outfits;
+    } catch (err) {
+        log(`FATAL: Could not load outfits.json — check the file exists and is valid JSON: ${err}`);
+        process.exit(1);
+    }
+}
+
+const BONDAGE_OUTFITS: BondageOutfit[] = loadBondageOutfits();
 
 // ============================================================
 // GAME STATES
@@ -302,7 +187,7 @@ interface Player {
     midGameJoin: boolean;       // Joined while a game was already in progress
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
     pendingClothing: string[];  // Items collected so far during guided Q&A
-    bondageOutfit: BondageItem[] | null; // Outfit assigned once this player starts receiving bondage
+    bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
 }
 
 // ============================================================
@@ -329,6 +214,19 @@ const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
 };
 
 // ============================================================
+// PLAYER TRACKING
+// ============================================================
+interface PlayerRecord {
+    memberNumber: number;
+    name: string;
+    firstSeen: string;
+    lastSeen: string;
+    gamesPlayed: number;
+    gamesWon: number;
+    feedbackGiven: boolean;
+}
+
+// ============================================================
 // PASSWORD GENERATOR
 // ============================================================
 function generatePassword(): string {
@@ -341,6 +239,18 @@ function generatePassword(): string {
 }
 
 // ============================================================
+// COMMAND DISPATCH TABLE
+// ============================================================
+type CommandHandler = (memberNumber: number, name: string, msg: string, message: string) => void;
+
+interface CommandDef {
+    handler: CommandHandler;
+    whisperOnly?: boolean; // Only dispatched from handleWhisper
+    chatOnly?: boolean;    // Only dispatched from handleChat
+    prefix?: boolean;      // Match if msg starts with the command string, instead of equals
+}
+
+// ============================================================
 // GAME CLASS
 // ============================================================
 export class StripDiceGame {
@@ -349,28 +259,34 @@ export class StripDiceGame {
     private players: Map<number, Player> = new Map();
     private turnOrder: number[] = [];
     private currentTurnIndex: number = 0;
-    private currentDiceMax: number = 100;
+    private currentDiceMax: number = STARTING_DICE_MAX;
     private countdownTimer: NodeJS.Timeout | null = null;
     private turnTimer: NodeJS.Timeout | null = null;
-    private lockDurationMinutes: number = TEST_MODE ? TEST_LOCK_MINUTES : 30;
+    private lockDurationMinutes: number = DEFAULT_LOCK_MINUTES;
     private roomMembers: Set<number> = new Set();
     private nameCache: Map<number, string> = new Map();
+    private pronounsCache: Map<number, string> = new Map();
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
-    private isFirstRoll: boolean = true;    // Track if this is the very first roll
     private safewordMember: number | null = null;
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
-    private playerPermissions: Map<number, { itemPermission: number; whiteList: number[] }> = new Map();
+    private pendingJoinConfirmations: Map<number, number> = new Map();
+    private itemStateCache: Map<string, any> = new Map();
     private lockPermissionWarned: Set<number> = new Set();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
     private feedbackNotified: Set<number> = new Set();
     private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
+    private playerRecords: Record<string, PlayerRecord> = {};
+    private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
+    private feedbackMemberNumbers: Set<number> = new Set();
 
     constructor(bot: BCConnection) {
         this.bot = bot;
         this.loadFeedbackStatus();
+        this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
+        this.loadPlayerRecords();
     }
 
     // ============================================================
@@ -380,8 +296,11 @@ export class StripDiceGame {
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
         this.roomMembers.add(memberNumber);
         this.nameCache.set(memberNumber, name);
-        if (character) this.updatePlayerPermission(memberNumber, character);
+        const pronouns = extractPronouns(character);
+        if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
         if (memberNumber === this.bot.getMemberNumber()) return;
+        this.recordPlayerSeen(memberNumber, name);
+        this.sendWelcomeWhisper(memberNumber, name);
         this.notifyFeedbackStatus(memberNumber, name);
     }
 
@@ -390,9 +309,40 @@ export class StripDiceGame {
         if (this.state !== GameState.Idle && this.players.has(memberNumber)) {
             const player = this.players.get(memberNumber)!;
             this.bot.sendChat(`${player.name} has left the room and been removed from the game.`);
+
+            const removedIndex = this.turnOrder.indexOf(memberNumber);
+            const wasCurrentTurn = removedIndex !== -1 && removedIndex === this.currentTurnIndex;
+
             this.players.delete(memberNumber);
             this.turnOrder = this.turnOrder.filter(n => n !== memberNumber);
-            this.checkGameEndCondition();
+
+            if (this.players.size === 0) {
+                this.bot.sendChat(`No players remaining. Resetting.`);
+                this.resetGame();
+                return;
+            }
+
+            if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
+                this.currentTurnIndex--;
+            }
+            const turnIndexOutOfRange = this.currentTurnIndex >= this.turnOrder.length;
+            if (turnIndexOutOfRange) {
+                this.currentTurnIndex = 0;
+            }
+
+            if (this.checkGameEndCondition()) return;
+
+            const turnInProgressState = this.state === GameState.Rolling ||
+                this.state === GameState.WaitingRemove ||
+                this.state === GameState.WaitingBondage;
+
+            if (turnInProgressState && (wasCurrentTurn || turnIndexOutOfRange)) {
+                this.clearTurnTimer();
+                this.currentDiceMax = STARTING_DICE_MAX;
+                this.state = GameState.Rolling;
+                this.announceCurrentTurn();
+                this.startTurnTimer();
+            }
         }
     }
 
@@ -403,14 +353,66 @@ export class StripDiceGame {
                 this.roomMembers.add(char.MemberNumber);
                 const name = char.Nickname || char.Name;
                 if (name) this.nameCache.set(char.MemberNumber, name);
-                this.updatePlayerPermission(char.MemberNumber, char);
+                const pronouns = extractPronouns(char);
+                if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
             }
         }
+    }
+
+    public onItemChange(data: any): void {
+        const target = data?.Target;
+        const item = data?.Item;
+        if (typeof target !== "number" || !item?.Group) return;
+        this.itemStateCache.set(`${target}:${item.Group}`, item);
     }
 
     // ============================================================
     // PUBLIC - command handlers
     // ============================================================
+
+    // Commands shared by handleWhisper and handleChat (plus a few that are
+    // restricted to one source via whisperOnly/chatOnly). Order matters for
+    // prefix entries: more specific matches (e.g. "!feedback list") must
+    // come before broader prefixes (e.g. "!feedback ").
+    private readonly commandTable: Record<string, CommandDef> = {
+        "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!join": { handler: (mn, name) => this.handleJoin(mn, name) },
+        "!start": { handler: (mn) => this.handleStart(mn) },
+        "!cancel": { handler: (mn) => this.handleCancel(mn) },
+        "!wearing": { handler: (mn) => this.startGuidedClothing(mn), whisperOnly: true },
+        "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), whisperOnly: true, prefix: true },
+        "!naked": { handler: (mn) => this.handleNoWearing(mn) },
+        "!same": { handler: (mn) => this.handleSame(mn) },
+        "!ready": { handler: (mn) => this.handleReady(mn) },
+        "!locktime ": { handler: (mn, _name, _msg, message) => this.handleLockTime(mn, message), whisperOnly: true, prefix: true },
+        "!lock10": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!lock15": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!lock20": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
+        "!midgamejoin ": { handler: (mn, _name, _msg, message) => this.handleMidGameJoinToggle(mn, message), whisperOnly: true, prefix: true },
+        "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
+        "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
+        "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
+        "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
+        "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
+        "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
+        "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
+        "!help": { handler: (mn) => this.handleHelp(mn) },
+        "!about": { handler: (mn) => this.handleAbout(mn) },
+        "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
+        "!removed": { handler: (mn, name) => this.handleRemoved(mn, name), chatOnly: true },
+        "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
+    };
+
+    private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
+        for (const [command, def] of Object.entries(this.commandTable)) {
+            const matches = def.prefix ? msg.startsWith(command) : msg === command;
+            if (!matches) continue;
+            if (def.whisperOnly && source !== "whisper") continue;
+            if (def.chatOnly && source !== "chat") continue;
+            def.handler(memberNumber, name, msg, message);
+            return;
+        }
+    }
 
     public handleWhisper(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
@@ -422,135 +424,12 @@ export class StripDiceGame {
             return;
         }
 
-        if (msg === "!roll") {
-            this.handleRoll(memberNumber, name);
-            return;
-        }
-        if (msg === "!join") {
-            this.handleJoin(memberNumber, name);
-            return;
-        }
-        if (msg === "!start") {
-            this.handleStart(memberNumber);
-            return;
-        }
-        if (msg === "!cancel") {
-            this.handleCancel(memberNumber);
-            return;
-        }
-        if (msg === "!wearing") {
-            this.startGuidedClothing(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!wearing ")) {
-            this.handleWearing(memberNumber, message);
-            return;
-        }
-        if (msg === "!naked") {
-            this.handleNoWearing(memberNumber);
-            return;
-        }
-        if (msg === "!same") {
-            this.handleSame(memberNumber);
-            return;
-        }
-        if (msg === "!ready") {
-            this.handleReady(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!locktime ")) {
-            this.handleLockTime(memberNumber, message);
-            return;
-        }
-        if (msg.startsWith("!midgamejoin ")) {
-            this.handleMidGameJoinToggle(memberNumber, message);
-            return;
-        }
-        if (msg.startsWith("!testoutfit ")) {
-            this.handleTestOutfit(memberNumber, message);
-            return;
-        }
-        if (msg.startsWith("!setstatus ")) {
-            this.handleSetStatus(memberNumber, message);
-            return;
-        }
-        if (msg === "!feedback list") {
-            this.handleFeedbackList(memberNumber);
-            return;
-        }
-        if (msg === "!safeword") {
-            this.handleSafeword(memberNumber, name);
-            return;
-        }
-        if (msg === "!released" || msg === "!stuck") {
-            this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
-            return;
-        }
-        if (msg === "!help") {
-            this.handleHelp(memberNumber);
-            return;
-        }
-        if (msg === "!about") {
-            this.handleAbout(memberNumber);
-            return;
-        }
-        if (msg.startsWith("!feedback ")) {
-            this.handleFeedback(memberNumber, name, message);
-            return;
-        }
+        this.dispatchCommand(memberNumber, name, message, msg, "whisper");
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
-
-        if (msg === "!roll") {
-            this.handleRoll(memberNumber, name);
-            return;
-        }
-        if (msg === "!removed") {
-            this.handleRemoved(memberNumber, name);
-            return;
-        }
-        if (msg === "!continue") {
-            this.handleContinue(memberNumber);
-            return;
-        }
-        if (msg === "!join") {
-            this.handleJoin(memberNumber, name);
-            return;
-        }
-        if (msg === "!start") {
-            this.handleStart(memberNumber);
-            return;
-        }
-        if (msg === "!cancel") {
-            this.handleCancel(memberNumber);
-            return;
-        }
-        if (msg === "!ready") {
-            this.handleReady(memberNumber);
-            return;
-        }
-        if (msg === "!naked") {
-            this.handleNoWearing(memberNumber);
-            return;
-        }
-        if (msg === "!same") {
-            this.handleSame(memberNumber);
-            return;
-        }
-        if (msg === "!released" || msg === "!stuck") {
-            this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
-            return;
-        }
-        if (msg === "!help") {
-            this.handleHelp(memberNumber);
-            return;
-        }
-        if (msg === "!about") {
-            this.handleAbout(memberNumber);
-            return;
-        }
+        this.dispatchCommand(memberNumber, name, message, msg, "chat");
     }
 
     // ============================================================
@@ -578,6 +457,16 @@ export class StripDiceGame {
             return;
         }
 
+        const pendingSince = this.pendingJoinConfirmations.get(memberNumber);
+        if (pendingSince === undefined || Date.now() - pendingSince > JOIN_CONFIRMATION_WINDOW_MS) {
+            this.pendingJoinConfirmations.set(memberNumber, Date.now());
+            this.bot.whisper(memberNumber,
+                `Current lock duration is ${this.lockDurationMinutes} minutes. Type !join again to confirm you agree to these stakes.`
+            );
+            return;
+        }
+        this.pendingJoinConfirmations.delete(memberNumber);
+
         const player: Player = {
             memberNumber,
             name,
@@ -599,8 +488,15 @@ export class StripDiceGame {
         if (midGame) {
             this.bot.sendChat(`${name} is joining mid-game! They'll enter the turn rotation once ready.`);
         } else {
+            const isFirstJoin = this.players.size === 1;
             this.state = GameState.Registration;
             this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
+            if (isFirstJoin) {
+                this.bot.sendChat(
+                    `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. ` +
+                    `Default is ${DEFAULT_LOCK_MINUTES} minutes — game starts in 30 seconds with the current setting.`
+                );
+            }
         }
 
         const last = this.lastClothing.get(memberNumber);
@@ -658,12 +554,9 @@ export class StripDiceGame {
     }
 
     private handleWearing(memberNumber: number, message: string): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
 
-        const player = this.players.get(memberNumber)!;
         const parts = message.trim().toLowerCase().split(/\s+/).slice(1);
         const declared: string[] = [];
 
@@ -691,11 +584,8 @@ export class StripDiceGame {
     }
 
     private startGuidedClothing(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         player.clothingQuestionIndex = 0;
         player.pendingClothing = [];
         player.ready = false;
@@ -739,16 +629,13 @@ export class StripDiceGame {
     }
 
     private handleSame(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         const last = this.lastClothing.get(memberNumber);
         if (!last || last.length === 0) {
             this.bot.whisper(memberNumber, "No previous outfit on record. Please use !wearing to declare your clothing.");
             return;
         }
-        const player = this.players.get(memberNumber)!;
         player.clothing = [...last];
         player.isNaked = false;
         player.ready = false;
@@ -760,11 +647,8 @@ export class StripDiceGame {
     }
 
     private handleNoWearing(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         player.clothing = [];
         player.isNaked = true;
         player.ready = false;
@@ -773,11 +657,8 @@ export class StripDiceGame {
     }
 
     private handleReady(memberNumber: number): void {
-        if (!this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
-        const player = this.players.get(memberNumber)!;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
 
         if (player.clothing.length === 0 && !player.isNaked) {
             this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
@@ -806,6 +687,27 @@ export class StripDiceGame {
         return memberNumber === 208543 || memberNumber === this.bot.getMemberNumber();
     }
 
+    // Looks up a player, whispering the standard "not joined" message and
+    // returning null if they haven't joined the current game.
+    private requirePlayer(memberNumber: number): Player | null {
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+            return null;
+        }
+        return player;
+    }
+
+    // Whispers the standard "admin only" message and returns false if the
+    // given member is not the game admin.
+    private requireAdmin(memberNumber: number): boolean {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+            return false;
+        }
+        return true;
+    }
+
     private handleLockTime(memberNumber: number, message: string): void {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can set the lock duration.");
@@ -820,6 +722,18 @@ export class StripDiceGame {
         this.lockDurationMinutes = minutes;
         this.bot.whisper(memberNumber, `Lock duration set to ${minutes} minutes.`);
         this.bot.sendChat(`🔒 End game locks will be set to ${minutes} minutes.`);
+    }
+
+    private handleLockPreset(memberNumber: number, name: string, msg: string): void {
+        if (this.state === GameState.Rolling || this.state === GameState.WaitingRemove ||
+            this.state === GameState.WaitingBondage || this.state === GameState.SafewordPause ||
+            this.state === GameState.GameOver) {
+            this.bot.whisper(memberNumber, "The game has already started — lock duration is locked in.");
+            return;
+        }
+        const minutes = parseInt(msg.replace("!lock", ""), 10);
+        this.lockDurationMinutes = minutes;
+        this.bot.sendChat(`🔒 ${name} set the lock duration to ${minutes} minutes.`);
     }
 
     private handleMidGameJoinToggle(memberNumber: number, message: string): void {
@@ -837,16 +751,30 @@ export class StripDiceGame {
         this.bot.sendChat(`ℹ️ Mid-game joining has been turned ${this.allowMidGameJoin ? "ON" : "OFF"} by the admin.`);
     }
 
+    private handleReset(memberNumber: number): void {
+        if (!this.requireAdmin(memberNumber)) return;
+        if (this.state === GameState.Idle && this.players.size === 0) {
+            this.bot.whisper(memberNumber, "No game is currently running.");
+            return;
+        }
+
+        this.clearCountdown();
+        this.clearTurnTimer();
+
+        let removalDelay = 0;
+        for (const player of this.players.values()) {
+            this.removeAllItems(player.memberNumber, removalDelay);
+            removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
+        }
+
+        this.bot.sendChat(`🛑 The game has been reset by an admin.`);
+        this.resetGame();
+    }
+
     private handleTestOutfit(memberNumber: number, message: string): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
-        const player = this.players.get(memberNumber);
-        if (!player) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
+        const player = this.requirePlayer(memberNumber);
+        if (!player) return;
         const requested = message.trim().slice("!testoutfit ".length).trim();
         const outfit = BONDAGE_OUTFITS.find(o => o.name.toLowerCase() === requested.toLowerCase());
         if (!outfit) {
@@ -854,16 +782,13 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, `Unknown outfit "${requested}". Available outfits: ${names}`);
             return;
         }
-        player.bondageOutfit = outfit.items;
+        player.bondageOutfit = outfit;
         player.bondageApplied = 0;
         this.bot.whisper(memberNumber, `Your next bondage outfit has been forced to: ${outfit.name}`);
     }
 
     private handleSetStatus(memberNumber: number, message: string): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
-            return;
-        }
+        if (!this.requireAdmin(memberNumber)) return;
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
         const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
@@ -948,7 +873,7 @@ export class StripDiceGame {
             return;
         }
 
-        this.currentDiceMax = 100;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         // Make sure currentTurnIndex is still valid
         if (this.currentTurnIndex >= this.turnOrder.length) {
@@ -975,11 +900,16 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
             return;
         }
-        const timestamp = new Date().toISOString();
+        const timestamp = centralTimestamp();
         const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
         const filePath = path.join(__dirname, "..", "feedback.log");
-        fs.appendFileSync(filePath, line, "utf8");
+        try {
+            fs.appendFileSync(filePath, line, "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write feedback.log: " + err);
+        }
         log(`Feedback from ${name}: ${text}`);
+        this.feedbackMemberNumbers.add(memberNumber);
 
         const key = String(memberNumber);
         const entry = this.feedbackStatus[key] ?? { name, items: [] };
@@ -987,6 +917,12 @@ export class StripDiceGame {
         entry.items.push({ timestamp, text, status: "reviewing" });
         this.feedbackStatus[key] = entry;
         this.saveFeedbackStatus();
+
+        const playerRecord = this.playerRecords[key];
+        if (playerRecord && !playerRecord.feedbackGiven) {
+            playerRecord.feedbackGiven = true;
+            this.savePlayerRecords();
+        }
 
         this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
     }
@@ -1005,7 +941,11 @@ export class StripDiceGame {
     }
 
     private saveFeedbackStatus(): void {
-        fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
+        try {
+            fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write feedback_status.json: " + err);
+        }
     }
 
     private notifyFeedbackStatus(memberNumber: number, name: string): void {
@@ -1018,18 +958,122 @@ export class StripDiceGame {
             `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
         );
 
-        this.bot.whisper(memberNumber,
+        this.sendLongWhisper(memberNumber,
             `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
             lines.join("\n") +
             `\n\nThanks for helping us improve the game! 💕`
         );
     }
 
-    private handleFeedbackList(memberNumber: number): void {
-        if (!this.isAdmin(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the game admin can use this command.");
+    // Whispers tend to get silently dropped by the BC server if they exceed
+    // its max chat message length, so split long messages on line boundaries.
+    private sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
+        if (text.length <= maxLen) {
+            this.bot.whisper(memberNumber, text);
             return;
         }
+
+        const chunks: string[] = [];
+        let chunk = "";
+        for (const line of text.split("\n")) {
+            if (chunk && chunk.length + 1 + line.length > maxLen) {
+                chunks.push(chunk);
+                chunk = "";
+            }
+            chunk = chunk ? `${chunk}\n${line}` : line;
+        }
+        if (chunk) chunks.push(chunk);
+
+        chunks.forEach((c, i) => {
+            setTimeout(() => this.bot.whisper(memberNumber, c), i * 300);
+        });
+    }
+
+    // ============================================================
+    // PLAYER TRACKING
+    // ============================================================
+
+    private sendWelcomeWhisper(memberNumber: number, name: string): void {
+        this.bot.whisper(memberNumber,
+            `Welcome, ${name}! StripDiceBot has been getting regular updates thanks to player feedback. ` +
+            `Play a round and let us know what you think — type !join to jump in or !help to see the rules. 🎲`
+        );
+    }
+
+    private loadPlayerRecords(): void {
+        try {
+            const raw = fs.readFileSync(this.playerRecordsPath, "utf8");
+            this.playerRecords = JSON.parse(raw);
+        } catch {
+            this.playerRecords = {};
+        }
+
+        for (const memberNumber of this.feedbackMemberNumbers) {
+            const record = this.playerRecords[String(memberNumber)];
+            if (record) record.feedbackGiven = true;
+        }
+    }
+
+    private savePlayerRecords(): void {
+        try {
+            fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write players.json: " + err);
+        }
+    }
+
+    // Reads feedback.log and returns the set of member numbers that have
+    // submitted feedback, e.g. lines like "... Missy (#208543): ...".
+    private loadFeedbackMemberNumbers(): Set<number> {
+        const memberNumbers = new Set<number>();
+        try {
+            const raw = fs.readFileSync(path.join(__dirname, "..", "feedback.log"), "utf8");
+            for (const match of raw.matchAll(/\(#(\d+)\)/g)) {
+                memberNumbers.add(Number(match[1]));
+            }
+        } catch {
+            // No feedback log yet
+        }
+        return memberNumbers;
+    }
+
+    private recordPlayerSeen(memberNumber: number, name: string): void {
+        const key = String(memberNumber);
+        const now = centralTimestamp();
+        const existing = this.playerRecords[key];
+        if (existing) {
+            existing.name = name;
+            existing.lastSeen = now;
+        } else {
+            this.playerRecords[key] = {
+                memberNumber,
+                name,
+                firstSeen: now,
+                lastSeen: now,
+                gamesPlayed: 0,
+                gamesWon: 0,
+                feedbackGiven: this.feedbackMemberNumbers.has(memberNumber),
+            };
+        }
+        this.savePlayerRecords();
+    }
+
+    // Called once a game reaches its conclusion (either a winner is found or
+    // everyone is bound), crediting every participant with a completed game.
+    private recordGameCompletion(winnerMemberNumber: number | null): void {
+        for (const player of this.players.values()) {
+            const record = this.playerRecords[String(player.memberNumber)];
+            if (!record) continue;
+            record.gamesPlayed++;
+            if (winnerMemberNumber !== null && player.memberNumber === winnerMemberNumber) {
+                record.gamesWon++;
+            }
+        }
+        this.savePlayerRecords();
+    }
+
+    private handleFeedbackList(memberNumber: number): void {
+        if (!this.requireAdmin(memberNumber)) return;
 
         const entries = Object.entries(this.feedbackStatus);
         if (entries.length === 0) {
@@ -1045,7 +1089,7 @@ export class StripDiceGame {
             });
         }
 
-        this.bot.whisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
+        this.sendLongWhisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
     }
 
     private handleHelp(memberNumber: number): void {
@@ -1058,6 +1102,7 @@ export class StripDiceGame {
             `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
             `!ready - Confirm you are ready to play\n` +
+            `!lock10 / !lock15 / !lock20 - Set the end-game lock duration before the game starts (default ${DEFAULT_LOCK_MINUTES} min)\n` +
             `!start - Start the game early\n` +
             `!cancel - Cancel the countdown\n` +
             `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
@@ -1072,6 +1117,7 @@ export class StripDiceGame {
             text +=
                 `\n\n=== Admin Commands ===\n` +
                 `!locktime [mins] - Set end game lock duration\n` +
+                `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
                 `!midgamejoin on/off - Allow players to join games already in progress\n` +
                 `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
                 `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
@@ -1095,23 +1141,10 @@ export class StripDiceGame {
         }
 
         this.clearTurnTimer();
+        currentPlayer.timeoutCount = 0;
 
         const roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
-
-        // --------------------------------------------------------
-        // TODO: First roll special case
-        // If this.isFirstRoll === true AND roll === 1:
-        //   - Announce that the first player wins
-        //   - All other players must strip and get bound immediately
-        //   - Skip normal game flow
-        // --------------------------------------------------------
-        if (this.isFirstRoll && roll === 1) {
-            // Placeholder - just treat as normal loss for now
-            log("TODO: First roll = 1 special case triggered");
-        }
-
-        this.isFirstRoll = false;
 
         if (roll === 1) {
             this.handleLoss(currentPlayer);
@@ -1141,8 +1174,7 @@ export class StripDiceGame {
         this.bot.sendChat(`✅ ${name} has removed their item. Continuing the game...`);
 
         // Loser rolls first next round with fresh D100
-        this.currentDiceMax = 100;
-        this.isFirstRoll = false;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         this.startTurnTimer();
         this.bot.sendChat(`🎲 ${name} rolls first this round! Type !roll (D${this.currentDiceMax})`);
@@ -1217,7 +1249,6 @@ export class StripDiceGame {
 
     private startGame(): void {
         this.state = GameState.Rolling;
-        this.isFirstRoll = true;
 
         // Generate password
         this.gamePassword = TEST_MODE ? TEST_PASSWORD : generatePassword();
@@ -1227,7 +1258,7 @@ export class StripDiceGame {
         this.turnOrder = [...this.players.keys()];
         this.shuffleArray(this.turnOrder);
         this.currentTurnIndex = 0;
-        this.currentDiceMax = 100;
+        this.currentDiceMax = STARTING_DICE_MAX;
 
         const orderNames = this.turnOrder.map(n => this.getPlayerName(n)).join(" → ");
         this.bot.sendChat(`🎲 === STRIP DICE BEGINS === 🎲`);
@@ -1282,14 +1313,44 @@ export class StripDiceGame {
         }
     }
 
+    // Builds the Property object for a padlocked bondage item, used both
+    // when applying a fresh bondage item mid-game and when locking everyone
+    // up at the end of the game.
+    private buildLockedItemProperty(
+        item: BondageItem,
+        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
+    ): any {
+        return {
+            ...item.property,
+            Effect: [...(item.property.Effect || []), "Lock"],
+            LockedBy: "TimerPasswordPadlock",
+            LockMemberNumber: this.bot.getMemberNumber(),
+            LockMemberName: "GameBot",
+            Password: this.gamePassword,
+            Hint: options.hint,
+            LockSet: true,
+            RemoveItem: options.removeItem,
+            ShowTimer: options.showTimer,
+            EnableRandomInput: false,
+            MemberNumberList: [],
+            RemoveTimer: options.removeTimer
+        };
+    }
+
     private applyNextBondageItem(player: Player): void {
         if (!player.bondageOutfit) {
-            player.bondageOutfit = BONDAGE_OUTFITS[Math.floor(Math.random() * BONDAGE_OUTFITS.length)].items;
+            const pool = this.getEligibleOutfits(player.memberNumber);
+            if (pool.length === 0) {
+                this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                this.resetGame();
+                return;
+            }
+            player.bondageOutfit = pool[Math.floor(Math.random() * pool.length)];
             log(`${player.name} assigned bondage outfit: ${this.getBondageOutfitName(player.bondageOutfit)}`);
             this.bondagePhaseStarted = true;
         }
 
-        const item = player.bondageOutfit[player.bondageApplied];
+        const item = player.bondageOutfit.items[player.bondageApplied];
 
         if (!item) {
             player.isFullyBound = true;
@@ -1312,35 +1373,23 @@ export class StripDiceGame {
 
         // Apply lock after short delay
         setTimeout(() => {
-            if (this.hasLockPermission(player.memberNumber)) {
-                this.bot.applyItem(
-                    player.memberNumber,
-                    item.group,
-                    item.name,
-                    item.color,
-                    {
-                        ...item.property,
-                        Effect: [...(item.property.Effect || []), "Lock"],
-                        LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: this.bot.getMemberNumber(),
-                        LockMemberName: "GameBot",
-                        Password: this.gamePassword,
-                        Hint: "Game in progress...",
-                        LockSet: true,
-                        RemoveItem: false,
-                        ShowTimer: false,
-                        EnableRandomInput: false,
-                        MemberNumberList: [],
-                        RemoveTimer: Date.now() + (24 * 60 * 60 * 1000)
-                    }
-                );
-            } else {
-                this.notifyLockPermissionIssue(player);
-            }
+            this.bot.applyItem(
+                player.memberNumber,
+                item.group,
+                item.name,
+                item.color,
+                this.buildLockedItemProperty(item, {
+                    hint: "Game in progress...",
+                    removeItem: false,
+                    showTimer: false,
+                    removeTimer: Date.now() + (24 * 60 * 60 * 1000)
+                })
+            );
+            this.verifyLockApplied(player, item.group, item.name);
 
             player.bondageApplied++;
 
-            if (player.bondageApplied >= player.bondageOutfit!.length) {
+            if (player.bondageApplied >= player.bondageOutfit!.items.length) {
                 player.isFullyBound = true;
                 this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
@@ -1350,14 +1399,14 @@ export class StripDiceGame {
                 if (this.currentTurnIndex >= this.turnOrder.length) {
                     this.currentTurnIndex = 0;
                 }
-                this.currentDiceMax = 100;
+                this.currentDiceMax = STARTING_DICE_MAX;
                 this.state = GameState.Rolling;
                 this.announceCurrentTurn();
                 this.startTurnTimer();
             } else {
                 this.bot.sendChat(`✅ ${player.name} has been restrained! Back to the game...`);
                 this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
-                this.currentDiceMax = 100;
+                this.currentDiceMax = STARTING_DICE_MAX;
                 this.state = GameState.Rolling;
                 this.announceCurrentTurn();
                 this.startTurnTimer();
@@ -1369,11 +1418,16 @@ export class StripDiceGame {
         const activePlayers = [...this.players.values()].filter(p => !p.isFullyBound);
 
         if (activePlayers.length === 0) {
+            this.recordGameCompletion(null);
             this.endGame();
             return true;
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
+            this.recordGameCompletion(winner.memberNumber);
+            if (winner.bondageApplied > 0) {
+                this.removeAllItems(winner.memberNumber);
+            }
             this.applyEndGameLocks();
             return true;
         }
@@ -1392,14 +1446,14 @@ export class StripDiceGame {
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
 
         for (const player of boundPlayers) {
-            if (!this.hasLockPermission(player.memberNumber)) {
-                this.notifyLockPermissionIssue(player);
-                this.bot.sendChat(`⚠️ ${player.name}'s restraints could not be locked (permission needed).`);
-                continue;
+            const pool = this.getEligibleOutfits(player.memberNumber);
+            if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.items.length === 0) {
+                this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                this.resetGame();
+                return;
             }
-
             for (let i = 0; i < player.bondageApplied; i++) {
-                const item = player.bondageOutfit?.[i];
+                const item = player.bondageOutfit?.items[i];
                 if (!item) continue;
 
                 setTimeout(() => {
@@ -1408,22 +1462,14 @@ export class StripDiceGame {
                         item.group,
                         item.name,
                         item.color,
-                        {
-                            ...item.property,
-                            Effect: [...(item.property.Effect || []), "Lock"],
-                            LockedBy: "TimerPasswordPadlock",
-                            LockMemberNumber: this.bot.getMemberNumber(),
-                            LockMemberName: "GameBot",
-                            Password: this.gamePassword,
-                            Hint: `Released in ${this.lockDurationMinutes} minutes`,
-                            LockSet: true,
-                            RemoveItem: true,
-                            ShowTimer: true,
-                            EnableRandomInput: false,
-                            MemberNumberList: [],
-                            RemoveTimer: lockEndTime
-                        }
+                        this.buildLockedItemProperty(item, {
+                            hint: `Released in ${this.lockDurationMinutes} minutes`,
+                            removeItem: true,
+                            showTimer: true,
+                            removeTimer: lockEndTime
+                        })
                     );
+                    this.verifyLockApplied(player, item.group, item.name);
                 }, i * 300);
             }
 
@@ -1431,26 +1477,29 @@ export class StripDiceGame {
             this.scheduleLockReleaseCheck(player);
         }
 
+        // Give in-flight item removals/applies time to reach the server before
+        // resetGame() clears player state — bigger games need more time.
+        const resetDelay = (this.players.size * REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS) + 2000;
         setTimeout(() => {
             this.resetGame();
-        }, 5000);
+        }, resetDelay);
     }
 
     // ============================================================
-    // LOCK PERMISSION CHECK
+    // LOCK VERIFICATION
     // ============================================================
 
-    private updatePlayerPermission(memberNumber: number, character: any): void {
-        const itemPermission = typeof character.ItemPermission === "number" ? character.ItemPermission : 0;
-        const whiteList = Array.isArray(character.WhiteList) ? character.WhiteList : [];
-        this.playerPermissions.set(memberNumber, { itemPermission, whiteList });
-    }
+    private verifyLockApplied(player: Player, group: string, itemName: string): void {
+        setTimeout(() => {
+            const current = this.itemStateCache.get(`${player.memberNumber}:${group}`);
+            if (!current || current.Name !== itemName) return;
 
-    private hasLockPermission(memberNumber: number): boolean {
-        const perm = this.playerPermissions.get(memberNumber);
-        if (!perm) return true;
-        if (perm.itemPermission === 0) return true;
-        return perm.whiteList.includes(this.bot.getMemberNumber());
+            const isLocked = !!current.Property?.LockedBy;
+            if (!isLocked) {
+                log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${group}/${itemName} — likely missing whitelist permission.`);
+                this.notifyLockPermissionIssue(player);
+            }
+        }, 1000);
     }
 
     private notifyLockPermissionIssue(player: Player): void {
@@ -1466,7 +1515,7 @@ export class StripDiceGame {
     private scheduleLockReleaseCheck(player: Player): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
-        const items = (player.bondageOutfit ?? []).slice(0, player.bondageApplied).map(i => i.name);
+        const items = (player.bondageOutfit?.items ?? []).slice(0, player.bondageApplied).map(i => i.name);
 
         // Small buffer added so the BC server has time to process the RemoveTimer before we ask.
         const delay = (this.lockDurationMinutes * 60 * 1000) + 10000;
@@ -1488,11 +1537,15 @@ export class StripDiceGame {
         this.pendingLockConfirmations.delete(memberNumber);
 
         const status = released ? "released" : "stuck";
-        const timestamp = new Date().toISOString();
+        const timestamp = centralTimestamp();
         const itemList = pending.items.length > 0 ? pending.items.join(", ") : "(none)";
         const line = `[${timestamp}] ${pending.name} (#${memberNumber}): items=[${itemList}] status=${status}\n`;
         const filePath = path.join(__dirname, "..", "lock_release_log.txt");
-        fs.appendFileSync(filePath, line, "utf8");
+        try {
+            fs.appendFileSync(filePath, line, "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write lock_release_log.txt: " + err);
+        }
 
         if (released) {
             this.bot.whisper(memberNumber, "Great, glad everything came off! Thanks for confirming. 💕");
@@ -1506,10 +1559,10 @@ export class StripDiceGame {
         this.players.clear();
         this.turnOrder = [];
         this.currentTurnIndex = 0;
-        this.currentDiceMax = 100;
-        this.isFirstRoll = true;
+        this.currentDiceMax = STARTING_DICE_MAX;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
+        this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
         this.lockPermissionWarned.clear();
         this.clearCountdown();
         this.clearTurnTimer();
@@ -1548,24 +1601,41 @@ export class StripDiceGame {
         return true;
     }
 
-    private removeAllItems(memberNumber: number): void {
-        const slotsToRemove = [
-            "ItemFeet",
-            "ItemHands",
-            "ItemNeck",
-            "ItemNeckRestraints",
-            "ItemArms",
-            "ItemMouth",
-            "ItemHead",
-            "ItemLegs",
-            "ItemTorso",
-        ];
-
-        slotsToRemove.forEach((group, index) => {
+    // startDelay lets callers stagger removal across multiple players so their
+    // slot-removal emits don't all flood the server at once.
+    private removeAllItems(memberNumber: number, startDelay: number = 0): void {
+        REMOVAL_SLOTS.forEach((group, index) => {
             setTimeout(() => {
-                this.bot.removeItem(memberNumber, group);
-            }, index * 200);
+                this.removeSlotVerified(memberNumber, group);
+            }, startDelay + index * REMOVAL_SLOT_DELAY_MS);
         });
+    }
+
+    // Removes whatever is in a slot, unlocking it first if needed, then
+    // re-checks the cached item state and retries until the slot is clear.
+    private removeSlotVerified(memberNumber: number, group: string, attempt: number = 1): void {
+        const current = this.itemStateCache.get(`${memberNumber}:${group}`);
+
+        if (current?.Property?.LockedBy) {
+            this.bot.applyItem(memberNumber, group, current.Name, current.Color, cleanDecodedProperty(current.Property));
+            setTimeout(() => this.bot.removeItem(memberNumber, group), REMOVAL_UNLOCK_GAP_MS);
+        } else {
+            this.bot.removeItem(memberNumber, group);
+        }
+
+        setTimeout(() => {
+            const after = this.itemStateCache.get(`${memberNumber}:${group}`);
+            if (!after?.Name) return;
+
+            if (attempt < MAX_REMOVAL_ATTEMPTS) {
+                this.removeSlotVerified(memberNumber, group, attempt + 1);
+            } else {
+                log(`REMOVAL_FAILED: memberNumber=${memberNumber} group=${group} after ${MAX_REMOVAL_ATTEMPTS} attempts`);
+                this.bot.whisper(memberNumber,
+                    `⚠️ I wasn't able to remove your ${after.Name} automatically. You may need to remove it manually or ask someone to help.`
+                );
+            }
+        }, REMOVAL_RETRY_DELAY_MS);
     }
 
     // ============================================================
@@ -1610,9 +1680,37 @@ export class StripDiceGame {
             player.timeoutWarned = false;
             player.timeoutCount++;
             this.bot.sendChat(`⏭️ ${player.name} was skipped for inactivity.`);
-            // TODO: If timeoutCount >= 3, consider removing player from room
-            this.advanceTurn();
+
+            if (player.timeoutCount >= 2) {
+                this.removeAfkPlayer(player);
+            } else {
+                this.advanceTurn();
+            }
         }
+    }
+
+    private removeAfkPlayer(player: Player): void {
+        this.bot.whisper(player.memberNumber, "You've been removed from the game for inactivity (skipped your turn twice in a row).");
+        this.bot.sendChat(`👋 ${player.name} has been removed from the game for inactivity.`);
+
+        this.players.delete(player.memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return;
+        }
+
+        if (this.checkGameEndCondition()) return;
+
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+        this.currentDiceMax = STARTING_DICE_MAX;
+        this.state = GameState.Rolling;
+        this.announceCurrentTurn();
+        this.startTurnTimer();
     }
 
     // ============================================================
@@ -1630,14 +1728,25 @@ export class StripDiceGame {
     }
 
     private getPlayerName(memberNumber: number): string {
-        return this.players.get(memberNumber)?.name ?? this.nameCache.get(memberNumber) ?? `Player #${memberNumber}`;
+        return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
     }
 
-    private getBondageOutfitName(items: BondageItem[]): string {
-        return BONDAGE_OUTFITS.find(o => o.items === items)?.name ?? "Unknown";
+    private getBondageOutfitName(outfit: BondageOutfit): string {
+        return outfit.name;
     }
 
-    private shuffleArray(array: any[]): void {
+    // Players who have set their pronouns to HeHim get outfits without
+    // breast-targeted items (e.g. a chastity bra), falling back to the full
+    // pool if no such outfit is defined.
+    private getEligibleOutfits(memberNumber: number): BondageOutfit[] {
+        if (this.pronounsCache.get(memberNumber) === "HeHim") {
+            const maleFriendly = BONDAGE_OUTFITS.filter(o => !o.items.some(i => i.group === "ItemBreast"));
+            if (maleFriendly.length > 0) return maleFriendly;
+        }
+        return BONDAGE_OUTFITS;
+    }
+
+    private shuffleArray<T>(array: T[]): void {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
