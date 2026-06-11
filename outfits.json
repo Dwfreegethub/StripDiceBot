@@ -11,6 +11,76 @@
       "groups": ["ItemFeet", "ItemLegs", "ItemPelvis", "ItemTorso2", "ItemTorso", "ItemArms", "ItemNeckRestraints", "ItemNeck"]
     },
     {
+      "name": "Male Restraints",
+      "items": [
+        {
+          "group": "ItemFeet",
+          "name": "LeatherDeluxeAnkleCuffs",
+          "color": ["#909090", "#131313", "#006460", "#909090", "Default"],
+          "property": {
+            "TypeRecord": { "typed": 2 },
+            "Difficulty": 0
+          }
+        },
+        {
+          "group": "ItemLegs",
+          "name": "LeatherDeluxeLegCuffs",
+          "color": ["#909090", "#131313", "#006460", "#909090", "Default"],
+          "property": {
+            "TypeRecord": { "typed": 2 },
+            "Effect": ["Slow"],
+            "SetPose": ["BaseLower"],
+            "AllowActivePose": ["BaseLower", "Kneel", "LegsOpen", "LegsClosed", "Spread", "Hogtied", "AllFours"]
+          }
+        },
+        {
+          "group": "ItemTorso",
+          "name": "LeatherStrapHarness",
+          "color": ["#C6C6C6"],
+          "property": {
+            "TypeRecord": { "typed": 0 },
+            "Difficulty": 0
+          }
+        },
+        {
+          "group": "ItemPelvis",
+          "name": "WaistLegHarness",
+          "color": ["#404040", "#C0C0C0", "#808080", "#404040", "#C0C0C0", "#404040", "#A0A0A0", "#303030", "#C0C0C0", "#303030", "#C0C0C0", "#505050", "#B0B0B0", "#404040", "#B0B0B0", "#FC9EC1", "#404040", "#B0B0B0", "#AEA87D", "#95938A", "#404040", "#AAAAAA", "#A8839D", "#BE92C0"],
+          "property": {
+            "TypeRecord": { "l": 1, "x": 0, "y": 0, "c": 0, "v": 0, "t": 0 },
+            "Difficulty": 3,
+            "Block": [],
+            "Hide": [],
+            "HideItem": [],
+            "AllowActivity": [],
+            "Attribute": []
+          }
+        },
+        {
+          "group": "ItemNeck",
+          "name": "SlenderSteelCollar",
+          "color": ["#686060"],
+          "property": {}
+        },
+        {
+          "group": "ItemNeckRestraints",
+          "name": "ChokeChain",
+          "color": ["Default", "Default"],
+          "property": {
+            "OverridePriority": 31
+          }
+        },
+        {
+          "group": "ItemArms",
+          "name": "ShinyArmbinder",
+          "color": ["#009993", "#5D5D5D", "#CACACA", "Default"],
+          "property": {
+            "TypeRecord": { "typed": 3 }
+          }
+        }
+      ]
+    },
+    {
       "name": "DroneSlave",
       "items": [
         {

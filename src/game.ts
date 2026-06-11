@@ -62,6 +62,15 @@ interface OutfitDefinition {
     groups?: string[];
 }
 
+// BC sends each character's body/appearance as an array of items keyed by
+// "Group". There's no explicit IsMale/BodyType flag, but the "Pronouns"
+// group ("HeHim" / "SheHer" / "TheyThem") reflects how the player has set
+// up their character and is the closest available signal for tailoring
+// outfit selection.
+function extractPronouns(character: any): string | undefined {
+    return character?.Appearance?.find((a: any) => a.Group === "Pronouns")?.Name;
+}
+
 // Strips owner/lock-specific fields from a decoded appearance item's Property
 // so the bot can apply its own lock on top of it.
 function cleanDecodedProperty(property: any): any {
@@ -192,6 +201,7 @@ export class StripDiceGame {
     private lockDurationMinutes: number = TEST_MODE ? TEST_LOCK_MINUTES : 30;
     private roomMembers: Set<number> = new Set();
     private nameCache: Map<number, string> = new Map();
+    private pronounsCache: Map<number, string> = new Map();
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
     private isFirstRoll: boolean = true;    // Track if this is the very first roll
@@ -217,6 +227,8 @@ export class StripDiceGame {
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
         this.roomMembers.add(memberNumber);
         this.nameCache.set(memberNumber, name);
+        const pronouns = extractPronouns(character);
+        if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
         if (memberNumber === this.bot.getMemberNumber()) return;
         this.notifyFeedbackStatus(memberNumber, name);
     }
@@ -239,6 +251,8 @@ export class StripDiceGame {
                 this.roomMembers.add(char.MemberNumber);
                 const name = char.Nickname || char.Name;
                 if (name) this.nameCache.set(char.MemberNumber, name);
+                const pronouns = extractPronouns(char);
+                if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
             }
         }
     }
@@ -1177,7 +1191,8 @@ export class StripDiceGame {
 
     private applyNextBondageItem(player: Player): void {
         if (!player.bondageOutfit) {
-            player.bondageOutfit = BONDAGE_OUTFITS[Math.floor(Math.random() * BONDAGE_OUTFITS.length)].items;
+            const pool = this.getEligibleOutfits(player.memberNumber);
+            player.bondageOutfit = pool[Math.floor(Math.random() * pool.length)].items;
             log(`${player.name} assigned bondage outfit: ${this.getBondageOutfitName(player.bondageOutfit)}`);
             this.bondagePhaseStarted = true;
         }
@@ -1577,6 +1592,17 @@ export class StripDiceGame {
 
     private getBondageOutfitName(items: BondageItem[]): string {
         return BONDAGE_OUTFITS.find(o => o.items === items)?.name ?? "Unknown";
+    }
+
+    // Players who have set their pronouns to HeHim get outfits without
+    // breast-targeted items (e.g. a chastity bra), falling back to the full
+    // pool if no such outfit is defined.
+    private getEligibleOutfits(memberNumber: number): BondageOutfit[] {
+        if (this.pronounsCache.get(memberNumber) === "HeHim") {
+            const maleFriendly = BONDAGE_OUTFITS.filter(o => !o.items.some(i => i.group === "ItemBreast"));
+            if (maleFriendly.length > 0) return maleFriendly;
+        }
+        return BONDAGE_OUTFITS;
     }
 
     private shuffleArray(array: any[]): void {
