@@ -9,7 +9,7 @@ import * as LZString from "lz-string";
 // ============================================================
 const TEST_MODE = true;
 const TEST_PASSWORD = "TEST1234";
-const TEST_LOCK_MINUTES = 5;
+const DEFAULT_LOCK_MINUTES = 10;
 
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
@@ -211,7 +211,7 @@ export class StripDiceGame {
     private currentDiceMax: number = 100;
     private countdownTimer: NodeJS.Timeout | null = null;
     private turnTimer: NodeJS.Timeout | null = null;
-    private lockDurationMinutes: number = TEST_MODE ? TEST_LOCK_MINUTES : 30;
+    private lockDurationMinutes: number = DEFAULT_LOCK_MINUTES;
     private roomMembers: Set<number> = new Set();
     private nameCache: Map<number, string> = new Map();
     private pronounsCache: Map<number, string> = new Map();
@@ -336,6 +336,10 @@ export class StripDiceGame {
             this.handleLockTime(memberNumber, message);
             return;
         }
+        if (msg === "!lock10" || msg === "!lock15" || msg === "!lock20") {
+            this.handleLockPreset(memberNumber, name, msg);
+            return;
+        }
         if (msg.startsWith("!midgamejoin ")) {
             this.handleMidGameJoinToggle(memberNumber, message);
             return;
@@ -417,6 +421,10 @@ export class StripDiceGame {
             this.handleSame(memberNumber);
             return;
         }
+        if (msg === "!lock10" || msg === "!lock15" || msg === "!lock20") {
+            this.handleLockPreset(memberNumber, name, msg);
+            return;
+        }
         if (msg === "!released" || msg === "!stuck") {
             this.handleLockReleaseConfirmation(memberNumber, msg === "!released");
             return;
@@ -477,8 +485,15 @@ export class StripDiceGame {
         if (midGame) {
             this.bot.sendChat(`${name} is joining mid-game! They'll enter the turn rotation once ready.`);
         } else {
+            const isFirstJoin = this.players.size === 1;
             this.state = GameState.Registration;
             this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
+            if (isFirstJoin) {
+                this.bot.sendChat(
+                    `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. ` +
+                    `Default is ${DEFAULT_LOCK_MINUTES} minutes — game starts in 30 seconds with the current setting.`
+                );
+            }
         }
 
         const last = this.lastClothing.get(memberNumber);
@@ -698,6 +713,18 @@ export class StripDiceGame {
         this.lockDurationMinutes = minutes;
         this.bot.whisper(memberNumber, `Lock duration set to ${minutes} minutes.`);
         this.bot.sendChat(`🔒 End game locks will be set to ${minutes} minutes.`);
+    }
+
+    private handleLockPreset(memberNumber: number, name: string, msg: string): void {
+        if (this.state === GameState.Rolling || this.state === GameState.WaitingRemove ||
+            this.state === GameState.WaitingBondage || this.state === GameState.SafewordPause ||
+            this.state === GameState.GameOver) {
+            this.bot.whisper(memberNumber, "The game has already started — lock duration is locked in.");
+            return;
+        }
+        const minutes = parseInt(msg.replace("!lock", ""), 10);
+        this.lockDurationMinutes = minutes;
+        this.bot.sendChat(`🔒 ${name} set the lock duration to ${minutes} minutes.`);
     }
 
     private handleMidGameJoinToggle(memberNumber: number, message: string): void {
@@ -1066,6 +1093,7 @@ export class StripDiceGame {
             `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
             `!ready - Confirm you are ready to play\n` +
+            `!lock10 / !lock15 / !lock20 - Set the end-game lock duration before the game starts (default ${DEFAULT_LOCK_MINUTES} min)\n` +
             `!start - Start the game early\n` +
             `!cancel - Cancel the countdown\n` +
             `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
@@ -1518,6 +1546,7 @@ export class StripDiceGame {
         this.isFirstRoll = true;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
+        this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
         this.lockPermissionWarned.clear();
         this.clearCountdown();
         this.clearTurnTimer();

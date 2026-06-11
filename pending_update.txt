@@ -1,1 +1,1 @@
-welcome message, player tracking
+lock time options: 10/15/20 min, default 10
