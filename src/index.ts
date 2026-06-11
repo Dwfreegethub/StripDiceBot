@@ -89,6 +89,15 @@ async function main() {
             log("Room is not public, updating room settings to make it public...");
             bot.makeRoomPublic();
         }
+
+        const myIndex = (data.Character ?? []).findIndex((c: any) => c.MemberNumber === bot.getMemberNumber());
+        if (myIndex > 0) {
+            log(`GameBot is at position ${myIndex} — moving to the leftmost spot...`);
+            for (let i = 0; i < myIndex; i++) {
+                bot.moveLeft();
+            }
+        }
+
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
         bot.sendChat("🔧 Bot restarted — lock fix applied.");
     });
