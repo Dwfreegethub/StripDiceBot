@@ -208,7 +208,7 @@ interface PendingLockVerification {
 // ============================================================
 // FEEDBACK STATUS TRACKING
 // ============================================================
-type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "implemented" | "declined" | "partly_implemented";
+type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "researching" | "implemented" | "declined" | "partly_implemented";
 
 interface FeedbackItem {
     timestamp: string;
@@ -230,6 +230,7 @@ const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
     pending: "⏳ Pending review",
     reviewing: "🔍 Reviewing",
     testing: "🧪 Testing",
+    researching: "🔬 Researching — we're looking into this!",
     implemented: "✅ Implemented",
     declined: "❌ Declined",
     partly_implemented: "🔧 Partly implemented",
@@ -922,7 +923,7 @@ export class StripDiceGame {
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
         const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
-        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "implemented", "partly_implemented"];
+        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "researching", "implemented", "partly_implemented"];
 
         if (!playerId || !/^\d+$/.test(playerId)) {
             this.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
@@ -1314,7 +1315,7 @@ export class StripDiceGame {
                 `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
                 `!midgamejoin on/off - Allow players to join games already in progress\n` +
                 `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
-                `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
+                `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
                 `!feedback list - View a summary of all tracked feedback\n` +
                 `!outfits - View submitted outfit suggestions\n` +
                 `!free [player name] - Remove all bondage items from a player; they stay in the game`;
