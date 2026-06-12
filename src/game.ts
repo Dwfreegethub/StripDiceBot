@@ -188,6 +188,8 @@ interface Player {
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
     pendingClothing: string[];  // Items collected so far during guided Q&A
     bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
+    pendingReturn: boolean;     // Left the room mid-game; in grace period to return
+    leaveRoundsRemaining: number; // Rounds left to return before removal, while pendingReturn
 }
 
 // ============================================================
@@ -299,6 +301,16 @@ export class StripDiceGame {
         const pronouns = extractPronouns(character);
         if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
         if (memberNumber === this.bot.getMemberNumber()) return;
+
+        const player = this.players.get(memberNumber);
+        if (player?.pendingReturn) {
+            player.pendingReturn = false;
+            player.leaveRoundsRemaining = 0;
+            player.name = name;
+            this.bot.sendChat(`${name} has returned to the game!`);
+            return;
+        }
+
         this.recordPlayerSeen(memberNumber, name);
         this.sendWelcomeWhisper(memberNumber, name);
         this.notifyFeedbackStatus(memberNumber, name);
@@ -306,43 +318,37 @@ export class StripDiceGame {
 
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
-        if (this.state !== GameState.Idle && this.players.has(memberNumber)) {
-            const player = this.players.get(memberNumber)!;
-            this.bot.sendChat(`${player.name} has left the room and been removed from the game.`);
+        if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
-            const removedIndex = this.turnOrder.indexOf(memberNumber);
-            const wasCurrentTurn = removedIndex !== -1 && removedIndex === this.currentTurnIndex;
+        const player = this.players.get(memberNumber)!;
+        const activeGameplay = this.state === GameState.Rolling ||
+            this.state === GameState.WaitingRemove ||
+            this.state === GameState.WaitingBondage;
 
-            this.players.delete(memberNumber);
-            this.turnOrder = this.turnOrder.filter(n => n !== memberNumber);
+        if (activeGameplay) {
+            player.pendingReturn = true;
+            player.leaveRoundsRemaining = 2;
+            player.timeoutWarned = false;
+            player.timeoutCount = 0;
+            this.bot.sendChat(`${player.name} left — they have 2 rounds to return before being removed.`);
 
-            if (this.players.size === 0) {
-                this.bot.sendChat(`No players remaining. Resetting.`);
-                this.resetGame();
-                return;
-            }
-
-            if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
-                this.currentTurnIndex--;
-            }
-            const turnIndexOutOfRange = this.currentTurnIndex >= this.turnOrder.length;
-            if (turnIndexOutOfRange) {
-                this.currentTurnIndex = 0;
-            }
-
-            if (this.checkGameEndCondition()) return;
-
-            const turnInProgressState = this.state === GameState.Rolling ||
-                this.state === GameState.WaitingRemove ||
-                this.state === GameState.WaitingBondage;
-
-            if (turnInProgressState && (wasCurrentTurn || turnIndexOutOfRange)) {
+            const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === memberNumber;
+            if (wasCurrentTurn) {
                 this.clearTurnTimer();
                 this.currentDiceMax = STARTING_DICE_MAX;
-                this.state = GameState.Rolling;
-                this.announceCurrentTurn();
-                this.startTurnTimer();
+                this.advanceTurn();
             }
+            return;
+        }
+
+        // Not mid-turn (e.g. still in registration/countdown) - remove immediately.
+        this.bot.sendChat(`${player.name} has left the room and been removed from the game.`);
+        this.players.delete(memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== memberNumber);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
         }
     }
 
@@ -391,6 +397,7 @@ export class StripDiceGame {
         "!midgamejoin ": { handler: (mn, _name, _msg, message) => this.handleMidGameJoinToggle(mn, message), whisperOnly: true, prefix: true },
         "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
         "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
+        "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
@@ -482,6 +489,8 @@ export class StripDiceGame {
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
+            pendingReturn: false,
+            leaveRoundsRemaining: 0,
         };
         this.players.set(memberNumber, player);
 
@@ -787,6 +796,35 @@ export class StripDiceGame {
         this.bot.whisper(memberNumber, `Your next bondage outfit has been forced to: ${outfit.name}`);
     }
 
+    private handleFree(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const requested = message.trim().slice("!free ".length).trim();
+        if (!requested) {
+            this.bot.whisper(memberNumber, "Usage: !free [player name]");
+            return;
+        }
+
+        const target = [...this.players.values()].find(p => p.name.toLowerCase().includes(requested.toLowerCase()));
+        if (!target) {
+            this.bot.whisper(memberNumber, `No player found matching "${requested}".`);
+            return;
+        }
+
+        this.removeAllItems(target.memberNumber);
+
+        const wasFullyBound = target.isFullyBound;
+        target.bondageApplied = 0;
+        target.isFullyBound = false;
+        target.bondageOutfit = null;
+
+        if (wasFullyBound && !this.turnOrder.includes(target.memberNumber)) {
+            this.turnOrder.push(target.memberNumber);
+        }
+
+        this.bot.sendChat(`Admin has freed ${target.name} from their restraints.`);
+    }
+
     private handleSetStatus(memberNumber: number, message: string): void {
         if (!this.requireAdmin(memberNumber)) return;
         const parts = message.trim().split(/\s+/);
@@ -874,13 +912,11 @@ export class StripDiceGame {
         }
 
         this.currentDiceMax = STARTING_DICE_MAX;
-        this.state = GameState.Rolling;
         // Make sure currentTurnIndex is still valid
         if (this.currentTurnIndex >= this.turnOrder.length) {
             this.currentTurnIndex = 0;
         }
-        this.announceCurrentTurn();
-        this.startTurnTimer();
+        this.resolveCurrentTurn();
     }
 
     private handleAbout(memberNumber: number): void {
@@ -1121,7 +1157,8 @@ export class StripDiceGame {
                 `!midgamejoin on/off - Allow players to join games already in progress\n` +
                 `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
                 `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
-                `!feedback list - View a summary of all tracked feedback`;
+                `!feedback list - View a summary of all tracked feedback\n` +
+                `!free [player name] - Remove all bondage items from a player; they stay in the game`;
         }
 
         this.bot.whisper(memberNumber, text);
@@ -1285,9 +1322,59 @@ export class StripDiceGame {
 
     private advanceTurn(): void {
         this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
-        this.state = GameState.Rolling;
-        this.announceCurrentTurn();
-        this.startTurnTimer();
+        this.resolveCurrentTurn();
+    }
+
+    // Starts the current player's turn, unless they're in their post-leave
+    // grace period. Grace-period players have their turn skipped and their
+    // remaining grace rounds decremented; once a grace period expires the
+    // player is removed and we move on to whoever is current next. Returns
+    // false if removing an expired player ended the game (caller should stop).
+    private resolveCurrentTurn(): boolean {
+        while (true) {
+            const player = this.getCurrentPlayer();
+            if (!player) return true;
+
+            if (player.pendingReturn) {
+                player.leaveRoundsRemaining--;
+                if (player.leaveRoundsRemaining <= 0) {
+                    if (this.removeLeftPlayer(player)) return false;
+                    continue;
+                }
+                this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
+                continue;
+            }
+
+            this.state = GameState.Rolling;
+            this.announceCurrentTurn();
+            this.startTurnTimer();
+            return true;
+        }
+    }
+
+    // Removes a player whose post-leave grace period has expired. Returns
+    // true if the game ended as a result of the removal.
+    private removeLeftPlayer(player: Player): boolean {
+        this.bot.sendChat(`${player.name} did not return in time and has been removed from the game.`);
+
+        const removedIndex = this.turnOrder.indexOf(player.memberNumber);
+        this.players.delete(player.memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return true;
+        }
+
+        if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
+            this.currentTurnIndex--;
+        }
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+
+        return this.checkGameEndCondition();
     }
 
     private handleLoss(player: Player): void {
@@ -1400,16 +1487,12 @@ export class StripDiceGame {
                     this.currentTurnIndex = 0;
                 }
                 this.currentDiceMax = STARTING_DICE_MAX;
-                this.state = GameState.Rolling;
-                this.announceCurrentTurn();
-                this.startTurnTimer();
+                this.resolveCurrentTurn();
             } else {
                 this.bot.sendChat(`✅ ${player.name} has been restrained! Back to the game...`);
                 this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
                 this.currentDiceMax = STARTING_DICE_MAX;
-                this.state = GameState.Rolling;
-                this.announceCurrentTurn();
-                this.startTurnTimer();
+                this.resolveCurrentTurn();
             }
         }, 500);
     }
@@ -1642,18 +1725,21 @@ export class StripDiceGame {
     // TURN TIMER
     // ============================================================
 
-    private startTurnTimer(ms: number = 30000): void {
+    // Default timeout grows by ~5s per prior miss this player has racked up,
+    // giving them a little more leeway as warnings escalate.
+    private startTurnTimer(ms?: number): void {
         this.clearTurnTimer();
         const player = this.getCurrentPlayer();
         if (!player) return;
 
+        const timeout = ms ?? (30000 + player.timeoutCount * 5000);
         this.turnTimer = setTimeout(() => {
             if (this.state === GameState.WaitingRemove) {
                 this.handleRemoveTimeout(player);
             } else {
                 this.handleTurnTimeout(player);
             }
-        }, ms);
+        }, timeout);
     }
 
     private clearTurnTimer(): void {
@@ -1675,42 +1761,19 @@ export class StripDiceGame {
             player.timeoutWarned = true;
             this.bot.sendChat(`⏰ ${player.name}, it's your turn! Type !roll or you'll be skipped.`);
             this.bot.whisper(player.memberNumber, `It's your turn! Type !roll in the room chat or you'll be skipped.`);
-            this.startTurnTimer(30000);
+            this.startTurnTimer(30000 + (player.timeoutCount + 1) * 5000);
         } else {
             player.timeoutWarned = false;
             player.timeoutCount++;
             this.bot.sendChat(`⏭️ ${player.name} was skipped for inactivity.`);
 
             if (player.timeoutCount >= 2) {
-                this.removeAfkPlayer(player);
+                player.timeoutCount = 0;
+                this.handleLoss(player);
             } else {
                 this.advanceTurn();
             }
         }
-    }
-
-    private removeAfkPlayer(player: Player): void {
-        this.bot.whisper(player.memberNumber, "You've been removed from the game for inactivity (skipped your turn twice in a row).");
-        this.bot.sendChat(`👋 ${player.name} has been removed from the game for inactivity.`);
-
-        this.players.delete(player.memberNumber);
-        this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
-
-        if (this.players.size === 0) {
-            this.bot.sendChat(`No players remaining. Resetting.`);
-            this.resetGame();
-            return;
-        }
-
-        if (this.checkGameEndCondition()) return;
-
-        if (this.currentTurnIndex >= this.turnOrder.length) {
-            this.currentTurnIndex = 0;
-        }
-        this.currentDiceMax = STARTING_DICE_MAX;
-        this.state = GameState.Rolling;
-        this.announceCurrentTurn();
-        this.startTurnTimer();
     }
 
     // ============================================================
