@@ -14,6 +14,15 @@ const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
 const STARTING_DICE_MAX = 100;
 
 // ============================================================
+// SOLO GAME MODE
+// ============================================================
+const SOLO_BRACKET_MIN = 3;
+const SOLO_BRACKET_MAX = 8;
+const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
+const SOLO_BASE_PENALTY_MINUTES = 5;
+const SOLO_DICE_MAX = 100;
+
+// ============================================================
 // ITEM REMOVAL - end-of-game bondage cleanup
 // ============================================================
 const REMOVAL_SLOTS = [
@@ -253,7 +262,53 @@ interface PlayerRecord {
     lastSeen: string;
     gamesPlayed: number;
     gamesWon: number;
+    gamesLost: number;
     feedbackGiven: boolean;
+}
+
+// ============================================================
+// SOLO GAME MODE - types and records persistence
+// ============================================================
+type SoloMode = "race" | "survive";
+
+// Active solo game state, isolated per player. Solo games run alongside an
+// active multiplayer game without interference; all interaction is whispered.
+interface SoloGameState {
+    memberNumber: number;
+    name: string;
+    mode: SoloMode;
+    bracket: number;          // Starting clothing item count (3-8)
+    clothingRemaining: number;
+    rolls: number;
+}
+
+interface SoloRecordEntry {
+    memberNumber: number;
+    name: string;
+    rolls: number;
+}
+
+type SoloBracketRecords = Record<string, SoloRecordEntry>; // bracket -> record
+type SoloAttemptCounts = Record<string, number>;           // memberNumber -> attempts today
+
+interface SoloRecordsData {
+    date: string; // UTC date (YYYY-MM-DD) the daily records/attempts were last reset
+    daily: Record<SoloMode, SoloBracketRecords>;
+    allTime: Record<SoloMode, SoloBracketRecords>;
+    attempts: Record<SoloMode, Record<string, SoloAttemptCounts>>; // bracket -> memberNumber -> count
+}
+
+function utcDateString(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function emptySoloRecordsData(): SoloRecordsData {
+    return {
+        date: utcDateString(),
+        daily: { race: {}, survive: {} },
+        allTime: { race: {}, survive: {} },
+        attempts: { race: {}, survive: {} },
+    };
 }
 
 // Player-submitted outfit idea, stored for admin review and possible future
@@ -323,6 +378,9 @@ export class StripDiceGame {
     private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
     private feedbackMemberNumbers: Set<number> = new Set();
     private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
+    private soloGames: Map<number, SoloGameState> = new Map();
+    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string }> = new Map();
+    private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -358,6 +416,7 @@ export class StripDiceGame {
 
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
+        this.cleanupSoloOnLeave(memberNumber);
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const player = this.players.get(memberNumber)!;
@@ -449,6 +508,15 @@ export class StripDiceGame {
         "!no": { handler: (mn) => this.handleLockVerificationNo(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
+        "!solo race": { handler: (mn, name) => this.handleSoloStart(mn, name, "race"), whisperOnly: true },
+        "!solo survive": { handler: (mn, name) => this.handleSoloStart(mn, name, "survive"), whisperOnly: true },
+        "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
+        "!scores me": { handler: (mn) => this.handleScoresMe(mn) },
+        "!scores race": { handler: (mn) => this.handleScores(mn, "race") },
+        "!scores survive": { handler: (mn) => this.handleScores(mn, "survive") },
+        "!scores": { handler: (mn) => this.handleScores(mn) },
+        "!leaderboard": { handler: (mn) => this.handleLeaderboard(mn) },
+        "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
         "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
         "!removed": { handler: (mn, name) => this.handleRemoved(mn, name), chatOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
@@ -472,6 +540,19 @@ export class StripDiceGame {
         const player = this.players.get(memberNumber);
         if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.handleGuidedAnswer(memberNumber, msg);
+            return;
+        }
+
+        // Solo game setup: a bare number selects the starting clothing bracket
+        if (this.pendingSoloSetup.has(memberNumber) && /^\d+$/.test(msg)) {
+            this.handleSoloBracketReply(memberNumber, msg);
+            return;
+        }
+
+        // Solo game roll takes priority over the multiplayer !roll while active,
+        // so it never interferes with multiplayer turn order.
+        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
+            this.handleSoloRoll(memberNumber);
             return;
         }
 
@@ -1108,6 +1189,307 @@ export class StripDiceGame {
     }
 
     // ============================================================
+    // SOLO GAME MODE
+    // ============================================================
+
+    private handleSoloStart(memberNumber: number, name: string, mode: SoloMode): void {
+        if (this.soloGames.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You already have a solo game in progress! Type !roll to continue.");
+            return;
+        }
+        this.pendingSoloSetup.set(memberNumber, { mode, name });
+        this.bot.whisper(memberNumber, `How many clothing items are you wearing? (${SOLO_BRACKET_MIN}–${SOLO_BRACKET_MAX})`);
+    }
+
+    private handleSoloBracketReply(memberNumber: number, msg: string): void {
+        const pending = this.pendingSoloSetup.get(memberNumber)!;
+        const bracket = parseInt(msg, 10);
+
+        if (bracket < SOLO_BRACKET_MIN || bracket > SOLO_BRACKET_MAX) {
+            this.bot.whisper(memberNumber, `Please enter a number between ${SOLO_BRACKET_MIN} and ${SOLO_BRACKET_MAX}.`);
+            return;
+        }
+
+        this.pendingSoloSetup.delete(memberNumber);
+
+        const solo: SoloGameState = {
+            memberNumber,
+            name: pending.name,
+            mode: pending.mode,
+            bracket,
+            clothingRemaining: bracket,
+            rolls: 0,
+        };
+        this.soloGames.set(memberNumber, solo);
+
+        const modeLabel = pending.mode === "race" ? "Race to Naked" : "Survive";
+        const objective = pending.mode === "race"
+            ? "Roll until you hit a 1 — each 1 removes one clothing item. Try to get naked in as FEW rolls as possible!"
+            : "Roll until you hit a 1 — each 1 removes one clothing item. Try to last as MANY rolls as possible before going naked!";
+
+        this.bot.whisper(memberNumber,
+            `🎲 ${modeLabel} — starting with ${bracket} clothing item${bracket === 1 ? "" : "s"}.\n` +
+            `${objective}\n` +
+            `Everything here is whispered just to you. Type !roll when ready!`
+        );
+        this.bot.whisper(memberNumber, `${solo.name}, roll! Type !roll`);
+    }
+
+    private handleSoloRoll(memberNumber: number): void {
+        const solo = this.soloGames.get(memberNumber);
+        if (!solo) return;
+
+        const roll = Math.floor(Math.random() * SOLO_DICE_MAX) + 1;
+        solo.rolls++;
+
+        if (roll === 1) {
+            solo.clothingRemaining--;
+            this.bot.whisper(memberNumber, `You rolled a 1! One item removed. ${solo.clothingRemaining} items remaining.`);
+            if (solo.clothingRemaining <= 0) {
+                this.finishSoloGame(memberNumber);
+                return;
+            }
+        } else {
+            this.bot.whisper(memberNumber, `You rolled ${roll}. Safe for now.`);
+        }
+
+        this.bot.whisper(memberNumber, `${solo.name}, roll! Type !roll`);
+    }
+
+    // Returns true if `score` beats `current` (or the hardcoded default target
+    // if no record exists yet). For "race", fewer rolls is better; for
+    // "survive", more rolls is better.
+    private isSoloRecordBeat(mode: SoloMode, score: number, current: SoloRecordEntry | undefined): boolean {
+        const target = current ? current.rolls : SOLO_DEFAULT_TARGET;
+        return mode === "race" ? score < target : score > target;
+    }
+
+    private finishSoloGame(memberNumber: number): void {
+        const solo = this.soloGames.get(memberNumber);
+        if (!solo) return;
+        this.soloGames.delete(memberNumber);
+
+        const records = this.loadSoloRecords();
+        const bracketKey = String(solo.bracket);
+        const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
+        const dailyRecord = records.daily[solo.mode][bracketKey];
+        const allTimeRecord = records.allTime[solo.mode][bracketKey];
+        const score = solo.rolls;
+
+        this.bot.whisper(memberNumber, `You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
+
+        if (this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
+            const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
+            records.daily[solo.mode][bracketKey] = entry;
+            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
+
+            if (this.isSoloRecordBeat(solo.mode, score, allTimeRecord)) {
+                records.allTime[solo.mode][bracketKey] = entry;
+                this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
+            }
+
+            this.removeAllItems(memberNumber);
+            this.saveSoloRecords(records);
+            return;
+        }
+
+        const recordRolls = dailyRecord ? dailyRecord.rolls : SOLO_DEFAULT_TARGET;
+        this.bot.whisper(memberNumber, `You didn't beat the record (${recordRolls} rolls). Better luck next time!`);
+
+        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
+        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
+        this.applySoloPenalty(memberNumber, penaltyMinutes);
+
+        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
+        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
+        this.saveSoloRecords(records);
+    }
+
+    // Applies a random eligible bondage outfit (or just its first `itemCap`
+    // items, for partial bondage when a player leaves mid-run) locked for
+    // `penaltyMinutes`.
+    private applySoloPenalty(memberNumber: number, penaltyMinutes: number, itemCap?: number): void {
+        const pool = this.getEligibleOutfits(memberNumber);
+        if (pool.length === 0) return;
+
+        const outfit = pool[Math.floor(Math.random() * pool.length)];
+        const items = itemCap !== undefined ? outfit.items.slice(0, itemCap) : outfit.items;
+        if (items.length === 0) return;
+
+        const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
+
+        items.forEach((item, i) => {
+            setTimeout(() => {
+                this.bot.applyItem(memberNumber, item.group, item.name, item.color, item.property);
+                setTimeout(() => {
+                    this.bot.applyItem(
+                        memberNumber,
+                        item.group,
+                        item.name,
+                        item.color,
+                        this.buildLockedItemProperty(item, {
+                            hint: `Released in ${penaltyMinutes} minutes`,
+                            removeItem: true,
+                            showTimer: true,
+                            removeTimer: lockEndTime
+                        })
+                    );
+                }, REMOVAL_UNLOCK_GAP_MS);
+            }, i * REMOVAL_SLOT_DELAY_MS);
+        });
+
+        this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
+    }
+
+    // Called when a player leaves the room mid-run. Discards their solo game
+    // state, applying partial bondage (one item per clothing item already
+    // lost) if they'd made any progress.
+    private cleanupSoloOnLeave(memberNumber: number): void {
+        this.pendingSoloSetup.delete(memberNumber);
+
+        const solo = this.soloGames.get(memberNumber);
+        if (!solo) return;
+        this.soloGames.delete(memberNumber);
+
+        const clothingRemoved = solo.bracket - solo.clothingRemaining;
+        if (clothingRemoved <= 0) return;
+
+        const records = this.loadSoloRecords();
+        const bracketKey = String(solo.bracket);
+        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
+        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
+
+        this.applySoloPenalty(memberNumber, penaltyMinutes, clothingRemoved);
+
+        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
+        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
+        this.saveSoloRecords(records);
+    }
+
+    private loadSoloRecords(): SoloRecordsData {
+        let data: SoloRecordsData;
+        try {
+            const raw = fs.readFileSync(this.soloRecordsPath, "utf8");
+            data = JSON.parse(raw);
+        } catch {
+            data = emptySoloRecordsData();
+        }
+
+        const today = utcDateString();
+        if (data.date !== today) {
+            data.date = today;
+            data.daily = { race: {}, survive: {} };
+            data.attempts = { race: {}, survive: {} };
+        }
+
+        return data;
+    }
+
+    private saveSoloRecords(data: SoloRecordsData): void {
+        try {
+            fs.writeFileSync(this.soloRecordsPath, JSON.stringify(data, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write solo_records.json: " + err);
+        }
+    }
+
+    // ============================================================
+    // SCORES & LEADERBOARDS
+    // ============================================================
+
+    private formatSoloScoreLine(records: SoloRecordsData, mode: SoloMode, bracket: number): string {
+        const bracketKey = String(bracket);
+        const daily = records.daily[mode][bracketKey];
+        const allTime = records.allTime[mode][bracketKey];
+        const dailyStr = daily ? `${daily.name} ${daily.rolls} rolls` : "—";
+        const allTimeStr = allTime ? `${allTime.name} ${allTime.rolls} rolls` : "—";
+        return `${bracket} items: ${dailyStr} | ${allTimeStr}`;
+    }
+
+    private handleScores(memberNumber: number, filter?: SoloMode): void {
+        const records = this.loadSoloRecords();
+        const lines: string[] = [];
+
+        if (!filter || filter === "race") {
+            lines.push("🎲 Race to Naked (daily | all-time)");
+            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
+                lines.push(this.formatSoloScoreLine(records, "race", b));
+            }
+        }
+        if (!filter || filter === "survive") {
+            lines.push("🧦 Survive (daily | all-time)");
+            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
+                lines.push(this.formatSoloScoreLine(records, "survive", b));
+            }
+        }
+        lines.push("Type !scores me for your personal stats.");
+
+        this.sendLongWhisper(memberNumber, lines.join("\n"));
+    }
+
+    private handleScoresMe(memberNumber: number): void {
+        const records = this.loadSoloRecords();
+        const name = this.getPlayerName(memberNumber);
+        const lines: string[] = [`=== Your Solo Stats, ${name} ===`];
+
+        for (const mode of ["race", "survive"] as SoloMode[]) {
+            const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
+            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
+                const bracketKey = String(b);
+                const daily = records.daily[mode][bracketKey];
+                const allTime = records.allTime[mode][bracketKey];
+                const isDailyMe = daily?.memberNumber === memberNumber;
+                const isAllTimeMe = allTime?.memberNumber === memberNumber;
+                const attempts = records.attempts[mode][bracketKey]?.[String(memberNumber)] ?? 0;
+
+                if (!isDailyMe && !isAllTimeMe && attempts === 0) continue;
+
+                const parts: string[] = [];
+                if (isAllTimeMe) parts.push(`all-time best ${allTime!.rolls} rolls`);
+                if (isDailyMe && !(isAllTimeMe && daily!.rolls === allTime!.rolls)) parts.push(`today's best ${daily!.rolls} rolls`);
+                if (parts.length > 0) lines.push(`${modeLabel} (${b} items): ${parts.join(", ")}`);
+
+                if (attempts > 0) {
+                    const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attempts;
+                    lines.push(`  Attempts today: ${attempts} (next penalty if you don't beat the record: ${penaltyMinutes} min)`);
+                }
+            }
+        }
+
+        if (lines.length === 1) lines.push("No personal records yet — try !solo race or !solo survive!");
+
+        this.sendLongWhisper(memberNumber, lines.join("\n"));
+    }
+
+    private handleLeaderboard(memberNumber: number): void {
+        const records = Object.values(this.playerRecords);
+        const me = this.playerRecords[String(memberNumber)];
+        const myWins = me?.gamesWon ?? 0;
+        const myLosses = me?.gamesLost ?? 0;
+
+        const topWinners = records.filter(r => r.gamesWon > 0).sort((a, b) => b.gamesWon - a.gamesWon).slice(0, 5);
+        const topLosers = records.filter(r => r.gamesLost > 0).sort((a, b) => b.gamesLost - a.gamesLost).slice(0, 5);
+
+        const lines: string[] = [`Your record: ${myWins}W / ${myLosses}L`];
+
+        lines.push("─ Top 5 Winners ─");
+        if (topWinners.length === 0) {
+            lines.push("No wins recorded yet.");
+        } else {
+            topWinners.forEach((r, i) => lines.push(`${i + 1}. ${r.name} — ${r.gamesWon} wins`));
+        }
+
+        lines.push("─ Top 5 Losers ─");
+        if (topLosers.length === 0) {
+            lines.push("No losses recorded yet.");
+        } else {
+            topLosers.forEach((r, i) => lines.push(`${i + 1}. ${r.name} — ${r.gamesLost} losses`));
+        }
+
+        this.sendLongWhisper(memberNumber, lines.join("\n"));
+    }
+
+    // ============================================================
     // FEEDBACK STATUS NOTIFICATIONS
     // ============================================================
 
@@ -1187,11 +1569,40 @@ export class StripDiceGame {
     // PLAYER TRACKING
     // ============================================================
 
+    // Picks the right welcome message based on whether a multiplayer game is
+    // running, whether it's still joinable, and whether solo games are active.
     private sendWelcomeWhisper(memberNumber: number, name: string): void {
-        this.bot.whisper(memberNumber,
-            `Welcome, ${name}! StripDiceBot has been getting regular updates thanks to player feedback. ` +
-            `Play a round and let us know what you think — type !join to jump in or !help to see the rules. 🎲`
-        );
+        if (this.state === GameState.Idle) {
+            if (this.soloGames.size > 0) {
+                this.bot.whisper(memberNumber,
+                    "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game."
+                );
+            } else {
+                this.bot.whisper(memberNumber,
+                    "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others."
+                );
+            }
+            return;
+        }
+
+        if (this.isMultiplayerJoinable()) {
+            this.bot.whisper(memberNumber,
+                `Welcome, ${name}! StripDiceBot has been getting regular updates thanks to player feedback. ` +
+                `Play a round and let us know what you think — type !join to jump in or !help to see the rules. 🎲`
+            );
+        } else {
+            this.bot.whisper(memberNumber,
+                "A multiplayer game is in progress and it's too late to join, but you can play a solo game! Type !solo race or !solo survive to start."
+            );
+        }
+    }
+
+    // True if a normal !join would currently be accepted (i.e. not the
+    // "naked late join" path, which !join handles separately).
+    private isMultiplayerJoinable(): boolean {
+        if (this.state === GameState.Registration || this.state === GameState.Countdown) return true;
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage;
+        return midGame && this.allowMidGameJoin && !this.bondagePhaseStarted;
     }
 
     private loadPlayerRecords(): void {
@@ -1205,6 +1616,11 @@ export class StripDiceGame {
         for (const memberNumber of this.feedbackMemberNumbers) {
             const record = this.playerRecords[String(memberNumber)];
             if (record) record.feedbackGiven = true;
+        }
+
+        // Backfill gamesLost for records saved before the field existed.
+        for (const record of Object.values(this.playerRecords)) {
+            record.gamesLost ??= 0;
         }
     }
 
@@ -1246,6 +1662,7 @@ export class StripDiceGame {
                 lastSeen: now,
                 gamesPlayed: 0,
                 gamesWon: 0,
+                gamesLost: 0,
                 feedbackGiven: this.feedbackMemberNumbers.has(memberNumber),
             };
         }
@@ -1261,6 +1678,8 @@ export class StripDiceGame {
             record.gamesPlayed++;
             if (winnerMemberNumber !== null && player.memberNumber === winnerMemberNumber) {
                 record.gamesWon++;
+            } else if (player.isFullyBound) {
+                record.gamesLost++;
             }
         }
         this.savePlayerRecords();
@@ -1306,7 +1725,13 @@ export class StripDiceGame {
             `!feedback [text] - Send feedback to the developers\n` +
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!about - About this bot\n` +
-            `!help - Show this message`;
+            `!help - Show this message\n\n` +
+            `=== Solo & Stats ===\n` +
+            `!solo race - Solo whisper game: fewest rolls to get naked wins\n` +
+            `!solo survive - Solo whisper game: most rolls before getting naked wins\n` +
+            `!scores / !scores race / !scores survive - View solo leaderboards\n` +
+            `!scores me - View your personal solo stats\n` +
+            `!leaderboard / !lb - View the multiplayer win/loss leaderboard`;
 
         if (this.isAdmin(memberNumber)) {
             text +=
