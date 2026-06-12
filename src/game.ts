@@ -4,6 +4,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as LZString from "lz-string";
 
+const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Structured game-activity log line, written with a full timestamp (unlike
+// log()'s HH:MM:SS-only prefix) so game start/end events can be correlated
+// against game_log.json entries.
+function logGameEvent(message: string): void {
+    console.log(`[${centralTimestamp()}] ${message}`);
+}
+
 // ============================================================
 // TEST MODE - set to false for production
 // ============================================================
@@ -280,6 +289,21 @@ interface SoloGameState {
     bracket: number;          // Starting clothing item count (3-8)
     clothingRemaining: number;
     rolls: number;
+    startTime: string;        // ISO timestamp when this solo game began
+}
+
+// One line of game_log.json (newline-delimited JSON), appended on every
+// multiplayer/solo game end.
+interface GameLogEntry {
+    type: "multiplayer" | "solo";
+    mode: SoloMode | null;
+    startTime: string;
+    endTime: string;
+    players: string[];
+    outcome: string;
+    winner?: string;
+    score?: number;
+    penaltyMin?: number;
 }
 
 interface SoloRecordEntry {
@@ -381,12 +405,18 @@ export class StripDiceGame {
     private soloGames: Map<number, SoloGameState> = new Map();
     private pendingSoloSetup: Map<number, { mode: SoloMode; name: string }> = new Map();
     private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
+    private readonly gameLogPath = path.join(__dirname, "..", "game_log.json");
+    private readonly botStatePath = path.join(__dirname, "..", "bot_state.json");
+    private activeMultiplayer: boolean = false;
+    private gameStartTime: string | null = null;
+    private gameEndLogged: boolean = false;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
         this.loadFeedbackStatus();
         this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
         this.loadPlayerRecords();
+        this.pruneGameLog();
     }
 
     // ============================================================
@@ -626,6 +656,8 @@ export class StripDiceGame {
             this.state = GameState.Registration;
             this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
             if (isFirstJoin) {
+                this.gameStartTime = new Date().toISOString();
+                this.gameEndLogged = false;
                 this.bot.sendChat(
                     `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. ` +
                     `Default is ${DEFAULT_LOCK_MINUTES} minutes — game starts in 30 seconds with the current setting.`
@@ -1219,8 +1251,11 @@ export class StripDiceGame {
             bracket,
             clothingRemaining: bracket,
             rolls: 0,
+            startTime: new Date().toISOString(),
         };
         this.soloGames.set(memberNumber, solo);
+        this.writeBotState();
+        logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
 
         const modeLabel = pending.mode === "race" ? "Race to Naked" : "Survive";
         const objective = pending.mode === "race"
@@ -1268,6 +1303,7 @@ export class StripDiceGame {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
         this.soloGames.delete(memberNumber);
+        this.writeBotState();
 
         const records = this.loadSoloRecords();
         const bracketKey = String(solo.bracket);
@@ -1275,6 +1311,8 @@ export class StripDiceGame {
         const dailyRecord = records.daily[solo.mode][bracketKey];
         const allTimeRecord = records.allTime[solo.mode][bracketKey];
         const score = solo.rolls;
+        const endTime = new Date().toISOString();
+        const players = [`${solo.name}(#${memberNumber})`];
 
         this.bot.whisper(memberNumber, `You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
 
@@ -1288,6 +1326,12 @@ export class StripDiceGame {
                 this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
             }
 
+            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
+            this.appendGameLog({
+                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
+                players, outcome: "record-beaten", score,
+            });
+
             this.removeAllItems(memberNumber);
             this.saveSoloRecords(records);
             return;
@@ -1299,6 +1343,12 @@ export class StripDiceGame {
         const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
         const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
         this.applySoloPenalty(memberNumber, penaltyMinutes);
+
+        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: loss | penalty: ${penaltyMinutes}min`);
+        this.appendGameLog({
+            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
+            players, outcome: "loss", score, penaltyMin: penaltyMinutes,
+        });
 
         if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
         records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
@@ -1350,6 +1400,13 @@ export class StripDiceGame {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
         this.soloGames.delete(memberNumber);
+        this.writeBotState();
+
+        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | outcome: abandoned`);
+        this.appendGameLog({
+            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
+            players: [`${solo.name}(#${memberNumber})`], outcome: "abandoned",
+        });
 
         const clothingRemoved = solo.bracket - solo.clothingRemaining;
         if (clothingRemoved <= 0) return;
@@ -1391,6 +1448,79 @@ export class StripDiceGame {
         } catch (err) {
             log("ERROR: Failed to write solo_records.json: " + err);
         }
+    }
+
+    // ============================================================
+    // GAME ACTIVITY LOGGING
+    // ============================================================
+
+    // Appends one NDJSON line to game_log.json for a completed game (multiplayer or solo).
+    private appendGameLog(entry: GameLogEntry): void {
+        try {
+            fs.appendFileSync(this.gameLogPath, JSON.stringify(entry) + "\n", "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write game_log.json: " + err);
+        }
+    }
+
+    // Drops game_log.json entries older than 30 days. Called once on startup.
+    private pruneGameLog(): void {
+        try {
+            if (!fs.existsSync(this.gameLogPath)) return;
+            const raw = fs.readFileSync(this.gameLogPath, "utf8");
+            const cutoff = Date.now() - GAME_LOG_RETENTION_MS;
+
+            const kept = raw.split("\n")
+                .filter(line => line.trim().length > 0)
+                .filter(line => {
+                    try {
+                        const entry: GameLogEntry = JSON.parse(line);
+                        return new Date(entry.endTime).getTime() >= cutoff;
+                    } catch {
+                        return false;
+                    }
+                });
+
+            fs.writeFileSync(this.gameLogPath, kept.map(line => line + "\n").join(""), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to prune game_log.json: " + err);
+        }
+    }
+
+    // Writes a small status snapshot read by external monitoring tools.
+    private writeBotState(): void {
+        const state = {
+            activeMultiplayer: this.activeMultiplayer,
+            activeSoloCount: this.soloGames.size,
+            lastUpdated: new Date().toISOString(),
+        };
+        try {
+            fs.writeFileSync(this.botStatePath, JSON.stringify(state, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write bot_state.json: " + err);
+        }
+    }
+
+    // Logs a "[GAME END] multiplayer" line plus a game_log.json entry, and
+    // marks this game's end as logged so resetGame() doesn't log it again
+    // as a generic "reset".
+    private logMultiplayerGameEnd(outcome: "win" | "all-bound" | "reset" | "aborted", options?: { winner?: string; logSuffix?: string }): void {
+        const playerNames = [...this.players.values()].map(p => p.name).join(", ");
+        const outcomeLabel = options?.logSuffix ? `${outcome} (${options.logSuffix})` : outcome;
+        const winnerPart = options?.winner ? ` | winner: ${options.winner}` : "";
+        logGameEvent(`[GAME END] multiplayer | outcome: ${outcomeLabel}${winnerPart} | players: ${playerNames}`);
+
+        const entry: GameLogEntry = {
+            type: "multiplayer",
+            mode: null,
+            startTime: this.gameStartTime ?? new Date().toISOString(),
+            endTime: new Date().toISOString(),
+            players: [...this.players.values()].map(p => `${p.name}(#${p.memberNumber})`),
+            outcome,
+        };
+        if (options?.winner) entry.winner = options.winner;
+        this.appendGameLog(entry);
+        this.gameEndLogged = true;
     }
 
     // ============================================================
@@ -1882,6 +2012,11 @@ export class StripDiceGame {
         this.currentTurnIndex = 0;
         this.currentDiceMax = STARTING_DICE_MAX;
 
+        this.activeMultiplayer = true;
+        const playerNames = [...this.players.values()].map(p => p.name).join(", ");
+        logGameEvent(`[GAME START] multiplayer | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
+        this.writeBotState();
+
         const orderNames = this.turnOrder.map(n => this.getPlayerName(n)).join(" → ");
         this.bot.sendChat(`🎲 === STRIP DICE BEGINS === 🎲`);
         this.bot.sendChat(`Turn order: ${orderNames}`);
@@ -2014,6 +2149,7 @@ export class StripDiceGame {
             const pool = this.getEligibleOutfits(player.memberNumber);
             if (pool.length === 0) {
                 this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                this.logMultiplayerGameEnd("aborted", { logSuffix: "no outfits" });
                 this.resetGame();
                 return;
             }
@@ -2087,12 +2223,14 @@ export class StripDiceGame {
 
         if (activePlayers.length === 0) {
             this.recordGameCompletion(null);
+            this.logMultiplayerGameEnd("all-bound");
             this.endGame();
             return true;
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
             this.recordGameCompletion(winner.memberNumber);
+            this.logMultiplayerGameEnd("win", { winner: winner.name });
             if (winner.bondageApplied > 0) {
                 this.removeAllItems(winner.memberNumber);
             }
@@ -2319,6 +2457,13 @@ export class StripDiceGame {
     }
 
     private resetGame(): void {
+        if (this.state !== GameState.Idle && !this.gameEndLogged && this.players.size > 0) {
+            this.logMultiplayerGameEnd("reset");
+        }
+        this.gameEndLogged = false;
+        this.activeMultiplayer = false;
+        this.writeBotState();
+
         this.state = GameState.Idle;
         this.players.clear();
         this.turnOrder = [];

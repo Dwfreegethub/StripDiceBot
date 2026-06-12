@@ -12,3 +12,5 @@ players.json
 feedback.log
 outfit_suggestions.json
 solo_records.json
+game_log.json
+bot_state.json
