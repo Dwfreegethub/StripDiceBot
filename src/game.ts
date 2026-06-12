@@ -192,6 +192,19 @@ interface Player {
     leaveRoundsRemaining: number; // Rounds left to return before removal, while pendingReturn
 }
 
+// Snapshot of a player's lock-application state, captured when the post-lock
+// "did everything apply?" verification whisper is sent. Captured rather than
+// read live because resetGame() clears `players` well before the 60s
+// response window elapses.
+interface PendingLockVerification {
+    name: string;
+    bondageApplied: number;
+    bondageOutfit: BondageOutfit | null;
+    lockDurationMinutes: number;
+    lockEndTime: number;
+    timeout: NodeJS.Timeout;
+}
+
 // ============================================================
 // FEEDBACK STATUS TRACKING
 // ============================================================
@@ -283,6 +296,7 @@ export class StripDiceGame {
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
+    private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
     private pendingJoinConfirmations: Map<number, number> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
@@ -416,6 +430,8 @@ export class StripDiceGame {
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
         "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
         "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
+        "!yes": { handler: (mn) => this.handleLockVerificationYes(mn) },
+        "!no": { handler: (mn) => this.handleLockVerificationNo(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
         "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
@@ -1672,6 +1688,7 @@ export class StripDiceGame {
 
             this.bot.sendChat(`🔒 ${player.name} locked for ${this.lockDurationMinutes} minutes!`);
             this.scheduleLockReleaseCheck(player);
+            this.sendLockVerificationWhisper(player, lockEndTime);
         }
 
         // Give in-flight item removals/applies time to reach the server before
@@ -1751,6 +1768,101 @@ export class StripDiceGame {
         }
     }
 
+    // ============================================================
+    // POST-LOCK VERIFICATION
+    // ============================================================
+
+    // Schedules the "did everything apply correctly?" whisper once a bound
+    // player's lock-application setTimeouts have had time to land.
+    private sendLockVerificationWhisper(player: Player, lockEndTime: number): void {
+        const memberNumber = player.memberNumber;
+        const name = player.name;
+        const bondageApplied = player.bondageApplied;
+        const bondageOutfit = player.bondageOutfit;
+        const lockDurationMinutes = this.lockDurationMinutes;
+
+        const sendDelay = bondageApplied * 300 + 1500;
+        setTimeout(() => {
+            const timeout = setTimeout(() => {
+                this.pendingLockVerifications.delete(memberNumber);
+                log(`Lock verification: ${name} (#${memberNumber}) confirmed locks OK`);
+            }, 60000);
+
+            this.pendingLockVerifications.set(memberNumber, {
+                name, bondageApplied, bondageOutfit, lockDurationMinutes, lockEndTime, timeout
+            });
+
+            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply !yes or !no");
+        }, sendDelay);
+    }
+
+    private handleLockVerificationYes(memberNumber: number): void {
+        const pending = this.pendingLockVerifications.get(memberNumber);
+        if (!pending) return;
+
+        clearTimeout(pending.timeout);
+        this.pendingLockVerifications.delete(memberNumber);
+        log(`Lock verification: ${pending.name} (#${memberNumber}) confirmed locks OK`);
+    }
+
+    private handleLockVerificationNo(memberNumber: number): void {
+        const pending = this.pendingLockVerifications.get(memberNumber);
+        if (!pending) return;
+
+        clearTimeout(pending.timeout);
+        this.pendingLockVerifications.delete(memberNumber);
+
+        const outfitJson = JSON.stringify(pending.bondageOutfit);
+        const attemptedItems = (pending.bondageOutfit?.items ?? []).slice(0, pending.bondageApplied);
+        const lockEndIso = new Date(pending.lockEndTime).toISOString();
+
+        log(`LOCK FAILURE REPORTED: ${pending.name} (#${memberNumber}) bondageApplied=${pending.bondageApplied} outfit=${outfitJson} lockEnd=${lockEndIso}`);
+        log(`Lock failure details for ${pending.name} (#${memberNumber}): lockDurationMinutes=${pending.lockDurationMinutes}, attemptedItems=${JSON.stringify(attemptedItems)}`);
+
+        this.bot.whisper(memberNumber, "Got it — attempting to reapply your locks now.");
+
+        const retryDelay = this.retryLockApplication(memberNumber, pending);
+
+        setTimeout(() => {
+            this.bot.whisper(memberNumber, "Locks reapplied. Please check again and let an admin know if there's still an issue.");
+            log(`LOCK RETRY attempted for ${pending.name} (#${memberNumber})`);
+        }, retryDelay);
+    }
+
+    // Reapplies and re-locks the items a player's bondage outfit had reached,
+    // using the same Property shape applyEndGameLocks() uses. Returns the
+    // delay (ms) after which all applyItem calls should have landed.
+    private retryLockApplication(memberNumber: number, pending: PendingLockVerification): number {
+        const outfit = pending.bondageOutfit;
+        if (!outfit || pending.bondageApplied === 0) {
+            return 500;
+        }
+
+        const newLockEndTime = Date.now() + (pending.lockDurationMinutes * 60 * 1000);
+
+        for (let i = 0; i < pending.bondageApplied; i++) {
+            const item = outfit.items[i];
+            if (!item) continue;
+
+            setTimeout(() => {
+                this.bot.applyItem(
+                    memberNumber,
+                    item.group,
+                    item.name,
+                    item.color,
+                    this.buildLockedItemProperty(item, {
+                        hint: `Released in ${pending.lockDurationMinutes} minutes`,
+                        removeItem: true,
+                        showTimer: true,
+                        removeTimer: newLockEndTime
+                    })
+                );
+            }, i * 300);
+        }
+
+        return pending.bondageApplied * 300 + 500;
+    }
+
     private resetGame(): void {
         this.state = GameState.Idle;
         this.players.clear();
@@ -1765,6 +1877,10 @@ export class StripDiceGame {
             clearTimeout(timer);
         }
         this.pendingLateJoinConfirmations.clear();
+        for (const pending of this.pendingLockVerifications.values()) {
+            clearTimeout(pending.timeout);
+        }
+        this.pendingLockVerifications.clear();
         this.clearCountdown();
         this.clearTurnTimer();
 
