@@ -228,6 +228,15 @@ interface PlayerRecord {
     feedbackGiven: boolean;
 }
 
+// Player-submitted outfit idea, stored for admin review and possible future
+// use as a bondage penalty outfit.
+interface OutfitSuggestion {
+    memberNumber: number;
+    name: string;
+    description: string;
+    timestamp: string;
+}
+
 // ============================================================
 // PASSWORD GENERATOR
 // ============================================================
@@ -284,6 +293,7 @@ export class StripDiceGame {
     private playerRecords: Record<string, PlayerRecord> = {};
     private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
     private feedbackMemberNumbers: Set<number> = new Set();
+    private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -400,6 +410,8 @@ export class StripDiceGame {
         "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
+        "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
+        "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
         "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
@@ -1013,6 +1025,56 @@ export class StripDiceGame {
         this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
     }
 
+    private handleOutfitSubmission(memberNumber: number, name: string, message: string): void {
+        const description = message.trim().slice("!outfit ".length).trim();
+        if (!description) {
+            this.bot.whisper(memberNumber, "Please describe the outfit! e.g. !outfit Pink leotard with matching gloves");
+            return;
+        }
+
+        const suggestions = this.loadOutfitSuggestions();
+        suggestions.push({
+            memberNumber,
+            name,
+            description,
+            timestamp: centralTimestamp(),
+        });
+
+        try {
+            fs.writeFileSync(this.outfitSuggestionsPath, JSON.stringify(suggestions, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write outfit_suggestions.json: " + err);
+        }
+
+        log(`Outfit submission from ${name}: ${description}`);
+        this.bot.whisper(memberNumber, "Outfit submitted! It may appear as a penalty in a future game.");
+    }
+
+    private loadOutfitSuggestions(): OutfitSuggestion[] {
+        try {
+            const raw = fs.readFileSync(this.outfitSuggestionsPath, "utf8");
+            return JSON.parse(raw);
+        } catch {
+            return [];
+        }
+    }
+
+    private handleOutfitsList(memberNumber: number): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const suggestions = this.loadOutfitSuggestions();
+        if (suggestions.length === 0) {
+            this.bot.whisper(memberNumber, "No outfit suggestions submitted yet.");
+            return;
+        }
+
+        const lines = suggestions.map((s, i) =>
+            `${i + 1}. ${s.name} (#${s.memberNumber}) [${s.timestamp}]: ${s.description}`
+        );
+
+        this.sendLongWhisper(memberNumber, `=== Submitted Outfits ===\n${lines.join("\n")}`);
+    }
+
     // ============================================================
     // FEEDBACK STATUS NOTIFICATIONS
     // ============================================================
@@ -1196,6 +1258,7 @@ export class StripDiceGame {
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!released / !stuck - Confirm whether your locks released at the end of the game\n` +
             `!feedback [text] - Send feedback to the developers\n` +
+            `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!about - About this bot\n` +
             `!help - Show this message`;
 
@@ -1208,6 +1271,7 @@ export class StripDiceGame {
                 `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
                 `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, implemented, partly_implemented)\n` +
                 `!feedback list - View a summary of all tracked feedback\n` +
+                `!outfits - View submitted outfit suggestions\n` +
                 `!free [player name] - Remove all bondage items from a player; they stay in the game`;
         }
 
@@ -1852,6 +1916,10 @@ export class StripDiceGame {
         return outfit.name;
     }
 
+    // TODO: Once a moderation/selection process exists, mix player-submitted
+    // outfits from outfit_suggestions.json (see loadOutfitSuggestions) into
+    // the eligible pool below.
+    //
     // Players who have set their pronouns to HeHim get outfits without
     // breast-targeted items (e.g. a chastity bra), falling back to the full
     // pool if no such outfit is defined.
