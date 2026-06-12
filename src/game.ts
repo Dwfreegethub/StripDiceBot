@@ -208,12 +208,17 @@ interface PendingLockVerification {
 // ============================================================
 // FEEDBACK STATUS TRACKING
 // ============================================================
-type FeedbackItemStatus = "reviewing" | "testing" | "implemented" | "partly_implemented";
+type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "implemented" | "declined" | "partly_implemented";
 
 interface FeedbackItem {
     timestamp: string;
     text: string;
     status: FeedbackItemStatus;
+    // Resolved statuses (implemented/declined/partly_implemented) are only
+    // whispered to the submitter once; this flag is set after that whisper
+    // so the entry isn't repeated on later joins. Pending entries are never
+    // marked shown.
+    statusShown?: boolean;
 }
 
 interface FeedbackStatusEntry {
@@ -222,11 +227,20 @@ interface FeedbackStatusEntry {
 }
 
 const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
+    pending: "⏳ Pending review",
     reviewing: "🔍 Reviewing",
     testing: "🧪 Testing",
     implemented: "✅ Implemented",
+    declined: "❌ Declined",
     partly_implemented: "🔧 Partly implemented",
 };
+
+// Statuses that count as "resolved" - shown to the submitter only once.
+const RESOLVED_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new Set([
+    "implemented",
+    "declined",
+    "partly_implemented",
+]);
 
 // ============================================================
 // PLAYER TRACKING
@@ -927,6 +941,7 @@ export class StripDiceGame {
 
         for (const item of entry.items) {
             item.status = status;
+            item.statusShown = false;
         }
         this.saveFeedbackStatus();
         this.bot.whisper(memberNumber, `Updated ${entry.items.length} feedback item(s) for ${entry.name} (#${playerId}) to "${status}".`);
@@ -1118,7 +1133,12 @@ export class StripDiceGame {
         if (!entry || entry.items.length === 0) return;
         this.feedbackNotified.add(memberNumber);
 
-        const lines = entry.items.map((item, i) =>
+        const itemsToShow = entry.items.filter(item =>
+            !(RESOLVED_FEEDBACK_STATUSES.has(item.status) && item.statusShown)
+        );
+        if (itemsToShow.length === 0) return;
+
+        const lines = itemsToShow.map((item, i) =>
             `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
         );
 
@@ -1127,6 +1147,15 @@ export class StripDiceGame {
             lines.join("\n") +
             `\n\nThanks for helping us improve the game! 💕`
         );
+
+        let changed = false;
+        for (const item of itemsToShow) {
+            if (RESOLVED_FEEDBACK_STATUSES.has(item.status) && !item.statusShown) {
+                item.statusShown = true;
+                changed = true;
+            }
+        }
+        if (changed) this.saveFeedbackStatus();
     }
 
     // Whispers tend to get silently dropped by the BC server if they exceed
