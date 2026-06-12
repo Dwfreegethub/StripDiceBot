@@ -275,6 +275,7 @@ export class StripDiceGame {
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
     private pendingJoinConfirmations: Map<number, number> = new Map();
+    private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
     private lockPermissionWarned: Set<number> = new Set();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
@@ -448,7 +449,7 @@ export class StripDiceGame {
             return;
         }
         if (this.bondagePhaseStarted) {
-            this.bot.whisper(memberNumber, "The game is already in the bondage phase. You'll be able to join the next round!");
+            this.handleLateJoin(memberNumber, name);
             return;
         }
 
@@ -536,6 +537,55 @@ export class StripDiceGame {
         }
 
         if (!midGame) this.checkAllJoined();
+    }
+
+    // Handles !join attempts after bondage penalties have already started for this game.
+    // Players can join naked via the same double-confirm pattern as a normal !join,
+    // skipping clothing declaration and going straight to bondage on their first loss.
+    private handleLateJoin(memberNumber: number, name: string): void {
+        if (this.players.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !naked if you have nothing on.");
+            return;
+        }
+
+        const pendingTimer = this.pendingLateJoinConfirmations.get(memberNumber);
+        if (!pendingTimer) {
+            const timer = setTimeout(() => {
+                this.pendingLateJoinConfirmations.delete(memberNumber);
+                this.bot.whisper(memberNumber, "Join cancelled.");
+            }, JOIN_CONFIRMATION_WINDOW_MS);
+            this.pendingLateJoinConfirmations.set(memberNumber, timer);
+            this.bot.whisper(memberNumber,
+                "The game has already started. You can join naked (no starting clothes, straight to bondage penalties) — type !join again to confirm."
+            );
+            return;
+        }
+
+        clearTimeout(pendingTimer);
+        this.pendingLateJoinConfirmations.delete(memberNumber);
+
+        const player: Player = {
+            memberNumber,
+            name,
+            clothing: [],
+            clothingRemoved: 0,
+            bondageApplied: 0,
+            isNaked: true,
+            isFullyBound: false,
+            timeoutWarned: false,
+            timeoutCount: 0,
+            ready: true,
+            midGameJoin: false,
+            clothingQuestionIndex: null,
+            pendingClothing: [],
+            bondageOutfit: null,
+            pendingReturn: false,
+            leaveRoundsRemaining: 0,
+        };
+        this.players.set(memberNumber, player);
+        this.turnOrder.push(memberNumber);
+
+        this.bot.sendChat(`${name} has joined the game naked — brave!`);
     }
 
     private handleStart(memberNumber: number): void {
@@ -1647,6 +1697,10 @@ export class StripDiceGame {
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
         this.lockPermissionWarned.clear();
+        for (const timer of this.pendingLateJoinConfirmations.values()) {
+            clearTimeout(timer);
+        }
+        this.pendingLateJoinConfirmations.clear();
         this.clearCountdown();
         this.clearTurnTimer();
 
