@@ -1,1 +1,1 @@
-Solo mode, leaderboards, and welcome whisper update — restart when ready
+Solo games now pause after each lost item and wait for !removed (or Wardrobe) before continuing - no time penalty for taking your time.
