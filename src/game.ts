@@ -55,6 +55,19 @@ const REMOVAL_RETRY_DELAY_MS = 1000;
 const MAX_REMOVAL_ATTEMPTS = 5;
 
 // ============================================================
+// SAFEWORD / !free - retry logic for removing locked bondage items
+// ============================================================
+const SAFEWORD_VERIFY_DELAY_MS = 500; // Delay before checking if a removal landed
+const SAFEWORD_RETRY_DELAYS_MS = [500, 1000, 1500];
+
+// ============================================================
+// END-GAME LOCK VERIFICATION - confirm the 10-minute timer refresh landed
+// ============================================================
+const LOCK_VERIFY_DELAY_MS = 1000;
+const LOCK_TIMER_TOLERANCE_MS = 30 * 1000;
+const MAX_END_GAME_LOCK_RETRIES = 3;
+
+// ============================================================
 // CLOTHING SLOTS - ordered loss sequence
 // ============================================================
 const CLOTHING_SLOTS = ["shoes", "socks", "top", "bottom", "bra", "panties"];
@@ -1049,7 +1062,7 @@ export class StripDiceGame {
             return;
         }
 
-        this.removeAllItems(target.memberNumber);
+        this.removeAllItemsSafeword(target.memberNumber, target.name, memberNumber);
 
         const wasFullyBound = target.isFullyBound;
         target.bondageApplied = 0;
@@ -1096,7 +1109,7 @@ export class StripDiceGame {
     private handleSafeword(memberNumber: number, name: string): void {
         this.bot.sendChat(`🔴 SAFEWORD - ${name} has called safeword! Removing all restraints...`);
         this.bot.whisper(memberNumber, "Safeword acknowledged. Removing all restraints now.");
-        this.removeAllItems(memberNumber);
+        this.removeAllItemsSafeword(memberNumber, name, memberNumber);
 
         const player = this.players.get(memberNumber);
         if (!player || this.state === GameState.Idle || this.state === GameState.Registration) return;
@@ -2431,19 +2444,7 @@ export class StripDiceGame {
                 if (!item) continue;
 
                 setTimeout(() => {
-                    this.bot.applyItem(
-                        player.memberNumber,
-                        item.group,
-                        item.name,
-                        item.color,
-                        this.buildLockedItemProperty(item, {
-                            hint: `Released in ${this.lockDurationMinutes} minutes`,
-                            removeItem: true,
-                            showTimer: true,
-                            removeTimer: lockEndTime
-                        })
-                    );
-                    this.verifyLockApplied(player, item.group, item.name);
+                    this.applyEndGameLockItem(player, item, lockEndTime);
                 }, i * 300);
             }
 
@@ -2475,6 +2476,65 @@ export class StripDiceGame {
                 this.notifyLockPermissionIssue(player);
             }
         }, 1000);
+    }
+
+    // Applies one end-game lock item and verifies the timer/hint refresh
+    // landed, retrying on failure.
+    private applyEndGameLockItem(player: Player, item: BondageItem, lockEndTime: number, attempt: number = 1): void {
+        this.bot.applyItem(
+            player.memberNumber,
+            item.group,
+            item.name,
+            item.color,
+            this.buildLockedItemProperty(item, {
+                hint: `Released in ${this.lockDurationMinutes} minutes`,
+                removeItem: true,
+                showTimer: true,
+                removeTimer: lockEndTime
+            })
+        );
+        this.verifyEndGameLockApplied(player, item, lockEndTime, attempt);
+    }
+
+    // Confirms an end-game lock actually carries the refreshed timer/hint —
+    // items locked mid-game already have LockedBy set, so checking LockedBy
+    // alone would pass even when the end-game timer refresh was dropped.
+    private verifyEndGameLockApplied(player: Player, item: BondageItem, lockEndTime: number, attempt: number): void {
+        setTimeout(() => {
+            const current = this.itemStateCache.get(`${player.memberNumber}:${item.group}`);
+            if (this.isEndGameLockRefreshed(current, item.name, lockEndTime)) return;
+
+            if (!current || current.Name !== item.name || !current.Property?.LockedBy) {
+                log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} — likely missing whitelist permission.`);
+                this.notifyLockPermissionIssue(player);
+            } else {
+                log(`Lock timer refresh missing for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
+            }
+
+            if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
+                log(`LOCK VERIFY FAILED: giving up on ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
+                return;
+            }
+
+            const retry = () => this.applyEndGameLockItem(player, item, lockEndTime, attempt + 1);
+            if (this.bot.isReconnecting()) {
+                log(`Reconnect in progress — delaying lock retry for ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} until reconnected.`);
+                this.bot.onceConnected(retry);
+            } else {
+                retry();
+            }
+        }, LOCK_VERIFY_DELAY_MS);
+    }
+
+    // True only when the item is still locked AND carries the post-game
+    // hint/timer (not just whatever lock it had mid-game).
+    private isEndGameLockRefreshed(current: any, itemName: string, lockEndTime: number): boolean {
+        if (!current || current.Name !== itemName) return false;
+        if (!current.Property?.LockedBy) return false;
+        if (!(current.Property?.Hint ?? "").includes("Released in")) return false;
+
+        const removeTimer = current.Property?.RemoveTimer;
+        return typeof removeTimer === "number" && Math.abs(removeTimer - lockEndTime) <= LOCK_TIMER_TOLERANCE_MS;
     }
 
     private notifyLockPermissionIssue(player: Player): void {
@@ -2721,6 +2781,53 @@ export class StripDiceGame {
                 );
             }
         }, REMOVAL_RETRY_DELAY_MS);
+    }
+
+    // !safeword / !free - removes every restraint from a player, verifying
+    // each slot actually cleared and retrying with backoff so a dropped
+    // removal emit doesn't leave the player stuck.
+    private removeAllItemsSafeword(memberNumber: number, name: string, callerMemberNumber: number): void {
+        REMOVAL_SLOTS.forEach((group, index) => {
+            setTimeout(() => {
+                this.removeItemSafewordVerified(memberNumber, name, group, callerMemberNumber);
+            }, index * REMOVAL_SLOT_DELAY_MS);
+        });
+    }
+
+    private removeItemSafewordVerified(
+        memberNumber: number,
+        name: string,
+        group: string,
+        callerMemberNumber: number,
+        attempt: number = 1
+    ): void {
+        const current = this.itemStateCache.get(`${memberNumber}:${group}`);
+        if (!current?.Name) return;
+
+        if (current.Property?.LockedBy) {
+            this.bot.applyItem(memberNumber, group, current.Name, current.Color, cleanDecodedProperty(current.Property));
+            setTimeout(() => this.bot.removeItem(memberNumber, group), REMOVAL_UNLOCK_GAP_MS);
+        } else {
+            this.bot.removeItem(memberNumber, group);
+        }
+
+        setTimeout(() => {
+            const after = this.itemStateCache.get(`${memberNumber}:${group}`);
+            const stillOn = !!after?.Name && !!after?.Property?.LockedBy;
+            if (!stillOn) return;
+
+            if (attempt <= SAFEWORD_RETRY_DELAYS_MS.length) {
+                log(`SAFEWORD RETRY: ${name} item ${group} still present after removal attempt ${attempt}`);
+                setTimeout(() => {
+                    this.removeItemSafewordVerified(memberNumber, name, group, callerMemberNumber, attempt + 1);
+                }, SAFEWORD_RETRY_DELAYS_MS[attempt - 1]);
+            } else {
+                log(`SAFEWORD REMOVAL FAILED: ${name} (#${memberNumber}) item ${group} still present after 3 retries`);
+                this.bot.whisper(callerMemberNumber,
+                    `⚠️ Could not remove ${after?.Name} from ${name} after 3 attempts — you may need to remove it manually.`
+                );
+            }
+        }, SAFEWORD_VERIFY_DELAY_MS);
     }
 
     // ============================================================

@@ -10,7 +10,7 @@ export class BCConnection {
     private playerNumber: number = 0;
     private heartbeatTimer: NodeJS.Timeout | null = null;
     private onReconnectCallback: (() => void) | null = null;
-    private isReconnecting: boolean = false;
+    private reconnecting: boolean = false;
 
     constructor() {
         this.socket = io(BC_SERVER, {
@@ -29,7 +29,7 @@ export class BCConnection {
         return new Promise((resolve, reject) => {
 
             this.socket.on("connect", () => {
-                if (this.isReconnecting) {
+                if (this.reconnecting) {
                     log("Reconnected to server. Logging back in...");
                 } else {
                     log("Socket connected. Logging in...");
@@ -55,11 +55,11 @@ export class BCConnection {
                 this.socket.emit("AccountUpdate", { Game: data.Game ?? {} });
                 this.socket.emit("AccountUpdate", { AssetFamily: "Female3DCG" });
 
-                if (this.isReconnecting) {
+                if (this.reconnecting) {
                     log(`Re-logged in as #${this.playerNumber}. Rejoining room...`);
                     this.joinRoom();
                     if (this.onReconnectCallback) this.onReconnectCallback();
-                    this.isReconnecting = false;
+                    this.reconnecting = false;
                 } else {
                     log(`Logged in successfully! Member #${this.playerNumber}`);
                     log("Initialization sequence sent.");
@@ -99,7 +99,7 @@ export class BCConnection {
 
             this.socket.on("disconnect", (reason: string) => {
                 log(`Disconnected: ${reason}`);
-                this.isReconnecting = true;
+                this.reconnecting = true;
                 this.clearHeartbeat();
                 if (reason === "io server disconnect") {
                     // Server forced disconnect — manually reconnect
@@ -115,7 +115,7 @@ export class BCConnection {
         this.clearHeartbeat();
         this.heartbeatTimer = setTimeout(() => {
             logError("No ServerInfo received in 3 minutes — possible void. Forcing reconnect...");
-            this.isReconnecting = true;
+            this.reconnecting = true;
             this.socket.disconnect();
             this.socket.connect();
         }, HEARTBEAT_TIMEOUT);
@@ -130,6 +130,18 @@ export class BCConnection {
 
     public onReconnect(callback: () => void): void {
         this.onReconnectCallback = callback;
+    }
+
+    // True while the socket is disconnected and Socket.IO is attempting to
+    // reconnect (between a "disconnect" event and the next "connect").
+    public isReconnecting(): boolean {
+        return this.reconnecting;
+    }
+
+    // Fires once the next time the socket reconnects. Used to defer retries
+    // that would otherwise be dropped while the connection is down.
+    public onceConnected(callback: () => void): void {
+        this.socket.once("connect", callback);
     }
 
     private roomConfig(): Record<string, unknown> {
