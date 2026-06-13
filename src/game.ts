@@ -2136,6 +2136,7 @@ export class StripDiceGame {
             `!released / !stuck - Confirm whether your locks released at the end of the game\n` +
             `!feedback [text] - Send feedback to the developers\n` +
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
+            `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
             `!about - About this bot\n` +
             `!help - Show the help menu`;
 
@@ -2149,8 +2150,7 @@ export class StripDiceGame {
             `!solo survive - Solo whisper game: most rolls before getting naked wins\n` +
             `!removed - Whisper this once you've taken off an item the game told you to remove (or just open your Wardrobe). No rush, the game waits for you.\n` +
             `!scores / !scores race / !scores survive - View solo leaderboards\n` +
-            `!scores me - View your personal solo stats\n` +
-            `!leaderboard / !lb - View the multiplayer win/loss leaderboard`;
+            `!scores me - View your personal solo stats`;
 
         this.sendLongWhisper(memberNumber, text);
     }
