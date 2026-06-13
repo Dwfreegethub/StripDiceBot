@@ -544,6 +544,8 @@ export class StripDiceGame {
         "!solo race": { handler: (mn, name) => this.handleSoloStart(mn, name, "race"), whisperOnly: true },
         "!solo survive": { handler: (mn, name) => this.handleSoloStart(mn, name, "survive"), whisperOnly: true },
         "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
+        "!solo_reset ": { handler: (mn, _name, _msg, message) => this.handleSoloReset(mn, message), whisperOnly: true, prefix: true },
+        "!solo_reset": { handler: (mn) => this.handleSoloReset(mn, ""), whisperOnly: true },
         "!scores me": { handler: (mn) => this.handleScoresMe(mn) },
         "!scores race": { handler: (mn) => this.handleScores(mn, "race") },
         "!scores survive": { handler: (mn) => this.handleScores(mn, "survive") },
@@ -1468,6 +1470,47 @@ export class StripDiceGame {
         this.saveSoloRecords(records);
     }
 
+    // Admin command: !solo_reset [player name]. With no name, lists all
+    // active solo games. With a name, discards that player's solo game with
+    // no penalty (e.g. to clear a stuck/buggy run).
+    private handleSoloReset(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const requested = message.trim().slice("!solo_reset".length).trim();
+
+        if (!requested) {
+            if (this.soloGames.size === 0) {
+                this.bot.whisper(memberNumber, "No solo games are currently active.");
+                return;
+            }
+            const lines = [...this.soloGames.values()].map(solo => {
+                const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
+                return `${solo.name} (#${solo.memberNumber}) - ${modeLabel}, ${solo.bracket}-item bracket, ${solo.clothingLost.length}/${solo.bracket} lost, ${solo.totalRolls} rolls so far`;
+            });
+            this.sendLongWhisper(memberNumber, `=== Active Solo Games ===\n${lines.join("\n")}\nUsage: !solo_reset [player name] to reset one.`);
+            return;
+        }
+
+        const target = [...this.soloGames.values()].find(s => s.name.toLowerCase().includes(requested.toLowerCase()));
+        if (!target) {
+            this.bot.whisper(memberNumber, `No active solo game found matching "${requested}".`);
+            return;
+        }
+
+        this.soloGames.delete(target.memberNumber);
+        this.pendingSoloSetup.delete(target.memberNumber);
+        this.writeBotState();
+
+        logGameEvent(`[SOLO END] mode: ${target.mode} | bracket: ${target.bracket} | player: ${target.name} | outcome: admin-reset`);
+        this.appendGameLog({
+            type: "solo", mode: target.mode, startTime: target.startTime, endTime: new Date().toISOString(),
+            players: [`${target.name}(#${target.memberNumber})`], outcome: "admin-reset",
+        });
+
+        this.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
+        this.bot.whisper(target.memberNumber, "An admin has reset your solo game. Whisper !solo race or !solo survive to start a new one.");
+    }
+
     private loadSoloRecords(): SoloRecordsData {
         let data: SoloRecordsData;
         try {
@@ -1918,7 +1961,9 @@ export class StripDiceGame {
                 `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
                 `!feedback list - View a summary of all tracked feedback\n` +
                 `!outfits - View submitted outfit suggestions\n` +
-                `!free [player name] - Remove all bondage items from a player; they stay in the game`;
+                `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
+                `!solo_reset - List players with active solo games\n` +
+                `!solo_reset [player name] - Discard a player's solo game with no penalty`;
         }
 
         this.bot.whisper(memberNumber, text);
