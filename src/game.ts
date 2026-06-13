@@ -69,6 +69,19 @@ const LOCK_TIMER_TOLERANCE_MS = 30 * 1000;
 const MAX_END_GAME_LOCK_RETRIES = 3;
 
 // ============================================================
+// END-GAME LOCK BURST PACING - every emit in the end-game burst (winner's
+// item removal + each bound player's lock application) shares one staggered
+// timeline so the combined burst stays well under the BC server's per-second
+// rate limit. Baseline ~125ms (~8/sec, 40% of the 20/sec limit) x1.5 safety
+// margin.
+// ============================================================
+const END_GAME_EMIT_STAGGER_MS = 200;
+
+// Pause between games so players have time to confirm their end-game locks
+// released/applied correctly before the next bondage phase begins.
+const GAME_COOLDOWN_MS = 5 * 60 * 1000;
+
+// ============================================================
 // CLOTHING SLOTS - ordered loss sequence
 // ============================================================
 const CLOTHING_SLOTS = ["shoes", "socks", "top", "bottom", "bra", "panties"];
@@ -432,6 +445,7 @@ export class StripDiceGame {
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
     private reconnectPending: boolean = false;
+    private gameCooldownUntil: number = 0;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -696,6 +710,13 @@ export class StripDiceGame {
     // ============================================================
 
     private handleJoin(memberNumber: number, name: string): void {
+        if (this.state === GameState.Idle && Date.now() < this.gameCooldownUntil) {
+            const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
+            this.bot.whisper(memberNumber,
+                `⏳ We just wrapped up a game — give everyone a few minutes to confirm their locks released properly before the next one starts. Try !join again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
+            );
+            return;
+        }
         if (this.state === GameState.Idle && this.checkPendingUpdate()) {
             return;
         }
@@ -1184,10 +1205,7 @@ export class StripDiceGame {
             this.bot.sendChat(`🏆 ${winner.name} wins! Not enough players remain to continue.`);
             this.recordGameCompletion(winner.memberNumber);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
-            if (winner.bondageApplied > 0) {
-                this.removeAllItems(winner.memberNumber);
-            }
-            this.applyEndGameLocks();
+            this.applyEndGameLocks(winner);
             return;
         }
 
@@ -2606,22 +2624,24 @@ export class StripDiceGame {
             item.property
         );
 
-        // Apply lock after short delay
-        setTimeout(() => {
-            this.bot.applyItem(
-                player.memberNumber,
-                item.group,
-                item.name,
-                item.color,
-                this.buildLockedItemProperty(item, {
-                    hint: "Game in progress...",
-                    removeItem: false,
-                    showTimer: false,
-                    removeTimer: Date.now() + (24 * 60 * 60 * 1000)
-                })
-            );
-            this.verifyLockApplied(player, item.group, item.name);
+        // Mid-game locking disabled — restraints stay unlocked during play and
+        // are only locked at game end, in applyEndGameLocks(). Kept commented
+        // out (rather than deleted) in case we want to revert.
+        // this.bot.applyItem(
+        //     player.memberNumber,
+        //     item.group,
+        //     item.name,
+        //     item.color,
+        //     this.buildLockedItemProperty(item, {
+        //         hint: "Game in progress...",
+        //         removeItem: false,
+        //         showTimer: false,
+        //         removeTimer: Date.now() + (24 * 60 * 60 * 1000)
+        //     })
+        // );
+        // this.verifyLockApplied(player, item.group, item.name);
 
+        setTimeout(() => {
             player.bondageApplied++;
             const becameFullyBound = player.bondageApplied >= player.bondageOutfit!.items.length;
 
@@ -2674,10 +2694,7 @@ export class StripDiceGame {
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
             this.recordGameCompletion(winner.memberNumber);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
-            if (winner.bondageApplied > 0) {
-                this.removeAllItems(winner.memberNumber);
-            }
-            this.applyEndGameLocks();
+            this.applyEndGameLocks(winner);
             return true;
         }
         return false;
@@ -2690,9 +2707,30 @@ export class StripDiceGame {
         this.applyEndGameLocks();
     }
 
-    private applyEndGameLocks(): void {
+    // winner: an unbound player whose items need stripping (their slots join
+    // the same staggered burst as everyone else's lock application). Omitted
+    // when every player is fully bound (endGame()) — nothing to strip.
+    private applyEndGameLocks(winner?: Player): void {
         const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
+
+        this.bot.sendChat(`🔒 Hold still everyone — applying everyone's end-game locks now, this'll take a few moments!`);
+
+        // Shared stagger counter: every emit in this end-game burst (winner's
+        // item removal + each bound player's lock application) gets its own
+        // slot on one timeline, so the combined burst stays under the BC
+        // server's per-second rate limit.
+        let stagger = 0;
+
+        if (winner && winner.bondageApplied > 0) {
+            REMOVAL_SLOTS.forEach((group) => {
+                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+                setTimeout(() => {
+                    this.removeSlotVerified(winner.memberNumber, group);
+                }, delay);
+                stagger++;
+            });
+        }
 
         for (const player of boundPlayers) {
             const pool = this.getEligibleOutfits(player.memberNumber);
@@ -2701,23 +2739,32 @@ export class StripDiceGame {
                 this.resetGame();
                 return;
             }
+
+            let lastEmitDelayMs = 0;
             for (let i = 0; i < player.bondageApplied; i++) {
                 const item = player.bondageOutfit?.items[i];
                 if (!item) continue;
 
+                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+                lastEmitDelayMs = delay;
                 setTimeout(() => {
                     this.applyEndGameLockItem(player, item, lockEndTime);
-                }, i * 300);
+                }, delay);
+                stagger++;
             }
 
             this.bot.sendChat(`🔒 ${player.name} locked for ${this.lockDurationMinutes} minutes!`);
             this.scheduleLockReleaseCheck(player);
-            this.sendLockVerificationWhisper(player, lockEndTime);
+            this.sendLockVerificationWhisper(player, lockEndTime, lastEmitDelayMs);
         }
 
-        // Give in-flight item removals/applies time to reach the server before
-        // resetGame() clears player state — bigger games need more time.
-        const resetDelay = (this.players.size * REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS) + 2000;
+        // Pause before the next game starts, so players have time to confirm
+        // their end-game locks released/applied correctly.
+        this.gameCooldownUntil = Date.now() + GAME_COOLDOWN_MS;
+
+        // Give the staggered burst time to land before resetGame() clears
+        // player state.
+        const resetDelay = stagger * END_GAME_EMIT_STAGGER_MS + 2000;
         setTimeout(() => {
             this.resetGame();
         }, resetDelay);
@@ -2727,18 +2774,20 @@ export class StripDiceGame {
     // LOCK VERIFICATION
     // ============================================================
 
-    private verifyLockApplied(player: Player, group: string, itemName: string): void {
-        setTimeout(() => {
-            const current = this.itemStateCache.get(`${player.memberNumber}:${group}`);
-            if (!current || current.Name !== itemName) return;
-
-            const isLocked = !!current.Property?.LockedBy;
-            if (!isLocked) {
-                log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${group}/${itemName} — likely missing whitelist permission.`);
-                this.notifyLockPermissionIssue(player);
-            }
-        }, 1000);
-    }
+    // Unused now that mid-game locking is disabled (see applyNextBondageItem).
+    // Kept commented out rather than deleted in case we want to revert.
+    // private verifyLockApplied(player: Player, group: string, itemName: string): void {
+    //     setTimeout(() => {
+    //         const current = this.itemStateCache.get(`${player.memberNumber}:${group}`);
+    //         if (!current || current.Name !== itemName) return;
+    //
+    //         const isLocked = !!current.Property?.LockedBy;
+    //         if (!isLocked) {
+    //             log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${group}/${itemName} — likely missing whitelist permission.`);
+    //             this.notifyLockPermissionIssue(player);
+    //         }
+    //     }, 1000);
+    // }
 
     // Applies one end-game lock item and verifies the timer/hint refresh
     // landed, retrying on failure.
@@ -2857,14 +2906,14 @@ export class StripDiceGame {
 
     // Schedules the "did everything apply correctly?" whisper once a bound
     // player's lock-application setTimeouts have had time to land.
-    private sendLockVerificationWhisper(player: Player, lockEndTime: number): void {
+    private sendLockVerificationWhisper(player: Player, lockEndTime: number, lastEmitDelayMs: number): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
         const bondageApplied = player.bondageApplied;
         const bondageOutfit = player.bondageOutfit;
         const lockDurationMinutes = this.lockDurationMinutes;
 
-        const sendDelay = bondageApplied * 300 + 1500;
+        const sendDelay = lastEmitDelayMs + 1500;
         setTimeout(() => {
             const timeout = setTimeout(() => {
                 this.pendingLockVerifications.delete(memberNumber);
@@ -2973,8 +3022,6 @@ export class StripDiceGame {
         this.pendingLockVerifications.clear();
         this.clearCountdown();
         this.clearTurnTimer();
-
-        if (this.checkPendingUpdate()) return;
 
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
     }
