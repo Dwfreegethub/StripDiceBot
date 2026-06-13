@@ -1,1 +1,1 @@
-Grace period for disconnected players + reconnect reconciliation
+Special D100 outcomes (100=free pass, 1=double penalty) + admin !kick command

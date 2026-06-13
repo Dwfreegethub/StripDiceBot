@@ -221,6 +221,8 @@ interface Player {
     bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
     pendingReturn: boolean;     // Left the room mid-game; in grace period to return
     leaveRoundsRemaining: number; // Rounds left to return before removal, while pendingReturn
+    freePass: boolean;          // Rolled 100 on the D100 - skips their next roll automatically
+    pendingPenaltySteps: number; // Extra penalty steps still owed from a double-penalty (rolled 1 on the D100)
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock
@@ -591,6 +593,7 @@ export class StripDiceGame {
         "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
         "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
+        "!kick ": { handler: (mn, _name, _msg, message) => this.handleKick(mn, message), whisperOnly: true, prefix: true },
         "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
@@ -738,6 +741,8 @@ export class StripDiceGame {
             bondageOutfit: null,
             pendingReturn: false,
             leaveRoundsRemaining: 0,
+            freePass: false,
+            pendingPenaltySteps: 0,
         };
         this.players.set(memberNumber, player);
 
@@ -829,6 +834,8 @@ export class StripDiceGame {
             bondageOutfit: null,
             pendingReturn: false,
             leaveRoundsRemaining: 0,
+            freePass: false,
+            pendingPenaltySteps: 0,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
@@ -1121,6 +1128,71 @@ export class StripDiceGame {
         }
 
         this.bot.sendChat(`Admin has freed ${target.name} from their restraints.`);
+    }
+
+    // Admin-only: removes a player from the active game. The player keeps any
+    // bondage they're currently wearing — this is a moderation/removal tool,
+    // not a safeword.
+    private handleKick(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        if (!this.activeMultiplayer) {
+            this.bot.whisper(memberNumber, "No active game to kick a player from.");
+            return;
+        }
+
+        const requested = message.trim().slice("!kick ".length).trim();
+        if (!requested) {
+            this.bot.whisper(memberNumber, "Usage: !kick [player name]");
+            return;
+        }
+
+        const target = [...this.players.values()].find(p => p.name.toLowerCase().includes(requested.toLowerCase()));
+        if (!target) {
+            this.bot.whisper(memberNumber, `${requested} not found in the current game.`);
+            return;
+        }
+
+        const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === target.memberNumber;
+
+        this.clearTurnTimer();
+        const removedIndex = this.turnOrder.indexOf(target.memberNumber);
+        this.players.delete(target.memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== target.memberNumber);
+
+        this.bot.sendChat(`👮 An admin removed ${target.name} from the game.`);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return;
+        }
+
+        if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
+            this.currentTurnIndex--;
+        }
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+
+        if (this.checkGameEndCondition()) return;
+
+        if (this.players.size === 1) {
+            const winner = [...this.players.values()][0];
+            this.bot.sendChat(`🏆 ${winner.name} wins! Not enough players remain to continue.`);
+            this.recordGameCompletion(winner.memberNumber);
+            this.logMultiplayerGameEnd("win", { winner: winner.name });
+            if (winner.bondageApplied > 0) {
+                this.removeAllItems(winner.memberNumber);
+            }
+            this.applyEndGameLocks();
+            return;
+        }
+
+        if (wasCurrentTurn) {
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.resolveCurrentTurn();
+        }
     }
 
     private handleSetStatus(memberNumber: number, message: string): void {
@@ -2096,6 +2168,7 @@ export class StripDiceGame {
             `!feedback list - View a summary of all tracked feedback\n` +
             `!outfits - View submitted outfit suggestions\n` +
             `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
+            `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty`;
 
@@ -2120,6 +2193,20 @@ export class StripDiceGame {
 
         const roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
+
+        const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+
+        if (isD100 && roll === 100) {
+            currentPlayer.freePass = true;
+            this.bot.sendChat(`🎟️ ${name} rolled 100 — free pass! They can skip their next required roll.`);
+            this.advanceTurn();
+            return;
+        }
+
+        if (isD100 && roll === 1) {
+            this.handleDoublePenalty(currentPlayer);
+            return;
+        }
 
         if (roll === 1) {
             this.handleLoss(currentPlayer);
@@ -2151,7 +2238,15 @@ export class StripDiceGame {
         const player = this.players.get(memberNumber)!;
         player.clothingRemoved++;
 
-        this.bot.sendChat(`✅ ${name} has removed their item. Continuing the game...`);
+        this.bot.sendChat(`✅ ${name} has removed their item.`);
+
+        if (player.pendingPenaltySteps > 0) {
+            player.pendingPenaltySteps--;
+            this.applyPendingPenaltyStep(player, name);
+            return;
+        }
+
+        this.bot.sendChat(`Continuing the game...`);
 
         // Loser rolls first next round with fresh D100
         this.currentDiceMax = STARTING_DICE_MAX;
@@ -2295,6 +2390,13 @@ export class StripDiceGame {
                 continue;
             }
 
+            if (player.freePass) {
+                player.freePass = false;
+                this.bot.sendChat(`🎟️ ${player.name} uses their free pass!`);
+                this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
+                continue;
+            }
+
             this.state = GameState.Rolling;
             this.announceCurrentTurn();
             this.startTurnTimer();
@@ -2347,6 +2449,62 @@ export class StripDiceGame {
                 player.isNaked = true;
                 this.applyNextBondageItem(player);
             }
+        }
+    }
+
+    // Rolling a 1 on the D100 applies two penalty steps instead of one. The
+    // first step is applied immediately below; the second is queued via
+    // pendingPenaltySteps and picked up by applyPendingPenaltyStep() once the
+    // first step resolves (after !removed, or after the first bondage item locks).
+    private handleDoublePenalty(player: Player): void {
+        this.clearTurnTimer();
+
+        if (player.isNaked) {
+            this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Two bondage items will be applied!`);
+            player.pendingPenaltySteps = 1;
+            this.applyNextBondageItem(player);
+            return;
+        }
+
+        const remaining = player.clothing.length - player.clothingRemoved;
+        if (remaining >= 2) {
+            const item1 = player.clothing[player.clothingRemoved];
+            const item2 = player.clothing[player.clothingRemoved + 1];
+            this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Remove your ${item1} and ${item2}!`);
+            player.pendingPenaltySteps = 1;
+            this.state = GameState.WaitingRemove;
+            this.startTurnTimer(60000);
+        } else {
+            const item1 = player.clothing[player.clothingRemoved];
+            this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Remove your ${item1} — bondage starts immediately after!`);
+            player.pendingPenaltySteps = 1;
+            player.isNaked = true;
+            this.state = GameState.WaitingRemove;
+            this.startTurnTimer(60000);
+        }
+    }
+
+    // Applies the second step of a double penalty once the first step has
+    // resolved (called from handleRemoved after pendingPenaltySteps is consumed).
+    private applyPendingPenaltyStep(player: Player, name: string): void {
+        if (player.isNaked) {
+            this.applyNextBondageItem(player);
+            return;
+        }
+
+        const nextItem = player.clothing[player.clothingRemoved];
+        if (nextItem) {
+            this.state = GameState.WaitingRemove;
+            this.bot.sendChat(`😳 ${name}, remove your ${nextItem} too!`);
+            this.startTurnTimer(60000);
+
+            if (player.clothingRemoved + 1 >= player.clothing.length) {
+                player.isNaked = true;
+                this.bot.sendChat(`${name} will be naked after this! Bondage starts next loss... 😈`);
+            }
+        } else {
+            player.isNaked = true;
+            this.applyNextBondageItem(player);
         }
     }
 
@@ -2426,12 +2584,29 @@ export class StripDiceGame {
             this.verifyLockApplied(player, item.group, item.name);
 
             player.bondageApplied++;
+            const becameFullyBound = player.bondageApplied >= player.bondageOutfit!.items.length;
 
-            if (player.bondageApplied >= player.bondageOutfit!.items.length) {
+            if (becameFullyBound) {
                 player.isFullyBound = true;
                 this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
+            } else {
+                const followUp = player.pendingPenaltySteps > 0
+                    ? `Applying the second item from their double penalty...`
+                    : `Back to the game...`;
+                this.bot.sendChat(`✅ ${player.name} has been restrained! ${followUp}`);
+            }
 
+            // Double penalty: apply the second bondage item immediately, unless
+            // the first one already fully bound the player (nothing left to apply).
+            if (player.pendingPenaltySteps > 0 && !becameFullyBound) {
+                player.pendingPenaltySteps--;
+                this.applyNextBondageItem(player);
+                return;
+            }
+            player.pendingPenaltySteps = 0;
+
+            if (becameFullyBound) {
                 if (this.checkGameEndCondition()) return;
 
                 if (this.currentTurnIndex >= this.turnOrder.length) {
@@ -2440,7 +2615,6 @@ export class StripDiceGame {
                 this.currentDiceMax = STARTING_DICE_MAX;
                 this.resolveCurrentTurn();
             } else {
-                this.bot.sendChat(`✅ ${player.name} has been restrained! Back to the game...`);
                 this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
                 this.currentDiceMax = STARTING_DICE_MAX;
                 this.resolveCurrentTurn();
