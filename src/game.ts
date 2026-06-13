@@ -539,6 +539,9 @@ export class StripDiceGame {
         "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
         "!yes": { handler: (mn) => this.handleLockVerificationYes(mn) },
         "!no": { handler: (mn) => this.handleLockVerificationNo(mn) },
+        "!help player": { handler: (mn) => this.handleHelpPlayer(mn) },
+        "!help solo": { handler: (mn) => this.handleHelpSolo(mn) },
+        "!help admin": { handler: (mn) => this.handleHelpAdmin(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
         "!solo race": { handler: (mn, name) => this.handleSoloStart(mn, name, "race"), whisperOnly: true },
@@ -1925,6 +1928,21 @@ export class StripDiceGame {
 
     private handleHelp(memberNumber: number): void {
         let text =
+            `=== Strip Dice Help ===\n` +
+            `!help player - Multiplayer game commands (join, clothing, rolling, locks)\n` +
+            `!help solo - Solo whisper game & leaderboard commands\n`;
+
+        if (this.isAdmin(memberNumber)) {
+            text += `!help admin - Admin commands\n`;
+        }
+
+        text += `!about - About this bot`;
+
+        this.sendLongWhisper(memberNumber, text);
+    }
+
+    private handleHelpPlayer(memberNumber: number): void {
+        const text =
             `=== Strip Dice Commands ===\n` +
             `!join - Join the game\n` +
             `!wearing - Go through your outfit one item at a time (yes/no)\n` +
@@ -1943,7 +1961,13 @@ export class StripDiceGame {
             `!feedback [text] - Send feedback to the developers\n` +
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!about - About this bot\n` +
-            `!help - Show this message\n\n` +
+            `!help - Show the help menu`;
+
+        this.sendLongWhisper(memberNumber, text);
+    }
+
+    private handleHelpSolo(memberNumber: number): void {
+        const text =
             `=== Solo & Stats ===\n` +
             `!solo race - Solo whisper game: fewest rolls to get naked wins\n` +
             `!solo survive - Solo whisper game: most rolls before getting naked wins\n` +
@@ -1951,20 +1975,24 @@ export class StripDiceGame {
             `!scores me - View your personal solo stats\n` +
             `!leaderboard / !lb - View the multiplayer win/loss leaderboard`;
 
-        if (this.isAdmin(memberNumber)) {
-            text +=
-                `\n\n=== Admin Commands ===\n` +
-                `!locktime [mins] - Set end game lock duration\n` +
-                `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
-                `!midgamejoin on/off - Allow players to join games already in progress\n` +
-                `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
-                `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
-                `!feedback list - View a summary of all tracked feedback\n` +
-                `!outfits - View submitted outfit suggestions\n` +
-                `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
-                `!solo_reset - List players with active solo games\n` +
-                `!solo_reset [player name] - Discard a player's solo game with no penalty`;
-        }
+        this.sendLongWhisper(memberNumber, text);
+    }
+
+    private handleHelpAdmin(memberNumber: number): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const text =
+            `=== Admin Commands ===\n` +
+            `!locktime [mins] - Set end game lock duration\n` +
+            `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
+            `!midgamejoin on/off - Allow players to join games already in progress\n` +
+            `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
+            `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
+            `!feedback list - View a summary of all tracked feedback\n` +
+            `!outfits - View submitted outfit suggestions\n` +
+            `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
+            `!solo_reset - List players with active solo games\n` +
+            `!solo_reset [player name] - Discard a player's solo game with no penalty`;
 
         this.sendLongWhisper(memberNumber, text);
     }
