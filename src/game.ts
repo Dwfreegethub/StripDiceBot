@@ -30,6 +30,7 @@ const SOLO_BRACKET_MAX = 6; // 6 = CLOTHING_SLOTS.length (shoes, socks, top, bot
 const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
+const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
 
 // ============================================================
 // ITEM REMOVAL - end-of-game bondage cleanup
@@ -308,7 +309,8 @@ interface SoloGameState {
     clothingRemaining: string[]; // Items still to lose, in loss order
     clothingLost: string[];      // Items already removed
     startTime: string;        // ISO timestamp when this solo game began
-    awaitingRemoval: boolean; // true after losing an item, until the player confirms it's off (no timeout)
+    awaitingRemoval: boolean; // true after losing an item, until the player confirms it's off
+    inactivityTimer: NodeJS.Timeout | null; // soft nudge if the player goes quiet
 }
 
 // One line of game_log.json (newline-delimited JSON), appended on every
@@ -921,7 +923,7 @@ export class StripDiceGame {
                     `Whisper !ready when done, or !wearing to redo this.`
                 );
             } else {
-                this.bot.whisper(memberNumber, "Got it — you're starting naked! Whisper !ready when done.");
+                this.bot.whisper(memberNumber, "Got it — you're starting naked! !ready when done.");
             }
             return;
         }
@@ -967,7 +969,7 @@ export class StripDiceGame {
         player.isNaked = true;
         player.ready = false;
         player.clothingQuestionIndex = null;
-        this.bot.whisper(memberNumber, "Got it — you're starting naked! Bondage will be applied directly when you lose. Whisper !ready when done.");
+        this.bot.whisper(memberNumber, "Got it — you're starting naked! Bondage applies directly on your next loss. !ready when done.");
     }
 
     private handleReady(memberNumber: number): void {
@@ -1390,11 +1392,11 @@ export class StripDiceGame {
 
     private handleSoloStart(memberNumber: number, name: string, mode: SoloMode): void {
         if (this.soloGames.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You already have a solo game in progress! Type !roll to continue.");
+            this.bot.whisper(memberNumber, "You already have a solo game in progress — !roll to continue.");
             return;
         }
         this.pendingSoloSetup.set(memberNumber, { mode, name, clothingQuestionIndex: 0, pendingClothing: [] });
-        this.bot.whisper(memberNumber, "Let's go through your outfit one item at a time. Answer yes or no.");
+        this.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
         this.askSoloClothingQuestion(memberNumber);
     }
 
@@ -1405,7 +1407,7 @@ export class StripDiceGame {
         if (idx >= CLOTHING_SLOTS.length) {
             const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
             if (clothing.length === 0) {
-                this.bot.whisper(memberNumber, "Solo mode needs at least one clothing item to start with. Let's try again.");
+                this.bot.whisper(memberNumber, "You need at least one item to start — let's try again.");
                 pending.clothingQuestionIndex = 0;
                 pending.pendingClothing = [];
                 this.askSoloClothingQuestion(memberNumber);
@@ -1415,7 +1417,7 @@ export class StripDiceGame {
             return;
         }
 
-        this.bot.whisper(memberNumber, `Do you have ${CLOTHING_SLOTS[idx]} on? (yes/no)`);
+        this.bot.whisper(memberNumber, `Wearing ${CLOTHING_SLOTS[idx]}? (yes/no)`);
     }
 
     private handleSoloClothingAnswer(memberNumber: number, msg: string): void {
@@ -1447,31 +1449,38 @@ export class StripDiceGame {
             clothingLost: [],
             startTime: new Date().toISOString(),
             awaitingRemoval: false,
+            inactivityTimer: null,
         };
         this.soloGames.set(memberNumber, solo);
         this.writeBotState();
         logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
 
+        this.bot.sendChat(`🎲 ${name} is playing a solo game — good luck!`);
+
         const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
         const objective = mode === "race"
-            ? "Roll a shrinking dice chain — each roll's result becomes the max for your next roll. When you hit 1, you lose a clothing item! Try to get naked in as FEW total rolls as possible!"
-            : "Roll a shrinking dice chain — each roll's result becomes the max for your next roll. When you hit 1, you lose a clothing item! Try to last as MANY total rolls as possible before going naked!";
+            ? "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — fewest total rolls wins."
+            : "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — most total rolls before you're naked wins.";
 
         this.bot.whisper(memberNumber,
-            `🎲 ${modeLabel} — starting with ${bracket} clothing item${bracket === 1 ? "" : "s"}: ${clothing.join(", ")}.\n` +
+            `🎲 ${modeLabel} — starting with ${bracket} item${bracket === 1 ? "" : "s"}: ${clothing.join(", ")}.\n` +
             `${objective}\n` +
-            `Everything here is whispered just to you. Type !roll when ready!`
+            `This is just between us.`
         );
-        this.bot.whisper(memberNumber, `${solo.name}, roll a D${solo.currentMax}! Type !roll`);
+        this.bot.whisper(memberNumber, `${solo.name}, !roll (D${solo.currentMax})`);
+        this.startSoloInactivityTimer(memberNumber);
     }
 
     private handleSoloRoll(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
 
+        this.clearSoloInactivityTimer(solo);
+
         if (solo.awaitingRemoval) {
             const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem} first (or open your Wardrobe), then whisper !removed to continue.`);
+            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem}, or type !removed.`);
+            this.startSoloInactivityTimer(memberNumber);
             return;
         }
 
@@ -1484,26 +1493,28 @@ export class StripDiceGame {
             solo.clothingLost.push(lostItem);
 
             this.bot.whisper(memberNumber,
-                `You rolled a 1! You lost your ${lostItem}! (${solo.rollsThisItem} roll${solo.rollsThisItem === 1 ? "" : "s"} for that item, ${solo.totalRolls} total)`
+                `You rolled a 1 — lost your ${lostItem}! (${solo.rollsThisItem} roll${solo.rollsThisItem === 1 ? "" : "s"} for that item, ${solo.totalRolls} total)`
             );
 
             solo.awaitingRemoval = true;
-            this.bot.whisper(memberNumber, `Remove your ${lostItem} (or open your Wardrobe), then whisper !removed to continue. No rush!`);
+            this.bot.whisper(memberNumber, `Remove your ${lostItem}, or type !removed.`);
+            this.startSoloInactivityTimer(memberNumber);
             return;
         }
 
         solo.currentMax = roll;
-        this.bot.whisper(memberNumber, `You rolled ${roll}. Next up: roll a D${solo.currentMax}!`);
-        this.bot.whisper(memberNumber, `${solo.name}, roll! Type !roll`);
+        this.bot.whisper(memberNumber, `You rolled ${roll} — next roll is a D${solo.currentMax}.`);
+        this.bot.whisper(memberNumber, `${solo.name}, !roll`);
+        this.startSoloInactivityTimer(memberNumber);
     }
 
     // Called once the player confirms (whispered !removed, or opened their
-    // Wardrobe) that the item they just lost is off. No timeout in solo —
-    // the game simply waits.
+    // Wardrobe) that the item they just lost is off.
     private handleSoloRemoved(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
         if (!solo || !solo.awaitingRemoval) return;
 
+        this.clearSoloInactivityTimer(solo);
         solo.awaitingRemoval = false;
 
         if (solo.clothingRemaining.length === 0) {
@@ -1514,7 +1525,32 @@ export class StripDiceGame {
         solo.currentMax = SOLO_DICE_MAX;
         solo.rollsThisItem = 0;
         this.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
-        this.bot.whisper(memberNumber, `${solo.name}, roll a D${solo.currentMax}! Type !roll`);
+        this.bot.whisper(memberNumber, `${solo.name}, !roll (D${solo.currentMax})`);
+        this.startSoloInactivityTimer(memberNumber);
+    }
+
+    // Soft nudge if the player goes quiet for SOLO_INACTIVITY_TIMEOUT_MS after
+    // a prompt. Does not end the game; resets whenever the player acts.
+    private startSoloInactivityTimer(memberNumber: number): void {
+        const solo = this.soloGames.get(memberNumber);
+        if (!solo) return;
+
+        this.clearSoloInactivityTimer(solo);
+        solo.inactivityTimer = setTimeout(() => {
+            solo.inactivityTimer = null;
+            if (solo.awaitingRemoval) {
+                this.bot.whisper(memberNumber, "Whenever you're ready — type !removed once it's off.");
+            } else {
+                this.bot.whisper(memberNumber, "Whenever you're ready — type !roll to continue.");
+            }
+        }, SOLO_INACTIVITY_TIMEOUT_MS);
+    }
+
+    private clearSoloInactivityTimer(solo: SoloGameState): void {
+        if (solo.inactivityTimer) {
+            clearTimeout(solo.inactivityTimer);
+            solo.inactivityTimer = null;
+        }
     }
 
     // Returns true if `score` beats `current` (or the hardcoded default target
@@ -1528,6 +1564,7 @@ export class StripDiceGame {
     private finishSoloGame(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
+        this.clearSoloInactivityTimer(solo);
         this.soloGames.delete(memberNumber);
         this.writeBotState();
 
@@ -1540,7 +1577,7 @@ export class StripDiceGame {
         const endTime = new Date().toISOString();
         const players = [`${solo.name}(#${memberNumber})`];
 
-        this.bot.whisper(memberNumber, `You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
+        this.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
 
         if (this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
             const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
@@ -1625,6 +1662,7 @@ export class StripDiceGame {
 
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
+        this.clearSoloInactivityTimer(solo);
         this.soloGames.delete(memberNumber);
         this.writeBotState();
 
@@ -1676,6 +1714,7 @@ export class StripDiceGame {
             return;
         }
 
+        this.clearSoloInactivityTimer(target);
         this.soloGames.delete(target.memberNumber);
         this.pendingSoloSetup.delete(target.memberNumber);
         this.writeBotState();
@@ -1687,7 +1726,7 @@ export class StripDiceGame {
         });
 
         this.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
-        this.bot.whisper(target.memberNumber, "An admin has reset your solo game. Whisper !solo race or !solo survive to start a new one.");
+        this.bot.whisper(target.memberNumber, "An admin reset your solo game — !solo race or !solo survive to start a new one.");
     }
 
     private loadSoloRecords(): SoloRecordsData {
@@ -2252,7 +2291,7 @@ export class StripDiceGame {
         this.currentDiceMax = STARTING_DICE_MAX;
         this.state = GameState.Rolling;
         this.startTurnTimer();
-        this.bot.sendChat(`🎲 ${name} rolls first this round! Type !roll (D${this.currentDiceMax})`);
+        this.bot.sendChat(`🎲 ${name} rolls first — !roll (D${this.currentDiceMax})`);
     }
 
     // ============================================================
@@ -2360,7 +2399,7 @@ export class StripDiceGame {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.whisper(player.memberNumber, `🎲 It's your turn! Roll a D${this.currentDiceMax} by typing !roll (in chat or whispered to me).`);
+        this.bot.whisper(player.memberNumber, `${player.name}, !roll (D${this.currentDiceMax})`);
     }
 
     private advanceTurn(): void {
@@ -3083,7 +3122,7 @@ export class StripDiceGame {
 
     private handleRemoveTimeout(player: Player): void {
         this.bot.whisper(player.memberNumber,
-            `If you've already removed your item, whisper !removed to continue the game.`
+            `Already removed it? !removed to continue.`
         );
         this.startTurnTimer(60000);
     }
@@ -3091,8 +3130,8 @@ export class StripDiceGame {
     private handleTurnTimeout(player: Player): void {
         if (!player.timeoutWarned) {
             player.timeoutWarned = true;
-            this.bot.sendChat(`⏰ ${player.name}, it's your turn! Type !roll or you'll be skipped.`);
-            this.bot.whisper(player.memberNumber, `It's your turn! Type !roll in the room chat or you'll be skipped.`);
+            this.bot.sendChat(`⏰ ${player.name}, !roll or you'll be skipped!`);
+            this.bot.whisper(player.memberNumber, `Still your turn — !roll in chat or you'll be skipped.`);
             this.startTurnTimer(30000 + (player.timeoutCount + 1) * 5000);
         } else {
             player.timeoutWarned = false;
