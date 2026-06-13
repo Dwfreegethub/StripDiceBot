@@ -25,8 +25,8 @@ const STARTING_DICE_MAX = 100;
 // ============================================================
 // SOLO GAME MODE
 // ============================================================
-const SOLO_BRACKET_MIN = 3;
-const SOLO_BRACKET_MAX = 8;
+const SOLO_BRACKET_MIN = 1;
+const SOLO_BRACKET_MAX = 6; // 6 = CLOTHING_SLOTS.length (shoes, socks, top, bottom, bra, panties)
 const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
@@ -286,9 +286,12 @@ interface SoloGameState {
     memberNumber: number;
     name: string;
     mode: SoloMode;
-    bracket: number;          // Starting clothing item count (3-8)
-    clothingRemaining: number;
-    rolls: number;
+    bracket: number;          // Starting clothing item count
+    currentMax: number;       // Current dice ceiling for the shrinking-dice chain; resets to 100 at the start of each item's chain
+    totalRolls: number;       // Running roll count across the whole game
+    rollsThisItem: number;    // Rolls taken in the current chain (for display)
+    clothingRemaining: string[]; // Items still to lose, in loss order
+    clothingLost: string[];      // Items already removed
     startTime: string;        // ISO timestamp when this solo game began
 }
 
@@ -403,7 +406,7 @@ export class StripDiceGame {
     private feedbackMemberNumbers: Set<number> = new Set();
     private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
     private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string }> = new Map();
+    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
     private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
     private readonly gameLogPath = path.join(__dirname, "..", "game_log.json");
     private readonly botStatePath = path.join(__dirname, "..", "bot_state.json");
@@ -573,9 +576,9 @@ export class StripDiceGame {
             return;
         }
 
-        // Solo game setup: a bare number selects the starting clothing bracket
-        if (this.pendingSoloSetup.has(memberNumber) && /^\d+$/.test(msg)) {
-            this.handleSoloBracketReply(memberNumber, msg);
+        // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
+        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.handleSoloClothingAnswer(memberNumber, msg);
             return;
         }
 
@@ -1229,65 +1232,107 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "You already have a solo game in progress! Type !roll to continue.");
             return;
         }
-        this.pendingSoloSetup.set(memberNumber, { mode, name });
-        this.bot.whisper(memberNumber, `How many clothing items are you wearing? (${SOLO_BRACKET_MIN}–${SOLO_BRACKET_MAX})`);
+        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingQuestionIndex: 0, pendingClothing: [] });
+        this.bot.whisper(memberNumber, "Let's go through your outfit one item at a time. Answer yes or no.");
+        this.askSoloClothingQuestion(memberNumber);
     }
 
-    private handleSoloBracketReply(memberNumber: number, msg: string): void {
+    private askSoloClothingQuestion(memberNumber: number): void {
         const pending = this.pendingSoloSetup.get(memberNumber)!;
-        const bracket = parseInt(msg, 10);
+        const idx = pending.clothingQuestionIndex;
 
-        if (bracket < SOLO_BRACKET_MIN || bracket > SOLO_BRACKET_MAX) {
-            this.bot.whisper(memberNumber, `Please enter a number between ${SOLO_BRACKET_MIN} and ${SOLO_BRACKET_MAX}.`);
+        if (idx >= CLOTHING_SLOTS.length) {
+            const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
+            if (clothing.length === 0) {
+                this.bot.whisper(memberNumber, "Solo mode needs at least one clothing item to start with. Let's try again.");
+                pending.clothingQuestionIndex = 0;
+                pending.pendingClothing = [];
+                this.askSoloClothingQuestion(memberNumber);
+                return;
+            }
+            this.startSoloGame(memberNumber, pending.mode, pending.name, clothing);
             return;
         }
 
+        this.bot.whisper(memberNumber, `Do you have ${CLOTHING_SLOTS[idx]} on? (yes/no)`);
+    }
+
+    private handleSoloClothingAnswer(memberNumber: number, msg: string): void {
+        const pending = this.pendingSoloSetup.get(memberNumber)!;
+        const idx = pending.clothingQuestionIndex;
+        const item = CLOTHING_SLOTS[idx];
+
+        if (msg === "yes" || msg === "y") {
+            pending.pendingClothing.push(item);
+        }
+
+        pending.clothingQuestionIndex = idx + 1;
+        this.askSoloClothingQuestion(memberNumber);
+    }
+
+    private startSoloGame(memberNumber: number, mode: SoloMode, name: string, clothing: string[]): void {
         this.pendingSoloSetup.delete(memberNumber);
 
+        const bracket = clothing.length;
         const solo: SoloGameState = {
             memberNumber,
-            name: pending.name,
-            mode: pending.mode,
+            name,
+            mode,
             bracket,
-            clothingRemaining: bracket,
-            rolls: 0,
+            currentMax: SOLO_DICE_MAX,
+            totalRolls: 0,
+            rollsThisItem: 0,
+            clothingRemaining: clothing,
+            clothingLost: [],
             startTime: new Date().toISOString(),
         };
         this.soloGames.set(memberNumber, solo);
         this.writeBotState();
         logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
 
-        const modeLabel = pending.mode === "race" ? "Race to Naked" : "Survive";
-        const objective = pending.mode === "race"
-            ? "Roll until you hit a 1 — each 1 removes one clothing item. Try to get naked in as FEW rolls as possible!"
-            : "Roll until you hit a 1 — each 1 removes one clothing item. Try to last as MANY rolls as possible before going naked!";
+        const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
+        const objective = mode === "race"
+            ? "Roll a shrinking dice chain — each roll's result becomes the max for your next roll. When you hit 1, you lose a clothing item! Try to get naked in as FEW total rolls as possible!"
+            : "Roll a shrinking dice chain — each roll's result becomes the max for your next roll. When you hit 1, you lose a clothing item! Try to last as MANY total rolls as possible before going naked!";
 
         this.bot.whisper(memberNumber,
-            `🎲 ${modeLabel} — starting with ${bracket} clothing item${bracket === 1 ? "" : "s"}.\n` +
+            `🎲 ${modeLabel} — starting with ${bracket} clothing item${bracket === 1 ? "" : "s"}: ${clothing.join(", ")}.\n` +
             `${objective}\n` +
             `Everything here is whispered just to you. Type !roll when ready!`
         );
-        this.bot.whisper(memberNumber, `${solo.name}, roll! Type !roll`);
+        this.bot.whisper(memberNumber, `${solo.name}, roll a D${solo.currentMax}! Type !roll`);
     }
 
     private handleSoloRoll(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
 
-        const roll = Math.floor(Math.random() * SOLO_DICE_MAX) + 1;
-        solo.rolls++;
+        const roll = Math.floor(Math.random() * solo.currentMax) + 1;
+        solo.totalRolls++;
+        solo.rollsThisItem++;
 
         if (roll === 1) {
-            solo.clothingRemaining--;
-            this.bot.whisper(memberNumber, `You rolled a 1! One item removed. ${solo.clothingRemaining} items remaining.`);
-            if (solo.clothingRemaining <= 0) {
+            const lostItem = solo.clothingRemaining.shift()!;
+            solo.clothingLost.push(lostItem);
+
+            this.bot.whisper(memberNumber,
+                `You rolled a 1! You lost your ${lostItem}! (${solo.rollsThisItem} roll${solo.rollsThisItem === 1 ? "" : "s"} for that item, ${solo.totalRolls} total)`
+            );
+
+            if (solo.clothingRemaining.length === 0) {
                 this.finishSoloGame(memberNumber);
                 return;
             }
-        } else {
-            this.bot.whisper(memberNumber, `You rolled ${roll}. Safe for now.`);
+
+            solo.currentMax = SOLO_DICE_MAX;
+            solo.rollsThisItem = 0;
+            this.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
+            this.bot.whisper(memberNumber, `${solo.name}, roll a D${solo.currentMax}! Type !roll`);
+            return;
         }
 
+        solo.currentMax = roll;
+        this.bot.whisper(memberNumber, `You rolled ${roll}. Next up: roll a D${solo.currentMax}!`);
         this.bot.whisper(memberNumber, `${solo.name}, roll! Type !roll`);
     }
 
@@ -1310,7 +1355,7 @@ export class StripDiceGame {
         const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
         const dailyRecord = records.daily[solo.mode][bracketKey];
         const allTimeRecord = records.allTime[solo.mode][bracketKey];
-        const score = solo.rolls;
+        const score = solo.totalRolls;
         const endTime = new Date().toISOString();
         const players = [`${solo.name}(#${memberNumber})`];
 
@@ -1408,7 +1453,7 @@ export class StripDiceGame {
             players: [`${solo.name}(#${memberNumber})`], outcome: "abandoned",
         });
 
-        const clothingRemoved = solo.bracket - solo.clothingRemaining;
+        const clothingRemoved = solo.clothingLost.length;
         if (clothingRemoved <= 0) return;
 
         const records = this.loadSoloRecords();
