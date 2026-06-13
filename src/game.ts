@@ -1966,7 +1966,7 @@ export class StripDiceGame {
                 `!solo_reset [player name] - Discard a player's solo game with no penalty`;
         }
 
-        this.bot.whisper(memberNumber, text);
+        this.sendLongWhisper(memberNumber, text);
     }
 
     private handleRoll(memberNumber: number, name: string): void {
