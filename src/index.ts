@@ -124,6 +124,7 @@ async function main() {
     bot.onReconnect(() => {
         log("Reconnect complete. Re-announcing bot...");
         bot.sendChat("StripDiceBot reconnected! 🎲 Whisper !join to play or !help for info.");
+        game.onReconnect();
     });
 
     bot.listenAll();

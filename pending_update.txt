@@ -1,1 +1,1 @@
-Fix lock timer verify + safeword retry reliability
+Grace period for disconnected players + reconnect reconciliation

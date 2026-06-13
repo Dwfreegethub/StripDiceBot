@@ -427,6 +427,7 @@ export class StripDiceGame {
     private activeMultiplayer: boolean = false;
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
+    private reconnectPending: boolean = false;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -452,7 +453,7 @@ export class StripDiceGame {
             player.pendingReturn = false;
             player.leaveRoundsRemaining = 0;
             player.name = name;
-            this.bot.sendChat(`${name} has returned to the game!`);
+            this.bot.sendChat(`${name} is back! They've been added back to the turn order.`);
             return;
         }
 
@@ -476,7 +477,7 @@ export class StripDiceGame {
             player.leaveRoundsRemaining = 2;
             player.timeoutWarned = false;
             player.timeoutCount = 0;
-            this.bot.sendChat(`${player.name} left — they have 2 rounds to return before being removed.`);
+            this.bot.sendChat(`${player.name} has left the room — they have 2 rounds to return before being removed from the game.`);
 
             const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === memberNumber;
             if (wasCurrentTurn) {
@@ -508,6 +509,52 @@ export class StripDiceGame {
                 const pronouns = extractPronouns(char);
                 if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
             }
+        }
+
+        if (this.reconnectPending) {
+            this.reconnectPending = false;
+            this.reconcileAfterReconnect();
+        }
+    }
+
+    // Called once the underlying connection has reconnected. Defers the
+    // actual reconciliation until the next room sync confirms who's
+    // actually present.
+    public onReconnect(): void {
+        this.reconnectPending = true;
+    }
+
+    // Runs once after a post-reconnect room sync. Anyone in the active game
+    // who isn't in the room is treated like they left - placed into (or kept
+    // in, without resetting their counter) their grace period - so the game
+    // doesn't silently proceed as though they're still present.
+    private reconcileAfterReconnect(): void {
+        if (this.state === GameState.Idle || this.players.size === 0) return;
+
+        const currentMemberNumber = this.getCurrentPlayer()?.memberNumber;
+        let currentPlayerNewlyAbsent = false;
+
+        for (const [memberNumber, player] of this.players) {
+            if (this.roomMembers.has(memberNumber)) continue;
+            if (player.pendingReturn) continue; // already in grace - leave counter as-is
+
+            player.pendingReturn = true;
+            player.leaveRoundsRemaining = 2;
+            player.timeoutWarned = false;
+            player.timeoutCount = 0;
+            this.bot.sendChat(`${player.name} was not found in the room after reconnect — they have 2 rounds to return.`);
+
+            if (memberNumber === currentMemberNumber) currentPlayerNewlyAbsent = true;
+        }
+
+        const activeGameplay = this.state === GameState.Rolling ||
+            this.state === GameState.WaitingRemove ||
+            this.state === GameState.WaitingBondage;
+
+        if (currentPlayerNewlyAbsent && activeGameplay) {
+            this.clearTurnTimer();
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.advanceTurn();
         }
     }
 
@@ -2242,6 +2289,8 @@ export class StripDiceGame {
                     if (this.removeLeftPlayer(player)) return false;
                     continue;
                 }
+                const roundsWord = player.leaveRoundsRemaining === 1 ? "round" : "rounds";
+                this.bot.sendChat(`⏭️ ${player.name} is still away — skipping their turn (${player.leaveRoundsRemaining} ${roundsWord} left to return).`);
                 this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
                 continue;
             }
