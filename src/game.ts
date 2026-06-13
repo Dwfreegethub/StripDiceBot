@@ -599,6 +599,15 @@ export class StripDiceGame {
 
     public handleChat(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
+
+        // Solo game roll takes priority over the multiplayer !roll while active,
+        // so a roll typed in room chat (instead of whispered) still counts and
+        // doesn't get silently swallowed by the multiplayer roll handler.
+        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
+            this.handleSoloRoll(memberNumber);
+            return;
+        }
+
         this.dispatchCommand(memberNumber, name, message, msg, "chat");
     }
 
