@@ -1,1 +1,1 @@
-Lock verification accepts OOC (yes)/(no)/(!yes)/(!no) instead of gag auto-assume
+Remove debug whispers; 1s stagger; 2 retries
