@@ -25,12 +25,15 @@ const STARTING_DICE_MAX = 100;
 // ============================================================
 // SOLO GAME MODE
 // ============================================================
-const SOLO_BRACKET_MIN = 1;
+const SOLO_BRACKET_MIN = 3;
 const SOLO_BRACKET_MAX = 6; // 6 = CLOTHING_SLOTS.length (shoes, socks, top, bottom, bra, panties)
 const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
 const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
+// Gives the player time to close their Wardrobe (the !removed event fires on
+// open, not close) before the end-of-game bondage penalty is applied.
+const SOLO_BONDAGE_DELAY_MS = 10 * 1000;
 
 // ============================================================
 // ITEM REMOVAL - end-of-game bondage cleanup
@@ -1424,8 +1427,8 @@ export class StripDiceGame {
 
         if (idx >= CLOTHING_SLOTS.length) {
             const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
-            if (clothing.length === 0) {
-                this.bot.whisper(memberNumber, "You need at least one item to start — let's try again.");
+            if (clothing.length < SOLO_BRACKET_MIN) {
+                this.bot.whisper(memberNumber, `You need at least ${SOLO_BRACKET_MIN} items to start — let's try again.`);
                 pending.clothingQuestionIndex = 0;
                 pending.pendingClothing = [];
                 this.askSoloClothingQuestion(memberNumber);
@@ -1485,7 +1488,7 @@ export class StripDiceGame {
             `${objective}\n` +
             `This is just between us.`
         );
-        this.bot.whisper(memberNumber, `${solo.name}, !roll (D${solo.currentMax})`);
+        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
         this.startSoloInactivityTimer(memberNumber);
     }
 
@@ -1497,7 +1500,7 @@ export class StripDiceGame {
 
         if (solo.awaitingRemoval) {
             const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem}, or type !removed.`);
+            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem} or type !removed.`);
             this.startSoloInactivityTimer(memberNumber);
             return;
         }
@@ -1515,14 +1518,13 @@ export class StripDiceGame {
             );
 
             solo.awaitingRemoval = true;
-            this.bot.whisper(memberNumber, `Remove your ${lostItem}, or type !removed.`);
+            this.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed.`);
             this.startSoloInactivityTimer(memberNumber);
             return;
         }
 
         solo.currentMax = roll;
-        this.bot.whisper(memberNumber, `You rolled ${roll} — next roll is a D${solo.currentMax}.`);
-        this.bot.whisper(memberNumber, `${solo.name}, !roll`);
+        this.bot.whisper(memberNumber, `You are now at ${roll} — !roll again.`);
         this.startSoloInactivityTimer(memberNumber);
     }
 
@@ -1543,7 +1545,7 @@ export class StripDiceGame {
         solo.currentMax = SOLO_DICE_MAX;
         solo.rollsThisItem = 0;
         this.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
-        this.bot.whisper(memberNumber, `${solo.name}, !roll (D${solo.currentMax})`);
+        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
         this.startSoloInactivityTimer(memberNumber);
     }
 
@@ -1597,15 +1599,15 @@ export class StripDiceGame {
 
         this.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
 
-        if (this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
-            const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
-            records.daily[solo.mode][bracketKey] = entry;
-            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
+        const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
 
-            if (this.isSoloRecordBeat(solo.mode, score, allTimeRecord)) {
-                records.allTime[solo.mode][bracketKey] = entry;
-                this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
-            }
+        // No all-time record yet for this mode/bracket: this run sets it (and
+        // the daily record) penalty-free — the first player to finish in a
+        // bracket always gets a free run, since there's no record to beat.
+        if (!allTimeRecord) {
+            records.daily[solo.mode][bracketKey] = entry;
+            records.allTime[solo.mode][bracketKey] = entry;
+            this.bot.whisper(memberNumber, `🏆 You set the all-time record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls! No penalty for being first.`);
 
             logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
             this.appendGameLog({
@@ -1618,12 +1620,48 @@ export class StripDiceGame {
             return;
         }
 
-        const recordRolls = dailyRecord ? dailyRecord.rolls : SOLO_DEFAULT_TARGET;
+        if (this.isSoloRecordBeat(solo.mode, score, allTimeRecord)) {
+            records.daily[solo.mode][bracketKey] = entry;
+            records.allTime[solo.mode][bracketKey] = entry;
+            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
+            this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
+
+            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
+            this.appendGameLog({
+                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
+                players, outcome: "record-beaten", score,
+            });
+
+            this.removeAllItems(memberNumber);
+            this.saveSoloRecords(records);
+            return;
+        }
+
+        // All-time record stands, but no daily record yet today (or this run
+        // beats today's daily record): set/keep the daily record, no penalty.
+        if (!dailyRecord || this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
+            records.daily[solo.mode][bracketKey] = entry;
+            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
+
+            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
+            this.appendGameLog({
+                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
+                players, outcome: "record-beaten", score,
+            });
+
+            this.removeAllItems(memberNumber);
+            this.saveSoloRecords(records);
+            return;
+        }
+
+        const recordRolls = dailyRecord.rolls;
         this.bot.whisper(memberNumber, `You didn't beat the record (${recordRolls} rolls). Better luck next time!`);
 
         const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
         const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
-        this.applySoloPenalty(memberNumber, penaltyMinutes);
+        setTimeout(() => {
+            this.applySoloPenalty(memberNumber, penaltyMinutes);
+        }, SOLO_BONDAGE_DELAY_MS);
 
         logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: loss | penalty: ${penaltyMinutes}min`);
         this.appendGameLog({

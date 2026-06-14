@@ -1,1 +1,1 @@
-Tighten bot message wording + solo inactivity reminder + solo start room announcement
+Solo playthrough fixes: wording, no-penalty-until-record, wardrobe delay, 7-item max
