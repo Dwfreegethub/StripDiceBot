@@ -8,6 +8,11 @@ while ($true) {
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$time] Starting StripDiceBot..."
 
+    Write-Host "[wrapper] Building latest source..."
+    Push-Location $PSScriptRoot
+    npm run build
+    Pop-Location
+
     # Redirect via cmd.exe so output is appended as raw UTF-8 bytes, regardless
     # of PowerShell's pipeline encoding (which can flip to UTF-16LE on restart).
     cmd /c "node build/index.js >> wrapper.output 2>&1"

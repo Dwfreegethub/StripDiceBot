@@ -1,1 +1,1 @@
-Lock sequencing fix: apply-all then verify-all; remove false whitelist warning
+Wrapper builds before restart; lock verify timing fix; gagged player response

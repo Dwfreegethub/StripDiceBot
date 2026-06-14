@@ -470,6 +470,7 @@ export class StripDiceGame {
         this.nameCache.set(memberNumber, name);
         const pronouns = extractPronouns(character);
         if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
+        this.cacheAppearance(memberNumber, character?.Appearance);
         if (memberNumber === this.bot.getMemberNumber()) return;
 
         const player = this.players.get(memberNumber);
@@ -532,6 +533,7 @@ export class StripDiceGame {
                 if (name) this.nameCache.set(char.MemberNumber, name);
                 const pronouns = extractPronouns(char);
                 if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
+                this.cacheAppearance(char.MemberNumber, char.Appearance);
             }
         }
 
@@ -583,10 +585,33 @@ export class StripDiceGame {
     }
 
     public onItemChange(data: any): void {
-        const target = data?.Target;
         const item = data?.Item;
+        const target = item?.Target;
         if (typeof target !== "number" || !item?.Group) return;
         this.itemStateCache.set(`${target}:${item.Group}`, item);
+    }
+
+    // Seeds itemStateCache from a character's full Appearance array (received
+    // on room sync / member join), so groups that haven't changed since are
+    // still known rather than missing entirely.
+    private cacheAppearance(memberNumber: number, appearance: any[] | undefined): void {
+        if (!Array.isArray(appearance)) return;
+        for (const item of appearance) {
+            if (item?.Group) this.itemStateCache.set(`${memberNumber}:${item.Group}`, item);
+        }
+    }
+
+    // Groups that can hold a literal gag item. The bot has no access to BC's
+    // asset Effect tables, so checking the equipped item's name for
+    // "gag"/"muzzle"/"plug" is the best signal available from synced
+    // appearance/item data.
+    private isPlayerGagged(memberNumber: number): boolean {
+        const mouthGroups = ["ItemMouth", "ItemMouth2", "ItemMouth3"];
+        for (const group of mouthGroups) {
+            const item = this.itemStateCache.get(`${memberNumber}:${group}`);
+            if (item?.Name && /gag|muzzle|plug/i.test(item.Name)) return true;
+        }
+        return false;
     }
 
     // ============================================================
@@ -625,6 +650,7 @@ export class StripDiceGame {
         "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
         "!yes": { handler: (mn) => this.handleLockVerificationYes(mn) },
         "!no": { handler: (mn) => this.handleLockVerificationNo(mn) },
+        "!problem": { handler: (mn) => this.handleLockVerificationNo(mn) },
         "!help player": { handler: (mn) => this.handleHelpPlayer(mn) },
         "!help solo": { handler: (mn) => this.handleHelpSolo(mn) },
         "!help admin": { handler: (mn) => this.handleHelpAdmin(mn) },
@@ -2830,7 +2856,6 @@ export class StripDiceGame {
                 return;
             }
 
-            let lastEmitDelayMs = 0;
             for (let i = 0; i < player.bondageApplied; i++) {
                 const item = player.bondageOutfit?.items[i];
                 if (!item) continue;
@@ -2843,7 +2868,6 @@ export class StripDiceGame {
                 stagger++; // DEBUG-TEMP
 
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
-                lastEmitDelayMs = delay;
                 setTimeout(() => {
                     this.bot.applyItem(
                         player.memberNumber,
@@ -2873,18 +2897,31 @@ export class StripDiceGame {
             stagger++; // DEBUG-TEMP
 
             this.scheduleLockReleaseCheck(player);
-            this.sendLockVerificationWhisper(player, lockEndTime, lastEmitDelayMs);
         }
 
         // Phase 2: after a gap, verify every lock that was just applied.
         stagger++; // gap slot between the apply burst and the verify burst
 
+        let lastVerifyDelay = 0;
         for (const { player, item } of pendingVerifications) {
             const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+            lastVerifyDelay = delay;
             setTimeout(() => {
                 this.verifyEndGameLockApplied(player, item, lockEndTime, 0);
             }, delay);
             stagger++;
+        }
+
+        // The "did you receive your bondage and locks correctly?" whisper must
+        // wait until every Phase 2 verification has run (each one checks the
+        // cache after its own LOCK_VERIFY_DELAY_MS delay) — otherwise players
+        // are asked before the bot has finished checking.
+        const allVerificationsCompleteDelay = pendingVerifications.length > 0
+            ? lastVerifyDelay + LOCK_VERIFY_DELAY_MS
+            : 0;
+
+        for (const player of boundPlayers) {
+            this.sendLockVerificationWhisper(player, lockEndTime, allVerificationsCompleteDelay);
         }
 
         // Pause before the next game starts, so players have time to confirm
@@ -3023,16 +3060,16 @@ export class StripDiceGame {
     // POST-LOCK VERIFICATION
     // ============================================================
 
-    // Schedules the "did everything apply correctly?" whisper once a bound
-    // player's lock-application setTimeouts have had time to land.
-    private sendLockVerificationWhisper(player: Player, lockEndTime: number, lastEmitDelayMs: number): void {
+    // Schedules the "did everything apply correctly?" whisper once all of
+    // this end-game burst's Phase 2 verifications have had time to land.
+    private sendLockVerificationWhisper(player: Player, lockEndTime: number, allVerificationsCompleteDelay: number): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
         const bondageApplied = player.bondageApplied;
         const bondageOutfit = player.bondageOutfit;
         const lockDurationMinutes = this.lockDurationMinutes;
 
-        const sendDelay = lastEmitDelayMs + 1500;
+        const sendDelay = allVerificationsCompleteDelay + 1500;
         setTimeout(() => {
             const timeout = setTimeout(() => {
                 this.pendingLockVerifications.delete(memberNumber);
@@ -3043,7 +3080,15 @@ export class StripDiceGame {
                 name, bondageApplied, bondageOutfit, lockDurationMinutes, lockEndTime, timeout
             });
 
-            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply !yes or !no");
+            // Gagged players' typed messages get scrambled by BC, so !yes/!no
+            // can't be relied on — assume the locks are fine and let them
+            // flag a problem with !problem instead (a bare command, not
+            // garbled like sentence speech).
+            if (this.isPlayerGagged(memberNumber)) {
+                this.bot.whisper(memberNumber, "You're gagged, so I'll assume your locks are set correctly. Whisper me !problem if anything is wrong.");
+            } else {
+                this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply !yes or !no");
+            }
         }, sendDelay);
     }
 
