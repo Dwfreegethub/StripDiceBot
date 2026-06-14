@@ -121,6 +121,10 @@ async function main() {
         game.onItemChange(data);
     });
 
+    bot.onSyncSingle((data: any) => {
+        game.onSyncSingle(data);
+    });
+
     bot.onReconnect(() => {
         log("Reconnect complete. Re-announcing bot...");
         bot.sendChat("StripDiceBot reconnected! 🎲 Whisper !join to play or !help for info.");

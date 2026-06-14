@@ -1,1 +1,1 @@
-Remove debug whispers; 1s stagger; 2 retries
+Fix lock verification: silence=success, ChatRoomSyncSingle=rejection

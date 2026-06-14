@@ -71,7 +71,6 @@ const SAFEWORD_RETRY_DELAYS_MS = [500, 1000, 1500];
 // END-GAME LOCK VERIFICATION - confirm the 10-minute timer refresh landed
 // ============================================================
 const LOCK_VERIFY_DELAY_MS = 1500;
-const LOCK_TIMER_TOLERANCE_MS = 30 * 1000;
 const MAX_END_GAME_LOCK_RETRIES = 2;
 
 // ============================================================
@@ -258,6 +257,16 @@ interface PendingLockVerification {
     timeout: NodeJS.Timeout;
 }
 
+// Tracks an end-game lock apply awaiting confirmation. BC's server never
+// echoes a ChatRoomSyncItem back to the sender for their own item updates,
+// so silence during the verification window means the lock was accepted.
+// A ChatRoomSyncSingle arriving for this member+group during the window,
+// showing the lock missing, means the server rejected it.
+interface PendingLockApplyCheck {
+    itemName: string;
+    onResult: (rejected: boolean) => void;
+}
+
 // ============================================================
 // FEEDBACK STATUS TRACKING
 // ============================================================
@@ -434,6 +443,7 @@ export class StripDiceGame {
     private pendingJoinConfirmations: Map<number, number> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
+    private pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
     private feedbackNotified: Set<number> = new Set();
     private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
@@ -469,6 +479,7 @@ export class StripDiceGame {
         this.nameCache.set(memberNumber, name);
         const pronouns = extractPronouns(character);
         if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
+        this.seedItemStateCacheFromCharacter(character);
         if (memberNumber === this.bot.getMemberNumber()) return;
 
         const player = this.players.get(memberNumber);
@@ -531,6 +542,7 @@ export class StripDiceGame {
                 if (name) this.nameCache.set(char.MemberNumber, name);
                 const pronouns = extractPronouns(char);
                 if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
+                this.seedItemStateCacheFromCharacter(char);
             }
         }
 
@@ -586,6 +598,48 @@ export class StripDiceGame {
         const target = item?.Target;
         if (typeof target !== "number" || !item?.Group) return;
         this.itemStateCache.set(`${target}:${item.Group}`, item);
+    }
+
+    // BC sends ChatRoomSyncSingle as a full appearance snapshot for one
+    // character whenever the server corrects their appearance — including
+    // when it rejects an item update the bot just sent (the bot's own
+    // ChatRoomCharacterItemUpdate emits never come back as ChatRoomSyncItem,
+    // so this is the only signal that a lock apply was rejected).
+    public onSyncSingle(data: any): void {
+        const character = data?.Character;
+        const memberNumber = character?.MemberNumber;
+        if (typeof memberNumber !== "number" || !Array.isArray(character.Appearance)) return;
+
+        this.seedItemStateCacheFromCharacter(character);
+
+        for (const item of character.Appearance) {
+            if (!item?.Group) continue;
+
+            const key = `${memberNumber}:${item.Group}`;
+            const pending = this.pendingLockApplyChecks.get(key);
+            if (!pending) continue;
+
+            const lockedByBot = item.Property?.LockedBy === "TimerPasswordPadlock" &&
+                item.Property?.LockMemberNumber === this.bot.getMemberNumber();
+            const stillApplied = item.Name === pending.itemName && lockedByBot;
+
+            if (!stillApplied) {
+                pending.onResult(true);
+            }
+        }
+    }
+
+    // Seeds itemStateCache with a character's full appearance, giving a
+    // ground-truth baseline for removal/lock checks. Called from room sync,
+    // member join, and ChatRoomSyncSingle handlers.
+    private seedItemStateCacheFromCharacter(character: any): void {
+        const memberNumber = character?.MemberNumber;
+        if (typeof memberNumber !== "number" || !Array.isArray(character.Appearance)) return;
+
+        for (const item of character.Appearance) {
+            if (!item?.Group) continue;
+            this.itemStateCache.set(`${memberNumber}:${item.Group}`, item);
+        }
     }
 
     // ============================================================
@@ -2894,23 +2948,7 @@ export class StripDiceGame {
     // LOCK VERIFICATION
     // ============================================================
 
-    // Unused now that mid-game locking is disabled (see applyNextBondageItem).
-    // Kept commented out rather than deleted in case we want to revert.
-    // private verifyLockApplied(player: Player, group: string, itemName: string): void {
-    //     setTimeout(() => {
-    //         const current = this.itemStateCache.get(`${player.memberNumber}:${group}`);
-    //         if (!current || current.Name !== itemName) return;
-    //
-    //         const isLocked = !!current.Property?.LockedBy;
-    //         if (!isLocked) {
-    //             log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${group}/${itemName} — likely missing whitelist permission.`);
-    //             this.notifyLockPermissionIssue(player);
-    //         }
-    //     }, 1000);
-    // }
-
-    // Applies one end-game lock item and verifies the timer/hint refresh
-    // landed, retrying on failure.
+    // Applies one end-game lock item and starts its verification window.
     private applyEndGameLockItem(player: Player, item: BondageItem, lockEndTime: number, attempt: number = 1): void {
         this.bot.applyItem(
             player.memberNumber,
@@ -2927,18 +2965,31 @@ export class StripDiceGame {
         this.verifyEndGameLockApplied(player, item, lockEndTime, attempt);
     }
 
-    // Confirms an end-game lock actually carries the refreshed timer/hint —
-    // items locked mid-game already have LockedBy set, so checking LockedBy
-    // alone would pass even when the end-game timer refresh was dropped.
+    // BC never echoes the bot's own ChatRoomCharacterItemUpdate back as a
+    // ChatRoomSyncItem, so silence during the verification window means the
+    // lock was accepted. If the server rejects it, it broadcasts a
+    // ChatRoomSyncSingle correcting the character's appearance — caught by
+    // onSyncSingle, which calls onResult(true) for this key.
     private verifyEndGameLockApplied(player: Player, item: BondageItem, lockEndTime: number, attempt: number): void {
-        setTimeout(() => {
-            const current = this.itemStateCache.get(`${player.memberNumber}:${item.group}`);
-            if (this.isEndGameLockRefreshed(current, item.name, lockEndTime)) return;
+        const key = `${player.memberNumber}:${item.group}`;
 
-            log(`Lock verification inconclusive for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
+        const existing = this.pendingLockApplyChecks.get(key);
+        if (existing) this.pendingLockApplyChecks.delete(key);
+
+        const finish = (rejected: boolean) => {
+            if (!this.pendingLockApplyChecks.has(key)) return;
+            this.pendingLockApplyChecks.delete(key);
+
+            if (!rejected) {
+                log(`Lock verification: ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} confirmed (no rejection received).`);
+                return;
+            }
+
+            log(`Lock verification: BC rejected lock for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
 
             if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
                 log(`LOCK VERIFY FAILED: giving up on ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
+                this.bot.whisper(player.memberNumber, "⚠️ One or more locks may not have applied correctly — please check your items.");
                 return;
             }
 
@@ -2949,18 +3000,10 @@ export class StripDiceGame {
             } else {
                 retry();
             }
-        }, LOCK_VERIFY_DELAY_MS);
-    }
+        };
 
-    // True only when the item is still locked AND carries the post-game
-    // hint/timer (not just whatever lock it had mid-game).
-    private isEndGameLockRefreshed(current: any, itemName: string, lockEndTime: number): boolean {
-        if (!current || current.Name !== itemName) return false;
-        if (!current.Property?.LockedBy) return false;
-        if (!(current.Property?.Hint ?? "").includes("Released in")) return false;
-
-        const removeTimer = current.Property?.RemoveTimer;
-        return typeof removeTimer === "number" && Math.abs(removeTimer - lockEndTime) <= LOCK_TIMER_TOLERANCE_MS;
+        this.pendingLockApplyChecks.set(key, { itemName: item.name, onResult: finish });
+        setTimeout(() => finish(false), LOCK_VERIFY_DELAY_MS);
     }
 
     private scheduleLockReleaseCheck(player: Player): void {
@@ -3124,6 +3167,7 @@ export class StripDiceGame {
             clearTimeout(pending.timeout);
         }
         this.pendingLockVerifications.clear();
+        this.pendingLockApplyChecks.clear();
         this.clearCountdown();
         this.clearTurnTimer();
 
