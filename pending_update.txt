@@ -1,1 +1,0 @@
-DEBUG MODE: lock diagnostics + 2s stagger — REMOVE BEFORE PERMANENT COMMIT

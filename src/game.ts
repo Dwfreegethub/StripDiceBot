@@ -3135,6 +3135,12 @@ export class StripDiceGame {
         this.bot.sendChat(message);
         log(`Pending update detected${note ? ` (${note})` : ""}. Restarting...`);
 
+        try {
+            fs.unlinkSync(updatePath);
+        } catch (err) {
+            log(`Failed to remove pending_update.txt: ${err}`);
+        }
+
         setTimeout(() => {
             process.exit(0);
         }, 2000);
