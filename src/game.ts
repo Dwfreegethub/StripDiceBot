@@ -435,7 +435,6 @@ export class StripDiceGame {
     private pendingJoinConfirmations: Map<number, number> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
-    private lockPermissionWarned: Set<number> = new Set();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
     private feedbackNotified: Set<number> = new Set();
     private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
@@ -1731,11 +1730,30 @@ export class StripDiceGame {
             }, i * REMOVAL_SLOT_DELAY_MS);
         });
 
+        // Phase 1 (apply) finishes once the last item's lock step has fired.
+        const phase1CompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS;
+
         // DEBUG-TEMP: completion whisper fires after the last item's lock step
-        const soloDebugCompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS + 100; // DEBUG-TEMP
         setTimeout(() => { // DEBUG-TEMP
-            this.bot.whisper(memberNumber, `🔍 DEBUG: Solo penalty complete — all items locked.`); // DEBUG-TEMP
-        }, soloDebugCompleteDelay); // DEBUG-TEMP
+            this.bot.whisper(memberNumber, `🔍 DEBUG: Solo penalty complete — all items locked, verifying next...`); // DEBUG-TEMP
+        }, phase1CompleteDelay + 100); // DEBUG-TEMP
+
+        // Phase 2: after everything is locked, do a simple one-shot verify
+        // per item — no retry machinery, just a debug result.
+        items.forEach((item, i) => {
+            const verifyDelay = phase1CompleteDelay + LOCK_VERIFY_DELAY_MS + i * REMOVAL_SLOT_DELAY_MS;
+            setTimeout(() => {
+                const current = this.itemStateCache.get(`${memberNumber}:${item.group}`);
+                const locked = !!current && current.Name === item.name && !!current.Property?.LockedBy;
+
+                if (locked) {
+                    this.bot.whisper(memberNumber, `🔍 DEBUG: Verified ${item.name} is locked.`); // DEBUG-TEMP
+                } else {
+                    log(`Solo lock verification inconclusive for #${memberNumber} on ${item.group}/${item.name}.`);
+                    this.bot.whisper(memberNumber, `🔍 DEBUG: Lock verification inconclusive for ${item.name} — continuing.`); // DEBUG-TEMP
+                }
+            }, verifyDelay);
+        });
 
         this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
     }
@@ -2800,6 +2818,10 @@ export class StripDiceGame {
             });
         }
 
+        // Phase 1: apply every player's locks first. Verification for all of
+        // them happens afterward in Phase 2, once the apply burst has landed.
+        const pendingVerifications: { player: Player; item: BondageItem }[] = [];
+
         for (const player of boundPlayers) {
             const pool = this.getEligibleOutfits(player.memberNumber);
             if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.items.length === 0) {
@@ -2823,22 +2845,46 @@ export class StripDiceGame {
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 lastEmitDelayMs = delay;
                 setTimeout(() => {
-                    this.applyEndGameLockItem(player, item, lockEndTime);
+                    this.bot.applyItem(
+                        player.memberNumber,
+                        item.group,
+                        item.name,
+                        item.color,
+                        this.buildLockedItemProperty(item, {
+                            hint: `Released in ${this.lockDurationMinutes} minutes`,
+                            removeItem: true,
+                            showTimer: true,
+                            removeTimer: lockEndTime
+                        })
+                    );
                 }, delay);
                 stagger++;
+
+                pendingVerifications.push({ player, item });
             }
 
             this.bot.sendChat(`🔒 ${player.name} locked for ${this.lockDurationMinutes} minutes!`);
 
-            // DEBUG-TEMP: "all done" whisper gets its own slot after the last item
-            const allDoneDelay = stagger * END_GAME_EMIT_STAGGER_MS; // DEBUG-TEMP
+            // DEBUG-TEMP: "all applied" whisper gets its own slot after the last item
+            const allAppliedDelay = stagger * END_GAME_EMIT_STAGGER_MS; // DEBUG-TEMP
             setTimeout(() => { // DEBUG-TEMP
-                this.bot.whisper(player.memberNumber, `🔍 DEBUG: All locks applied for ${player.name}.`); // DEBUG-TEMP
-            }, allDoneDelay); // DEBUG-TEMP
+                this.bot.whisper(player.memberNumber, `🔍 DEBUG: All locks applied for ${player.name}, verifying next...`); // DEBUG-TEMP
+            }, allAppliedDelay); // DEBUG-TEMP
             stagger++; // DEBUG-TEMP
 
             this.scheduleLockReleaseCheck(player);
             this.sendLockVerificationWhisper(player, lockEndTime, lastEmitDelayMs);
+        }
+
+        // Phase 2: after a gap, verify every lock that was just applied.
+        stagger++; // gap slot between the apply burst and the verify burst
+
+        for (const { player, item } of pendingVerifications) {
+            const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+            setTimeout(() => {
+                this.verifyEndGameLockApplied(player, item, lockEndTime, 0);
+            }, delay);
+            stagger++;
         }
 
         // Pause before the next game starts, so players have time to confirm
@@ -2900,15 +2946,11 @@ export class StripDiceGame {
             const current = this.itemStateCache.get(`${player.memberNumber}:${item.group}`);
             if (this.isEndGameLockRefreshed(current, item.name, lockEndTime)) return;
 
-            if (!current || current.Name !== item.name || !current.Property?.LockedBy) {
-                log(`Lock did not apply for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} — likely missing whitelist permission.`);
-                this.notifyLockPermissionIssue(player);
-            } else {
-                log(`Lock timer refresh missing for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
-            }
+            log(`Lock verification inconclusive for ${player.name} (#${player.memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
 
             if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
                 log(`LOCK VERIFY FAILED: giving up on ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
+                this.bot.whisper(player.memberNumber, `🔍 DEBUG: Lock verification inconclusive for ${item.name} — continuing.`); // DEBUG-TEMP
                 return;
             }
 
@@ -2933,16 +2975,6 @@ export class StripDiceGame {
 
         const removeTimer = current.Property?.RemoveTimer;
         return typeof removeTimer === "number" && Math.abs(removeTimer - lockEndTime) <= LOCK_TIMER_TOLERANCE_MS;
-    }
-
-    private notifyLockPermissionIssue(player: Player): void {
-        if (this.lockPermissionWarned.has(player.memberNumber)) return;
-        this.lockPermissionWarned.add(player.memberNumber);
-        this.bot.whisper(player.memberNumber,
-            `⚠️ I don't have permission to lock your restraints — your BC settings are restricting who can apply locks to you.\n` +
-            `Please whitelist GameBot (#${this.bot.getMemberNumber()}): go to your character menu > Online Settings > Whitelist, and add me.\n` +
-            `Your bondage items will still be applied, but won't be locked until you do.`
-        );
     }
 
     private scheduleLockReleaseCheck(player: Player): void {
@@ -3098,7 +3130,6 @@ export class StripDiceGame {
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
-        this.lockPermissionWarned.clear();
         for (const timer of this.pendingLateJoinConfirmations.values()) {
             clearTimeout(timer);
         }

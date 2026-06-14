@@ -1,0 +1,1 @@
+Lock sequencing fix: apply-all then verify-all; remove false whitelist warning
