@@ -1,1 +1,1 @@
-Solo lock verify: silence=success model (same as multiplayer)
+Feedback flood fix: reviewing ack once + triage updates

@@ -286,6 +286,10 @@ interface FeedbackItem {
 interface FeedbackStatusEntry {
     name: string;
     items: FeedbackItem[];
+    // ISO timestamp of the last time this player was sent the bundled
+    // "we're reviewing it" ack. A new ack is only sent if a reviewing/pending/
+    // researching/testing item with a newer timestamp arrives.
+    reviewingAckDate?: string;
 }
 
 const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
@@ -303,6 +307,15 @@ const RESOLVED_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new Set([
     "implemented",
     "declined",
     "partly_implemented",
+]);
+
+// Statuses that are still "in progress" - covered by the single bundled
+// "we're reviewing it" ack rather than a per-item whisper.
+const REVIEWING_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new Set([
+    "pending",
+    "reviewing",
+    "researching",
+    "testing",
 ]);
 
 // ============================================================
@@ -2163,28 +2176,39 @@ export class StripDiceGame {
         if (!entry || entry.items.length === 0) return;
         this.feedbackNotified.add(memberNumber);
 
-        const itemsToShow = entry.items.filter(item =>
-            !(RESOLVED_FEEDBACK_STATUSES.has(item.status) && item.statusShown)
-        );
-        if (itemsToShow.length === 0) return;
-
-        const lines = itemsToShow.map((item, i) =>
-            `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
-        );
-
-        this.sendLongWhisper(memberNumber,
-            `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
-            lines.join("\n") +
-            `\n\nThanks for helping us improve the game! 💕`
-        );
-
         let changed = false;
-        for (const item of itemsToShow) {
-            if (RESOLVED_FEEDBACK_STATUSES.has(item.status) && !item.statusShown) {
+
+        const resolvedToShow = entry.items.filter(item =>
+            RESOLVED_FEEDBACK_STATUSES.has(item.status) && !item.statusShown
+        );
+        if (resolvedToShow.length > 0) {
+            const lines = resolvedToShow.map((item, i) =>
+                `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
+            );
+            this.sendLongWhisper(memberNumber,
+                `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
+                lines.join("\n") +
+                `\n\nThanks for helping us improve the game! 💕`
+            );
+            for (const item of resolvedToShow) {
                 item.statusShown = true;
+            }
+            changed = true;
+        }
+
+        const reviewingItems = entry.items.filter(item => REVIEWING_FEEDBACK_STATUSES.has(item.status));
+        if (reviewingItems.length > 0) {
+            const ackDate = entry.reviewingAckDate ? new Date(entry.reviewingAckDate) : null;
+            const hasNewSinceAck = reviewingItems.some(item => !ackDate || new Date(item.timestamp) > ackDate);
+            if (hasNewSinceAck) {
+                this.sendLongWhisper(memberNumber,
+                    `Hi ${name}! We've received your feedback and are reviewing it. We'll let you know when there's an update!`
+                );
+                entry.reviewingAckDate = new Date().toISOString();
                 changed = true;
             }
         }
+
         if (changed) this.saveFeedbackStatus();
     }
 
