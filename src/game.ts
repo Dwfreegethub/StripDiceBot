@@ -1765,6 +1765,7 @@ export class StripDiceGame {
         if (items.length === 0) return;
 
         const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
+        const name = this.nameCache.get(memberNumber) ?? `#${memberNumber}`;
 
         items.forEach((item, i) => {
             setTimeout(() => {
@@ -1790,20 +1791,78 @@ export class StripDiceGame {
         // Phase 1 (apply) finishes once the last item's lock step has fired.
         const phase1CompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS;
 
-        // Phase 2: after everything is locked, do a simple one-shot verify per item.
+        // Phase 2: after everything is locked, verify each lock using the same
+        // silence=success / ChatRoomSyncSingle=rejection model as end-game locks.
+        let lastVerifyDelay = 0;
         items.forEach((item, i) => {
-            const verifyDelay = phase1CompleteDelay + LOCK_VERIFY_DELAY_MS + i * REMOVAL_SLOT_DELAY_MS;
+            const verifyDelay = phase1CompleteDelay + i * REMOVAL_SLOT_DELAY_MS;
+            lastVerifyDelay = verifyDelay;
             setTimeout(() => {
-                const current = this.itemStateCache.get(`${memberNumber}:${item.group}`);
-                const locked = !!current && current.Name === item.name && !!current.Property?.LockedBy;
-
-                if (!locked) {
-                    log(`Solo lock verification inconclusive for #${memberNumber} on ${item.group}/${item.name}.`);
-                }
+                this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, 0);
             }, verifyDelay);
         });
 
-        this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
+        // The "penalty applied" whisper waits until the full verify pass
+        // (including any retries' own verify windows) has had time to land.
+        const allVerificationsCompleteDelay = lastVerifyDelay + LOCK_VERIFY_DELAY_MS;
+        setTimeout(() => {
+            this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
+        }, allVerificationsCompleteDelay);
+    }
+
+    // Re-applies one solo penalty lock item and starts its verification window.
+    private applySoloLockItem(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
+        this.bot.applyItem(
+            memberNumber,
+            item.group,
+            item.name,
+            item.color,
+            this.buildLockedItemProperty(item, {
+                hint: `Released in ${penaltyMinutes} minutes`,
+                removeItem: true,
+                showTimer: true,
+                removeTimer: lockEndTime
+            })
+        );
+        this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt);
+    }
+
+    // Same silence=success / ChatRoomSyncSingle=rejection model as
+    // verifyEndGameLockApplied(), applied to solo penalty locks.
+    private verifySoloLockApplied(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
+        const key = `${memberNumber}:${item.group}`;
+
+        const existing = this.pendingLockApplyChecks.get(key);
+        if (existing) this.pendingLockApplyChecks.delete(key);
+
+        const finish = (rejected: boolean) => {
+            if (!this.pendingLockApplyChecks.has(key)) return;
+            this.pendingLockApplyChecks.delete(key);
+
+            if (!rejected) {
+                log(`Solo lock verification: ${name} (#${memberNumber}) ${item.group}/${item.name} confirmed (no rejection received).`);
+                return;
+            }
+
+            log(`Solo lock verification: BC rejected lock for ${name} (#${memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
+
+            if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
+                log(`SOLO LOCK VERIFY FAILED: giving up on ${name} (#${memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
+                this.bot.whisper(memberNumber, "⚠️ One or more locks may not have applied correctly — please check your items.");
+                return;
+            }
+
+            const retry = () => this.applySoloLockItem(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt + 1);
+            if (this.bot.isReconnecting()) {
+                log(`Reconnect in progress — delaying solo lock retry for ${name} (#${memberNumber}) ${item.group}/${item.name} until reconnected.`);
+                this.bot.onceConnected(retry);
+            } else {
+                retry();
+            }
+        };
+
+        this.pendingLockApplyChecks.set(key, { itemName: item.name, onResult: finish });
+        setTimeout(() => finish(false), LOCK_VERIFY_DELAY_MS);
     }
 
     // Called when a player leaves the room mid-run. Discards their solo game

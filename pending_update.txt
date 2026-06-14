@@ -1,1 +1,1 @@
-Fix lock verification: silence=success, ChatRoomSyncSingle=rejection
+Solo lock verify: silence=success model (same as multiplayer)
