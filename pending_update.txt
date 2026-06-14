@@ -1,1 +1,1 @@
-!free fix: search room members + remove locks, not just active game roster
+Fix bare !feedback: prompt player then collect next whisper as feedback

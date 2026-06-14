@@ -463,6 +463,7 @@ export class StripDiceGame {
     private playerRecords: Record<string, PlayerRecord> = {};
     private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
     private feedbackMemberNumbers: Set<number> = new Set();
+    private pendingFeedbackRequest: Set<number> = new Set();
     private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
     private soloGames: Map<number, SoloGameState> = new Map();
     private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
@@ -683,6 +684,7 @@ export class StripDiceGame {
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!kick ": { handler: (mn, _name, _msg, message) => this.handleKick(mn, message), whisperOnly: true, prefix: true },
         "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
+        "!feedback": { handler: (mn) => this.handleFeedbackPrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
@@ -725,6 +727,17 @@ export class StripDiceGame {
 
     public handleWhisper(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
+
+        // Bare "!feedback" prompts the player to whisper their feedback next.
+        // Their following whisper is collected as feedback unless it's itself
+        // a command (starts with "!"), in which case it's processed normally.
+        if (this.pendingFeedbackRequest.has(memberNumber)) {
+            this.pendingFeedbackRequest.delete(memberNumber);
+            if (!msg.startsWith("!")) {
+                this.handleFeedback(memberNumber, name, "!feedback " + message);
+                return;
+            }
+        }
 
         // Guided clothing Q&A takes priority over other commands while active
         const player = this.players.get(memberNumber);
@@ -1451,6 +1464,11 @@ export class StripDiceGame {
             `⚠️ Currently in early beta — expect bugs and improvements!\n` +
             `Have a suggestion? Whisper !feedback [your thoughts]`
         );
+    }
+
+    private handleFeedbackPrompt(memberNumber: number): void {
+        this.pendingFeedbackRequest.add(memberNumber);
+        this.bot.whisper(memberNumber, "What's your feedback? Go ahead and whisper it to me and I'll pass it along! 💬");
     }
 
     private handleFeedback(memberNumber: number, name: string, message: string): void {
