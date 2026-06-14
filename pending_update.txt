@@ -1,1 +1,1 @@
-Solo playthrough fixes: wording, no-penalty-until-record, wardrobe delay, 7-item max
+Solo removal: don't mention !removed until 1-min wardrobe-wait reminder, watch wardrobe open as before

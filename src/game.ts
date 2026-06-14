@@ -31,6 +31,9 @@ const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bra
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
 const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
+// How long to wait for the player to open their Wardrobe (detected via
+// handleWardrobe) before nudging them with the !removed fallback.
+const SOLO_REMOVAL_REMINDER_MS = 60 * 1000;
 // Gives the player time to close their Wardrobe (the !removed event fires on
 // open, not close) before the end-of-game bondage penalty is applied.
 const SOLO_BONDAGE_DELAY_MS = 10 * 1000;
@@ -1500,7 +1503,7 @@ export class StripDiceGame {
 
         if (solo.awaitingRemoval) {
             const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem} or type !removed.`);
+            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem}.`);
             this.startSoloInactivityTimer(memberNumber);
             return;
         }
@@ -1518,7 +1521,7 @@ export class StripDiceGame {
             );
 
             solo.awaitingRemoval = true;
-            this.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed.`);
+            this.bot.whisper(memberNumber, `Remove your ${lostItem}.`);
             this.startSoloInactivityTimer(memberNumber);
             return;
         }
@@ -1549,21 +1552,30 @@ export class StripDiceGame {
         this.startSoloInactivityTimer(memberNumber);
     }
 
-    // Soft nudge if the player goes quiet for SOLO_INACTIVITY_TIMEOUT_MS after
-    // a prompt. Does not end the game; resets whenever the player acts.
+    // Soft nudge if the player goes quiet after a prompt. Does not end the
+    // game; resets whenever the player acts. While awaiting a clothing
+    // removal, we wait for the Wardrobe-open event (handleWardrobe) rather
+    // than rushing the player, only mentioning !removed as a fallback if
+    // SOLO_REMOVAL_REMINDER_MS passes with no Wardrobe activity — then keeps
+    // re-reminding every interval until they act.
     private startSoloInactivityTimer(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
 
         this.clearSoloInactivityTimer(solo);
-        solo.inactivityTimer = setTimeout(() => {
-            solo.inactivityTimer = null;
-            if (solo.awaitingRemoval) {
-                this.bot.whisper(memberNumber, "Whenever you're ready — type !removed once it's off.");
-            } else {
+        if (solo.awaitingRemoval) {
+            solo.inactivityTimer = setTimeout(() => {
+                solo.inactivityTimer = null;
+                const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
+                this.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed if you have already removed them to continue.`);
+                this.startSoloInactivityTimer(memberNumber);
+            }, SOLO_REMOVAL_REMINDER_MS);
+        } else {
+            solo.inactivityTimer = setTimeout(() => {
+                solo.inactivityTimer = null;
                 this.bot.whisper(memberNumber, "Whenever you're ready — type !roll to continue.");
-            }
-        }, SOLO_INACTIVITY_TIMEOUT_MS);
+            }, SOLO_INACTIVITY_TIMEOUT_MS);
+        }
     }
 
     private clearSoloInactivityTimer(solo: SoloGameState): void {
