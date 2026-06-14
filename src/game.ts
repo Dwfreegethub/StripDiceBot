@@ -56,8 +56,9 @@ const REMOVAL_SLOTS = [
     "ItemMouth",
     "ItemHead",
 ];
-const REMOVAL_SLOT_DELAY_MS = 200; // Stagger between each slot's removal attempt
-const REMOVAL_UNLOCK_GAP_MS = 500; // Gap between unlocking an item and removing it
+// TODO: REMOVE DEBUG-TEMP before next permanent commit
+const REMOVAL_SLOT_DELAY_MS = 2000; // DEBUG-TEMP: Stagger between each slot's removal attempt
+const REMOVAL_UNLOCK_GAP_MS = 1500; // DEBUG-TEMP: Gap between unlocking an item and removing it
 const REMOVAL_RETRY_DELAY_MS = 1000;
 const MAX_REMOVAL_ATTEMPTS = 5;
 
@@ -70,7 +71,7 @@ const SAFEWORD_RETRY_DELAYS_MS = [500, 1000, 1500];
 // ============================================================
 // END-GAME LOCK VERIFICATION - confirm the 10-minute timer refresh landed
 // ============================================================
-const LOCK_VERIFY_DELAY_MS = 1000;
+const LOCK_VERIFY_DELAY_MS = 3000; // DEBUG-TEMP
 const LOCK_TIMER_TOLERANCE_MS = 30 * 1000;
 const MAX_END_GAME_LOCK_RETRIES = 3;
 
@@ -81,7 +82,7 @@ const MAX_END_GAME_LOCK_RETRIES = 3;
 // rate limit. Baseline ~125ms (~8/sec, 40% of the 20/sec limit) x1.5 safety
 // margin.
 // ============================================================
-const END_GAME_EMIT_STAGGER_MS = 200;
+const END_GAME_EMIT_STAGGER_MS = 2000; // DEBUG-TEMP
 
 // Pause between games so players have time to confirm their end-game locks
 // released/applied correctly before the next bondage phase begins.
@@ -1700,8 +1701,19 @@ export class StripDiceGame {
         const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
 
         items.forEach((item, i) => {
+            // DEBUG-TEMP: whisper 100ms before this step's setTimeout
+            setTimeout(() => { // DEBUG-TEMP
+                this.bot.whisper(memberNumber, `🔍 DEBUG: Solo — removing ${item.name} before locking (step ${i + 1} of ${items.length})...`); // DEBUG-TEMP
+            }, i * REMOVAL_SLOT_DELAY_MS - 100); // DEBUG-TEMP
+
             setTimeout(() => {
                 this.bot.applyItem(memberNumber, item.group, item.name, item.color, item.property);
+
+                // DEBUG-TEMP: whisper 100ms before the lock step's setTimeout
+                setTimeout(() => { // DEBUG-TEMP
+                    this.bot.whisper(memberNumber, `🔍 DEBUG: Solo — locking ${item.name}...`); // DEBUG-TEMP
+                }, REMOVAL_UNLOCK_GAP_MS - 100); // DEBUG-TEMP
+
                 setTimeout(() => {
                     this.bot.applyItem(
                         memberNumber,
@@ -1718,6 +1730,12 @@ export class StripDiceGame {
                 }, REMOVAL_UNLOCK_GAP_MS);
             }, i * REMOVAL_SLOT_DELAY_MS);
         });
+
+        // DEBUG-TEMP: completion whisper fires after the last item's lock step
+        const soloDebugCompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS + 100; // DEBUG-TEMP
+        setTimeout(() => { // DEBUG-TEMP
+            this.bot.whisper(memberNumber, `🔍 DEBUG: Solo penalty complete — all items locked.`); // DEBUG-TEMP
+        }, soloDebugCompleteDelay); // DEBUG-TEMP
 
         this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
     }
@@ -2795,6 +2813,13 @@ export class StripDiceGame {
                 const item = player.bondageOutfit?.items[i];
                 if (!item) continue;
 
+                // DEBUG-TEMP: whisper one slot before the applyItem it describes
+                const debugDelay = stagger * END_GAME_EMIT_STAGGER_MS; // DEBUG-TEMP
+                setTimeout(() => { // DEBUG-TEMP
+                    this.bot.whisper(player.memberNumber, `🔍 DEBUG: Applying lock to ${item.name} (slot ${i + 1} of ${player.bondageApplied})...`); // DEBUG-TEMP
+                }, debugDelay); // DEBUG-TEMP
+                stagger++; // DEBUG-TEMP
+
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 lastEmitDelayMs = delay;
                 setTimeout(() => {
@@ -2804,6 +2829,14 @@ export class StripDiceGame {
             }
 
             this.bot.sendChat(`🔒 ${player.name} locked for ${this.lockDurationMinutes} minutes!`);
+
+            // DEBUG-TEMP: "all done" whisper gets its own slot after the last item
+            const allDoneDelay = stagger * END_GAME_EMIT_STAGGER_MS; // DEBUG-TEMP
+            setTimeout(() => { // DEBUG-TEMP
+                this.bot.whisper(player.memberNumber, `🔍 DEBUG: All locks applied for ${player.name}.`); // DEBUG-TEMP
+            }, allDoneDelay); // DEBUG-TEMP
+            stagger++; // DEBUG-TEMP
+
             this.scheduleLockReleaseCheck(player);
             this.sendLockVerificationWhisper(player, lockEndTime, lastEmitDelayMs);
         }
@@ -2862,6 +2895,8 @@ export class StripDiceGame {
     // alone would pass even when the end-game timer refresh was dropped.
     private verifyEndGameLockApplied(player: Player, item: BondageItem, lockEndTime: number, attempt: number): void {
         setTimeout(() => {
+            this.bot.whisper(player.memberNumber, `🔍 DEBUG: Verifying lock on ${item.name}...`); // DEBUG-TEMP
+
             const current = this.itemStateCache.get(`${player.memberNumber}:${item.group}`);
             if (this.isEndGameLockRefreshed(current, item.name, lockEndTime)) return;
 
@@ -2876,6 +2911,8 @@ export class StripDiceGame {
                 log(`LOCK VERIFY FAILED: giving up on ${player.name} (#${player.memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
                 return;
             }
+
+            this.bot.whisper(player.memberNumber, `🔍 DEBUG: Lock not confirmed on ${item.name} — retry attempt ${attempt + 1} of ${MAX_END_GAME_LOCK_RETRIES}`); // DEBUG-TEMP
 
             const retry = () => this.applyEndGameLockItem(player, item, lockEndTime, attempt + 1);
             if (this.bot.isReconnecting()) {

@@ -1,1 +1,1 @@
-Solo removal: don't mention !removed until 1-min wardrobe-wait reminder, watch wardrobe open as before
+DEBUG MODE: lock diagnostics + 2s stagger — REMOVE BEFORE PERMANENT COMMIT
