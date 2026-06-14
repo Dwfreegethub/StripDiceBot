@@ -1220,23 +1220,69 @@ export class StripDiceGame {
         }
 
         const target = [...this.players.values()].find(p => p.name.toLowerCase().includes(requested.toLowerCase()));
-        if (!target) {
-            this.bot.whisper(memberNumber, `No player found matching "${requested}".`);
+        if (target) {
+            this.removeAllItemsSafeword(target.memberNumber, target.name, memberNumber);
+
+            const wasFullyBound = target.isFullyBound;
+            target.bondageApplied = 0;
+            target.isFullyBound = false;
+            target.bondageOutfit = null;
+
+            if (wasFullyBound && !this.turnOrder.includes(target.memberNumber)) {
+                this.turnOrder.push(target.memberNumber);
+            }
+
+            this.bot.sendChat(`Admin has freed ${target.name} from their restraints.`);
             return;
         }
 
-        this.removeAllItemsSafeword(target.memberNumber, target.name, memberNumber);
-
-        const wasFullyBound = target.isFullyBound;
-        target.bondageApplied = 0;
-        target.isFullyBound = false;
-        target.bondageOutfit = null;
-
-        if (wasFullyBound && !this.turnOrder.includes(target.memberNumber)) {
-            this.turnOrder.push(target.memberNumber);
+        // Not in the active game roster - search everyone currently in the
+        // room for anyone still wearing bot-applied locks (e.g. they left
+        // the game but never got unlocked).
+        let roomMatch: { memberNumber: number; name: string } | undefined;
+        for (const roomMemberNumber of this.roomMembers) {
+            const name = this.nameCache.get(roomMemberNumber);
+            if (name && name.toLowerCase().includes(requested.toLowerCase())) {
+                roomMatch = { memberNumber: roomMemberNumber, name };
+                break;
+            }
         }
 
-        this.bot.sendChat(`Admin has freed ${target.name} from their restraints.`);
+        if (!roomMatch) {
+            this.bot.whisper(memberNumber, `No player found matching '${requested}' in the game or room.`);
+            return;
+        }
+
+        log(`!free: ${roomMatch.name} (#${roomMatch.memberNumber}) found in room but not in the active game - removing bot locks only.`);
+        this.removeBotLocksFromRoomMember(roomMatch.memberNumber, roomMatch.name);
+        this.bot.sendChat(`Admin has freed ${roomMatch.name} from their restraints.`);
+    }
+
+    // Removes any items the bot has padlocked (Property.LockedBy ===
+    // "TimerPasswordPadlock", locked by this bot) from a room member who
+    // isn't part of the active game - e.g. someone who left mid-game while
+    // still wearing end-game locks. Unlike removeAllItemsSafeword(), this
+    // leaves items that aren't bot-locked alone.
+    private removeBotLocksFromRoomMember(targetMemberNumber: number, name: string): void {
+        const botMemberNumber = this.bot.getMemberNumber();
+        let foundLock = false;
+
+        REMOVAL_SLOTS.forEach((group, index) => {
+            const current = this.itemStateCache.get(`${targetMemberNumber}:${group}`);
+            const lockedByBot = current?.Property?.LockedBy === "TimerPasswordPadlock" &&
+                current?.Property?.LockMemberNumber === botMemberNumber;
+            if (!lockedByBot) return;
+
+            foundLock = true;
+            setTimeout(() => {
+                this.bot.applyItem(targetMemberNumber, group, current.Name, current.Color, cleanDecodedProperty(current.Property));
+                setTimeout(() => this.bot.removeItem(targetMemberNumber, group), REMOVAL_UNLOCK_GAP_MS);
+            }, index * REMOVAL_SLOT_DELAY_MS);
+        });
+
+        if (!foundLock) {
+            log(`!free: ${name} (#${targetMemberNumber}) has no bot-applied locks to remove.`);
+        }
     }
 
     // Admin-only: removes a player from the active game. The player keeps any
