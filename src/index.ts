@@ -58,6 +58,14 @@ async function main() {
         if (data.Type === "Status" && data.Content === "Wardrobe") {
             game.handleWardrobe(memberNumber, name);
         }
+
+        // BC fires a ChatRoomMessage with Type "Action" and Content matching a
+        // Safeword pattern when a player uses their in-game safeword. Trigger
+        // the full-stop handler only if they're in the active multiplayer game.
+        if (data.Type === "Action" && memberNumber &&
+            typeof data.Content === "string" && data.Content.includes("Safeword")) {
+            game.handleBCSafewordEvent(memberNumber, name);
+        }
     });
 
     bot.onRoomSync((data: any) => {

@@ -16,11 +16,23 @@ function logGameEvent(message: string): void {
 // ============================================================
 // TEST MODE - set to false for production
 // ============================================================
-const TEST_MODE = true;
+const TEST_MODE = false;
 const TEST_PASSWORD = "TEST1234";
 const DEFAULT_LOCK_MINUTES = 10;
 const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
 const STARTING_DICE_MAX = 100;
+
+// Buffer added to the next turn timer once a wardrobe-open is detected for
+// the current player's removal — the Wardrobe status event fires on open,
+// not close, so this gives them time to actually finish removing the item.
+const WARDROBE_OPEN_TURN_TIMER_BUFFER_MS = 5 * 1000;
+
+// How long a missed player has to roll during their end-of-round second chance.
+const SECOND_CHANCE_TIMER_MS = 30 * 1000;
+
+// How long a mid-game join pause can run before the game resumes without the
+// joining player (they can still join the rotation later via !ready).
+const JOIN_PAUSE_TIMEOUT_MS = 60 * 1000;
 
 // ============================================================
 // SOLO GAME MODE
@@ -217,6 +229,7 @@ enum GameState {
     WaitingRemove,  // Player lost, waiting for !removed
     WaitingBondage, // Player naked, bot applying bondage
     SafewordPause,  // A player called safeword, waiting for !continue or timeout
+    PausedForJoin,  // Briefly paused so a mid-game joiner can get into rotation
     GameOver        // All players bound, applying locks
 }
 
@@ -231,8 +244,8 @@ interface Player {
     bondageApplied: number;     // How many bondage items applied so far
     isNaked: boolean;
     isFullyBound: boolean;
-    timeoutWarned: boolean;     // Has been warned once for timeout
-    timeoutCount: number;       // Number of times skipped
+    missedTurnPending: boolean;  // Missed regular turn; second chance not yet given
+    missedSecondChance: boolean; // Missed second chance too; penalty fires on next regular turn
     ready: boolean;             // Has declared clothing and said !ready
     midGameJoin: boolean;       // Joined while a game was already in progress
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
@@ -453,7 +466,7 @@ export class StripDiceGame {
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
-    private pendingJoinConfirmations: Map<number, number> = new Map();
+    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
     private pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
@@ -470,11 +483,32 @@ export class StripDiceGame {
     private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
     private readonly gameLogPath = path.join(__dirname, "..", "game_log.json");
     private readonly botStatePath = path.join(__dirname, "..", "bot_state.json");
+    private readonly gameCountsPath = path.join(__dirname, "..", "game_counts.json");
     private activeMultiplayer: boolean = false;
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
     private reconnectPending: boolean = false;
     private gameCooldownUntil: number = 0;
+    private pendingTurnTimerBonusMs: number = 0;
+    private pendingJoinPauses: { memberNumber: number; name: string }[] = [];
+    // Joiners currently part of the active pause window who haven't resolved yet
+    // (member number -> name). The pause ends when this is empty or the timer fires.
+    private joinPauseActive: Map<number, string> = new Map();
+    // Joiners who successfully readied up during the active pause window.
+    private joinPauseJoined: { memberNumber: number; name: string }[] = [];
+    private joinPauseTimer: NodeJS.Timeout | null = null;
+    private pendingTurnResume: (() => void) | null = null;
+    private characterDataCache: Map<number, any> = new Map();
+    private botGameVersion: string | null = null;
+    private debugNextRoll: number | null = null;
+    private secondChanceQueue: { memberNumber: number; countdown: number }[] = [];
+    private activeSecondChance: number | null = null;
+    private secondChanceTimer: NodeJS.Timeout | null = null;
+    private minPlayers: number = 2;
+    private maxPlayers: number = 6;
+    private lobbyOpen: boolean = false;
+    private hostMemberNumber: number | null = null;
+    private awaitingMinMaxReply: boolean = false;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -488,12 +522,25 @@ export class StripDiceGame {
     // PUBLIC - room events
     // ============================================================
 
+    // Caches character data for permission pre-flight checks. Also captures
+    // the bot's own GameVersion the first time it appears in a sync.
+    private cacheCharacterData(character: any): void {
+        const memberNumber = character?.MemberNumber;
+        if (typeof memberNumber !== "number") return;
+        this.characterDataCache.set(memberNumber, character);
+        if (memberNumber === this.bot.getMemberNumber() && !this.botGameVersion) {
+            const v = character?.OnlineSharedSettings?.GameVersion;
+            if (v) this.botGameVersion = v;
+        }
+    }
+
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
         this.roomMembers.add(memberNumber);
         this.nameCache.set(memberNumber, name);
         const pronouns = extractPronouns(character);
         if (pronouns) this.pronounsCache.set(memberNumber, pronouns);
         this.seedItemStateCacheFromCharacter(character);
+        if (character) this.cacheCharacterData(character);
         if (memberNumber === this.bot.getMemberNumber()) return;
 
         const player = this.players.get(memberNumber);
@@ -512,10 +559,28 @@ export class StripDiceGame {
 
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
+        this.pendingYesNoJoin.delete(memberNumber);
         this.cleanupSoloOnLeave(memberNumber);
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const player = this.players.get(memberNumber)!;
+
+        if (player.midGameJoin) {
+            this.pendingJoinPauses = this.pendingJoinPauses.filter(p => p.memberNumber !== memberNumber);
+            this.players.delete(memberNumber);
+
+            if (this.joinPauseActive.has(memberNumber)) {
+                this.joinPauseActive.delete(memberNumber);
+                this.bot.sendChat(`${player.name} left before joining.`);
+                if (this.joinPauseActive.size === 0) {
+                    this.resumeFromJoinPause();
+                }
+            } else {
+                this.bot.sendChat(`${player.name} left before joining the rotation.`);
+            }
+            return;
+        }
+
         const activeGameplay = this.state === GameState.Rolling ||
             this.state === GameState.WaitingRemove ||
             this.state === GameState.WaitingBondage;
@@ -523,8 +588,13 @@ export class StripDiceGame {
         if (activeGameplay) {
             player.pendingReturn = true;
             player.leaveRoundsRemaining = 2;
-            player.timeoutWarned = false;
-            player.timeoutCount = 0;
+            player.missedTurnPending = false;
+            player.missedSecondChance = false;
+            this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== memberNumber);
+            if (this.activeSecondChance === memberNumber) {
+                this.clearSecondChanceTimer();
+                this.activeSecondChance = null;
+            }
             this.bot.sendChat(`${player.name} has left the room — they have 2 rounds to return before being removed from the game.`);
 
             const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === memberNumber;
@@ -557,6 +627,7 @@ export class StripDiceGame {
                 const pronouns = extractPronouns(char);
                 if (pronouns) this.pronounsCache.set(char.MemberNumber, pronouns);
                 this.seedItemStateCacheFromCharacter(char);
+                this.cacheCharacterData(char);
             }
         }
 
@@ -589,8 +660,9 @@ export class StripDiceGame {
 
             player.pendingReturn = true;
             player.leaveRoundsRemaining = 2;
-            player.timeoutWarned = false;
-            player.timeoutCount = 0;
+            player.missedTurnPending = false;
+            player.missedSecondChance = false;
+            this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== memberNumber);
             this.bot.sendChat(`${player.name} was not found in the room after reconnect — they have 2 rounds to return.`);
 
             if (memberNumber === currentMemberNumber) currentPlayerNewlyAbsent = true;
@@ -625,6 +697,7 @@ export class StripDiceGame {
         if (typeof memberNumber !== "number" || !Array.isArray(character.Appearance)) return;
 
         this.seedItemStateCacheFromCharacter(character);
+        this.cacheCharacterData(character);
 
         for (const item of character.Appearance) {
             if (!item?.Group) continue;
@@ -650,9 +723,20 @@ export class StripDiceGame {
         const memberNumber = character?.MemberNumber;
         if (typeof memberNumber !== "number" || !Array.isArray(character.Appearance)) return;
 
+        const presentGroups = new Set<string>();
         for (const item of character.Appearance) {
             if (!item?.Group) continue;
             this.itemStateCache.set(`${memberNumber}:${item.Group}`, item);
+            presentGroups.add(item.Group);
+        }
+
+        // ChatRoomSyncSingle is a complete snapshot — BC omits empty item slots
+        // entirely rather than including them with Name:"". Clear stale cache entries
+        // for any removal slot absent from this sync so verification sees them as gone.
+        for (const group of REMOVAL_SLOTS) {
+            if (!presentGroups.has(group)) {
+                this.itemStateCache.delete(`${memberNumber}:${group}`);
+            }
         }
     }
 
@@ -666,11 +750,11 @@ export class StripDiceGame {
     // come before broader prefixes (e.g. "!feedback ").
     private readonly commandTable: Record<string, CommandDef> = {
         "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
-        "!join": { handler: (mn, name) => this.handleJoin(mn, name) },
+        "!join": { handler: (mn, name, _msg, message) => this.handleJoin(mn, name, message), prefix: true },
         "!start": { handler: (mn) => this.handleStart(mn) },
         "!cancel": { handler: (mn) => this.handleCancel(mn) },
-        "!wearing": { handler: (mn) => this.startGuidedClothing(mn), whisperOnly: true },
-        "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), whisperOnly: true, prefix: true },
+        "!wearing": { handler: (mn) => this.startGuidedClothing(mn) },
+        "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), prefix: true },
         "!naked": { handler: (mn) => this.handleNoWearing(mn) },
         "!same": { handler: (mn) => this.handleSame(mn) },
         "!ready": { handler: (mn) => this.handleReady(mn) },
@@ -703,6 +787,7 @@ export class StripDiceGame {
         "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
         "!solo_reset ": { handler: (mn, _name, _msg, message) => this.handleSoloReset(mn, message), whisperOnly: true, prefix: true },
         "!solo_reset": { handler: (mn) => this.handleSoloReset(mn, ""), whisperOnly: true },
+        "!gamestats": { handler: (mn) => this.handleGameStats(mn), whisperOnly: true },
         "!scores me": { handler: (mn) => this.handleScoresMe(mn) },
         "!scores race": { handler: (mn) => this.handleScores(mn, "race") },
         "!scores survive": { handler: (mn) => this.handleScores(mn, "survive") },
@@ -710,8 +795,9 @@ export class StripDiceGame {
         "!leaderboard": { handler: (mn) => this.handleLeaderboard(mn) },
         "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
         "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
-        "!removed": { handler: (mn, name) => this.handleRemoved(mn, name), chatOnly: true },
+        "!removed": { handler: (mn, name) => this.handleRemoved(mn, name) },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
+        "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
     };
 
     private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
@@ -761,10 +847,25 @@ export class StripDiceGame {
 
         // Solo item-removal confirmation, while waiting on it. Only intercepts
         // when the solo game is actually pausing for it, so multiplayer's
-        // !removed (chatOnly) keeps working for players also in solo.
+        // !removed keeps working for players also in solo.
         if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
             this.handleSoloRemoved(memberNumber);
             return;
+        }
+
+        // Yes/No confirmation for pending !join
+        if (this.pendingYesNoJoin.has(memberNumber)) {
+            if (msg === "yes" || msg === "y") {
+                const pending = this.pendingYesNoJoin.get(memberNumber)!;
+                this.pendingYesNoJoin.delete(memberNumber);
+                this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax);
+                return;
+            }
+            if (msg === "no" || msg === "n") {
+                this.pendingYesNoJoin.delete(memberNumber);
+                this.bot.whisper(memberNumber, "No problem! Come back anytime.");
+                return;
+            }
         }
 
         // Lock verification: accept bare "yes"/"no" too, so OOC responses
@@ -779,6 +880,26 @@ export class StripDiceGame {
                 this.handleLockVerificationNo(memberNumber);
                 return;
             }
+        }
+
+        // Min/max reply from host during lobby setup — intercept any message
+        // that starts with a digit so commands still fall through normally.
+        if (this.awaitingMinMaxReply && memberNumber === this.hostMemberNumber && /^\d/.test(msg)) {
+            this.awaitingMinMaxReply = false;
+            const parts = msg.trim().split(/\s+/);
+            const n1 = parseInt(parts[0], 10);
+            const n2 = parts.length >= 2 ? parseInt(parts[1], 10) : n1;
+            const error = this.validateMinMax(n1, n2);
+            if (error) {
+                this.awaitingMinMaxReply = true;
+                this.bot.whisper(memberNumber, `${error} Please try again (e.g. '2 6').`);
+                return;
+            }
+            this.minPlayers = n1;
+            this.maxPlayers = n2;
+            const hostName = this.players.get(memberNumber)?.name ?? name;
+            this.announceGameStart(hostName);
+            return;
         }
 
         this.dispatchCommand(memberNumber, name, message, msg, "whisper");
@@ -808,7 +929,39 @@ export class StripDiceGame {
     // COMMAND HANDLERS
     // ============================================================
 
-    private handleJoin(memberNumber: number, name: string): void {
+    // Extracts the major release number from a BC version string like "R108" or "R108Beta1".
+    private parseBCVersion(v: string): number {
+        const m = v.match(/R(\d+)/i);
+        return m ? parseInt(m[1], 10) : 0;
+    }
+
+    // Returns true if the player's permissions allow the bot to apply items.
+    // On any failure, whispers the player a specific remediation message and
+    // returns false so the caller can abort the join.
+    private checkPlayerPermissions(memberNumber: number, name: string): boolean {
+        const char = this.characterDataCache.get(memberNumber);
+        if (!char) {
+            log(`Permission pre-flight for ${name} (#${memberNumber}): no character data cached, skipping.`);
+            return true;
+        }
+
+        const oss = char.OnlineSharedSettings;
+        let passed = true;
+
+        // AllowItem === false means the player has globally blocked item interactions.
+        if (oss?.AllowItem === false) {
+            this.bot.whisper(memberNumber,
+                "⚠️ To play Strip Dice, you need to allow item interactions. " +
+                "Go to Online Settings → Items and enable \"Allow others to add items\", then !join again."
+            );
+            log(`Permission pre-flight: ${name} (#${memberNumber}) has AllowItem=false.`);
+            passed = false;
+        }
+
+        return passed;
+    }
+
+    private handleJoin(memberNumber: number, name: string, rawMessage: string = ""): void {
         if (this.state === GameState.Idle && Date.now() < this.gameCooldownUntil) {
             const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
             this.bot.whisper(memberNumber,
@@ -825,7 +978,7 @@ export class StripDiceGame {
         }
 
         const gameInProgress = this.state !== GameState.Idle && this.state !== GameState.Registration && this.state !== GameState.Countdown;
-        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage;
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin;
 
         if (gameInProgress && (!this.allowMidGameJoin || !midGame)) {
             this.bot.whisper(memberNumber, "Sorry, a game is already in progress. Wait for the next round!");
@@ -836,15 +989,43 @@ export class StripDiceGame {
             return;
         }
 
-        const pendingSince = this.pendingJoinConfirmations.get(memberNumber);
-        if (pendingSince === undefined || Date.now() - pendingSince > JOIN_CONFIRMATION_WINDOW_MS) {
-            this.pendingJoinConfirmations.set(memberNumber, Date.now());
-            this.bot.whisper(memberNumber,
-                `Current lock duration is ${this.lockDurationMinutes} minutes. Type !join again to confirm you agree to these stakes.`
-            );
+        // Lobby max-player cap — check before double-confirm so a full game
+        // doesn't waste a confirm slot on someone who can't join anyway.
+        if (this.lobbyOpen && !midGame && this.players.size >= this.maxPlayers) {
+            this.bot.whisper(memberNumber, `The game is currently full (${this.players.size}/${this.maxPlayers} players). Stick around and watch — you can jump in next game!`);
             return;
         }
-        this.pendingJoinConfirmations.delete(memberNumber);
+
+        if (this.pendingYesNoJoin.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You already have a pending join — reply Yes or No to my last message.");
+            return;
+        }
+
+        // Parse optional inline min/max: "!join 3 5" or "!join 4"
+        const parts = rawMessage.trim().split(/\s+/);
+        let inlineMin: number | null = null;
+        let inlineMax: number | null = null;
+        if (parts.length >= 2) {
+            const n1 = parseInt(parts[1], 10);
+            if (!isNaN(n1)) { inlineMin = n1; inlineMax = n1; }
+        }
+        if (parts.length >= 3) {
+            const n2 = parseInt(parts[2], 10);
+            if (!isNaN(n2)) { inlineMax = n2; }
+        }
+
+        this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax });
+        this.bot.whisper(memberNumber,
+            `You'll be locked for ${this.lockDurationMinutes} minutes if you lose everything. Do you understand? Reply **Yes** to join or **No** to cancel.`
+        );
+    }
+
+    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null): void {
+        if (!this.checkPlayerPermissions(memberNumber, name)) {
+            return;
+        }
+
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin;
 
         const player: Player = {
             memberNumber,
@@ -854,8 +1035,8 @@ export class StripDiceGame {
             bondageApplied: 0,
             isNaked: false,
             isFullyBound: false,
-            timeoutWarned: false,
-            timeoutCount: 0,
+            missedTurnPending: false,
+            missedSecondChance: false,
             ready: false,
             midGameJoin: midGame,
             clothingQuestionIndex: null,
@@ -870,17 +1051,51 @@ export class StripDiceGame {
 
         if (midGame) {
             this.bot.sendChat(`${name} is joining mid-game! They'll enter the turn rotation once ready.`);
+            if (this.state === GameState.PausedForJoin) {
+                this.joinPauseActive.set(memberNumber, name);
+                this.sendJoinPauseInstructions(memberNumber);
+            } else {
+                this.pendingJoinPauses.push({ memberNumber, name });
+            }
         } else {
             const isFirstJoin = this.players.size === 1;
             this.state = GameState.Registration;
-            this.bot.sendChat(`${name} has joined the game! (${this.players.size} player${this.players.size > 1 ? "s" : ""} ready)`);
+
             if (isFirstJoin) {
+                this.hostMemberNumber = memberNumber;
+                this.lobbyOpen = true;
                 this.gameStartTime = new Date().toISOString();
                 this.gameEndLogged = false;
-                this.bot.sendChat(
-                    `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. ` +
-                    `Default is ${DEFAULT_LOCK_MINUTES} minutes — game starts in 30 seconds with the current setting.`
-                );
+
+                if (inlineMin !== null && inlineMax !== null) {
+                    const error = this.validateMinMax(inlineMin, inlineMax);
+                    if (error) {
+                        this.bot.whisper(memberNumber, `${error} Please use !join [min] [max] with valid values (e.g. !join 2 6).`);
+                        this.players.delete(memberNumber);
+                        this.state = GameState.Idle;
+                        this.lobbyOpen = false;
+                        this.hostMemberNumber = null;
+                        return;
+                    }
+                    this.minPlayers = inlineMin;
+                    this.maxPlayers = inlineMax;
+                    this.announceGameStart(name);
+                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
+                    if (onlyOneInRoom) {
+                        this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
+                    }
+                } else {
+                    this.awaitingMinMaxReply = true;
+                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
+                    let prompt = "How many players? Reply with min and max (e.g. '2 6') or just a number for both.";
+                    if (onlyOneInRoom) {
+                        prompt += "\n\nYou're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.";
+                    }
+                    this.bot.whisper(memberNumber, prompt);
+                }
+            } else {
+                this.bot.sendChat(`${name} has joined the game! (${this.players.size}/${this.maxPlayers})`);
+                this.bot.whisper(memberNumber, `You're in! (${this.players.size}/${this.maxPlayers} players joined). Declare your outfit with !wearing or !naked, then whisper !ready when done.`);
             }
         }
 
@@ -914,6 +1129,23 @@ export class StripDiceGame {
         if (!midGame) this.checkAllJoined();
     }
 
+    private validateMinMax(min: number, max: number): string | null {
+        if (isNaN(min) || isNaN(max)) return "Invalid numbers.";
+        if (min < 2) return "Minimum players must be at least 2.";
+        if (max < min) return "Maximum must be >= minimum.";
+        if (max > 10) return "Maximum players can be at most 10.";
+        return null;
+    }
+
+    private announceGameStart(hostName: string): void {
+        this.bot.sendChat(
+            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers}–${this.maxPlayers} players. Type !join to join!`
+        );
+        this.bot.sendChat(
+            `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
+        );
+    }
+
     // Handles !join attempts after bondage penalties have already started for this game.
     // Players can join naked via the same double-confirm pattern as a normal !join,
     // skipping clothing declaration and going straight to bondage on their first loss.
@@ -939,6 +1171,10 @@ export class StripDiceGame {
         clearTimeout(pendingTimer);
         this.pendingLateJoinConfirmations.delete(memberNumber);
 
+        if (!this.checkPlayerPermissions(memberNumber, name)) {
+            return;
+        }
+
         const player: Player = {
             memberNumber,
             name,
@@ -947,8 +1183,8 @@ export class StripDiceGame {
             bondageApplied: 0,
             isNaked: true,
             isFullyBound: false,
-            timeoutWarned: false,
-            timeoutCount: 0,
+            missedTurnPending: false,
+            missedSecondChance: false,
             ready: true,
             midGameJoin: false,
             clothingQuestionIndex: null,
@@ -970,8 +1206,8 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "No game is waiting to start.");
             return;
         }
-        if (this.players.size === 0) {
-            this.bot.whisper(memberNumber, "No players have joined yet!");
+        if (this.players.size < this.minPlayers) {
+            this.bot.whisper(memberNumber, `Need at least ${this.minPlayers} players to start. ${this.players.size} joined so far.`);
             return;
         }
         this.bot.sendChat(`${this.getPlayerName(memberNumber)} is starting the game early!`);
@@ -980,6 +1216,16 @@ export class StripDiceGame {
     }
 
     private handleCancel(memberNumber: number): void {
+        if (this.state === GameState.PausedForJoin) {
+            if (!this.players.has(memberNumber) && !this.isAdmin(memberNumber)) {
+                this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+                return;
+            }
+            this.bot.sendChat(`${this.getPlayerName(memberNumber)} called !cancel — resuming the game now.`);
+            this.resumeFromJoinPause();
+            return;
+        }
+
         if (this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No countdown is currently running.");
             return;
@@ -1107,14 +1353,42 @@ export class StripDiceGame {
         }
 
         if (player.midGameJoin) {
+            // By the time a late joiner gets in, several rounds have usually
+            // passed — 1 remaining item is treated as effectively naked so
+            // they go straight to bondage on their first loss like everyone
+            // else who's already lost almost everything.
+            if (player.clothing.length <= 1) {
+                player.isNaked = true;
+            }
+
             player.midGameJoin = false;
             this.turnOrder.push(memberNumber);
             this.bot.whisper(memberNumber, "You're ready! You've been added to the turn rotation.");
-            this.bot.sendChat(`${player.name} has joined the game and entered the turn rotation!`);
+
+            if (this.joinPauseActive.has(memberNumber)) {
+                this.joinPauseActive.delete(memberNumber);
+                this.joinPauseJoined.push({ memberNumber, name: player.name });
+                if (this.joinPauseActive.size === 0) {
+                    this.resumeFromJoinPause();
+                }
+            } else {
+                this.bot.sendChat(`${player.name} has joined the game and entered the turn rotation!`);
+            }
             return;
         }
 
-        this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
+        if (this.lobbyOpen && this.hostMemberNumber !== null) {
+            if (memberNumber === this.hostMemberNumber) {
+                this.bot.whisper(memberNumber, "You're set! You can type !start whenever the others are ready.");
+            } else {
+                const readyCount = [...this.players.values()].filter(p => p.ready).length;
+                const totalCount = this.players.size;
+                this.bot.whisper(this.hostMemberNumber, `${player.name} is ready. (${readyCount}/${totalCount} ready)`);
+                this.bot.whisper(memberNumber, "You're ready! Waiting for others...");
+            }
+        } else {
+            this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
+        }
         this.bot.sendChat(`${player.name} is ready!`);
         this.checkAllReady();
     }
@@ -1142,6 +1416,23 @@ export class StripDiceGame {
             return false;
         }
         return true;
+    }
+
+    private handleDebugRoll(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+        const gameActive = this.state !== GameState.Idle || this.soloGames.size > 0;
+        if (!gameActive) {
+            this.bot.whisper(memberNumber, "No game in progress.");
+            return;
+        }
+        const parts = message.trim().split(/\s+/);
+        const n = parseInt(parts[1]);
+        if (isNaN(n) || n < 1) {
+            this.bot.whisper(memberNumber, "Usage: !debugroll <number>");
+            return;
+        }
+        this.debugNextRoll = n;
+        this.bot.whisper(memberNumber, `Next roll forced to ${n}. Will clear after use.`);
     }
 
     private handleLockTime(memberNumber: number, message: string): void {
@@ -1324,6 +1615,11 @@ export class StripDiceGame {
         const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === target.memberNumber;
 
         this.clearTurnTimer();
+        this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== target.memberNumber);
+        if (this.activeSecondChance === target.memberNumber) {
+            this.clearSecondChanceTimer();
+            this.activeSecondChance = null;
+        }
         const removedIndex = this.turnOrder.indexOf(target.memberNumber);
         this.players.delete(target.memberNumber);
         this.turnOrder = this.turnOrder.filter(n => n !== target.memberNumber);
@@ -1422,6 +1718,42 @@ export class StripDiceGame {
                 this.resetGame();
             }
         }, 60000);
+    }
+
+    // Handler for BC's native SafewordUsed event (ChatRoomMessage with Type "Action",
+    // Content matching the safeword pattern). Unlike !safeword (which pauses and asks
+    // other players if they want to continue), this immediately stops the game and
+    // removes bondage from ALL players — the non-negotiable emergency stop.
+    public handleBCSafewordEvent(memberNumber: number, name: string): void {
+        if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
+
+        const timestamp = centralTimestamp();
+        log(`SAFEWORD EVENT: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}`);
+
+        const line = `[${timestamp}] SAFEWORD EVENT: ${name} (#${memberNumber}) used their BC safeword. Game stopped. All bondage removed.\n`;
+        try {
+            fs.appendFileSync(path.join(__dirname, "..", "feedback.log"), line, "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write safeword event to feedback.log: " + err);
+        }
+
+        this.bot.sendChat(`⚠️ ${name} has used their safeword. The game has been stopped. All bondage items will be removed.`);
+        this.bot.whisper(208543, `⚠️ SAFEWORD: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}. Game stopped, all bondage removal initiated.`);
+
+        this.clearCountdown();
+        this.clearTurnTimer();
+        this.clearSecondChanceTimer();
+        this.activeSecondChance = null;
+        this.secondChanceQueue = [];
+        this.logMultiplayerGameEnd("aborted", { logSuffix: `BC safeword by ${name}` });
+
+        let removalDelay = 0;
+        for (const player of this.players.values()) {
+            this.removeAllItems(player.memberNumber, removalDelay);
+            removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
+        }
+
+        this.resetGame();
     }
 
     private handleContinue(memberNumber: number): void {
@@ -1652,7 +1984,13 @@ export class StripDiceGame {
             return;
         }
 
-        const roll = Math.floor(Math.random() * solo.currentMax) + 1;
+        let roll: number;
+        if (this.debugNextRoll !== null) {
+            roll = this.debugNextRoll;
+            this.debugNextRoll = null;
+        } else {
+            roll = Math.floor(Math.random() * solo.currentMax) + 1;
+        }
         solo.totalRolls++;
         solo.rollsThisItem++;
 
@@ -1771,6 +2109,7 @@ export class StripDiceGame {
                 players, outcome: "record-beaten", score,
             });
 
+            this.incrementGameCount("solo_strip");
             this.removeAllItems(memberNumber);
             this.saveSoloRecords(records);
             return;
@@ -1788,6 +2127,7 @@ export class StripDiceGame {
                 players, outcome: "record-beaten", score,
             });
 
+            this.incrementGameCount("solo_strip");
             this.removeAllItems(memberNumber);
             this.saveSoloRecords(records);
             return;
@@ -1805,6 +2145,7 @@ export class StripDiceGame {
                 players, outcome: "record-beaten", score,
             });
 
+            this.incrementGameCount("solo_strip");
             this.removeAllItems(memberNumber);
             this.saveSoloRecords(records);
             return;
@@ -1825,6 +2166,7 @@ export class StripDiceGame {
             players, outcome: "loss", score, penaltyMin: penaltyMinutes,
         });
 
+        this.incrementGameCount("solo_bondage");
         if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
         records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
         this.saveSoloRecords(records);
@@ -2095,6 +2437,26 @@ export class StripDiceGame {
         }
     }
 
+    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; lastUpdated: string } {
+        try {
+            const raw = fs.readFileSync(this.gameCountsPath, "utf8");
+            return JSON.parse(raw);
+        } catch {
+            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, lastUpdated: new Date().toISOString() };
+        }
+    }
+
+    private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted"): void {
+        const counts = this.loadGameCounts();
+        counts[type]++;
+        counts.lastUpdated = new Date().toISOString();
+        try {
+            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write game_counts.json: ${err}`);
+        }
+    }
+
     // Logs a "[GAME END] multiplayer" line plus a game_log.json entry, and
     // marks this game's end as logged so resetGame() doesn't log it again
     // as a generic "reset".
@@ -2115,6 +2477,12 @@ export class StripDiceGame {
         if (options?.winner) entry.winner = options.winner;
         this.appendGameLog(entry);
         this.gameEndLogged = true;
+
+        if (outcome === "win" || outcome === "all-bound") {
+            this.incrementGameCount("multiplayer");
+        } else {
+            this.incrementGameCount("aborted");
+        }
     }
 
     // ============================================================
@@ -2469,7 +2837,7 @@ export class StripDiceGame {
             `!start - Start the game early\n` +
             `!cancel - Cancel the countdown\n` +
             `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
-            `!removed - Confirm you removed a clothing item (in room chat)\n` +
+            `!removed - Confirm you removed a clothing item\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
             `!released / !stuck - Confirm whether your locks released at the end of the game\n` +
             `!feedback [text] - Send feedback to the developers\n` +
@@ -2508,9 +2876,25 @@ export class StripDiceGame {
             `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
-            `!solo_reset [player name] - Discard a player's solo game with no penalty`;
+            `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
+            `!gamestats - Show cumulative game counts (multiplayer / solo / aborted)`;
 
         this.sendLongWhisper(memberNumber, text);
+    }
+
+    private handleGameStats(memberNumber: number): void {
+        if (!this.requireAdmin(memberNumber)) return;
+        const counts = this.loadGameCounts();
+        const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted;
+        this.bot.whisper(memberNumber,
+            `=== Game Stats ===\n` +
+            `Multiplayer: ${counts.multiplayer}\n` +
+            `Solo (strip): ${counts.solo_strip}\n` +
+            `Solo (bondage): ${counts.solo_bondage}\n` +
+            `Aborted: ${counts.aborted}\n` +
+            `Total: ${total}\n` +
+            `Last updated: ${counts.lastUpdated}`
+        );
     }
 
     private handleRoll(memberNumber: number, name: string): void {
@@ -2520,6 +2904,14 @@ export class StripDiceGame {
         }
         if (this.state !== GameState.Rolling) return;
 
+        // Second chance takes priority: only the active second-chance player can roll.
+        if (this.activeSecondChance !== null) {
+            if (memberNumber === this.activeSecondChance) {
+                this.handleSecondChanceRoll(memberNumber, name);
+            }
+            return;
+        }
+
         const currentPlayer = this.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) {
             this.bot.sendChat(`It's not your turn, ${name}!`);
@@ -2527,9 +2919,14 @@ export class StripDiceGame {
         }
 
         this.clearTurnTimer();
-        currentPlayer.timeoutCount = 0;
 
-        const roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
+        let roll: number;
+        if (this.debugNextRoll !== null) {
+            roll = this.debugNextRoll;
+            this.debugNextRoll = null;
+        } else {
+            roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
+        }
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
 
         const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
@@ -2563,6 +2960,10 @@ export class StripDiceGame {
         if (this.state !== GameState.WaitingRemove) return;
         const currentPlayer = this.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
+
+        // Wardrobe-open fires before the player has actually finished taking
+        // the item off — give whichever turn timer starts next a 5s buffer.
+        this.pendingTurnTimerBonusMs += WARDROBE_OPEN_TURN_TIMER_BUFFER_MS;
         this.handleRemoved(memberNumber, name);
     }
 
@@ -2588,6 +2989,15 @@ export class StripDiceGame {
 
         // Loser rolls first next round with fresh D100
         this.currentDiceMax = STARTING_DICE_MAX;
+
+        if (this.maybeStartJoinPause(() => this.resumeRollsFirst(name))) return;
+        this.resumeRollsFirst(name);
+    }
+
+    // Puts the current player back in the Rolling state to take the
+    // "loser rolls first" turn after a removal (or after a join pause
+    // for that turn finishes).
+    private resumeRollsFirst(name: string): void {
         this.state = GameState.Rolling;
         this.startTurnTimer();
         this.bot.sendChat(`🎲 ${name} rolls first — !roll (D${this.currentDiceMax})`);
@@ -2598,10 +3008,17 @@ export class StripDiceGame {
     // ============================================================
 
     private checkAllJoined(): void {
+        if (this.awaitingMinMaxReply) return;
+
         const nonBotMembers = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
         const joinedCount = this.players.size;
 
-        if (joinedCount >= nonBotMembers.length && nonBotMembers.length > 0) {
+        if (joinedCount < this.minPlayers) return;
+
+        const roomFull = joinedCount >= nonBotMembers.length && nonBotMembers.length > 0;
+        const maxReached = this.lobbyOpen && joinedCount >= this.maxPlayers;
+
+        if (roomFull || maxReached) {
             this.startCountdown();
         }
     }
@@ -2634,6 +3051,28 @@ export class StripDiceGame {
         this.state = GameState.Registration;
         this.bot.sendChat(`Please whisper me your clothing declaration! Whisper !help for instructions.`);
 
+        // Warn any already-joined player whose permissions may have changed
+        // since they used !join (e.g. they toggled AllowItem off, or the bot
+        // was updated and now has a version gap with one of them). This is a
+        // soft warning — they stay in the game so they can fix the setting.
+        for (const [, player] of this.players) {
+            const char = this.characterDataCache.get(player.memberNumber);
+            if (!char) continue;
+            const oss = char.OnlineSharedSettings;
+            if (oss?.AllowItem === false) {
+                this.bot.whisper(player.memberNumber,
+                    "⚠️ Heads up: your item permission is currently blocking interactions. " +
+                    "Enable \"Allow others to add items\" in Online Settings → Items or bondage penalties won't apply."
+                );
+            } else if (oss?.GameVersion && this.botGameVersion &&
+                       this.parseBCVersion(oss.GameVersion) > this.parseBCVersion(this.botGameVersion)) {
+                this.bot.whisper(player.memberNumber,
+                    "⚠️ Heads up: your BC version may not be compatible with this bot. " +
+                    "Item interactions may not work correctly."
+                );
+            }
+        }
+
         for (const [, player] of this.players) {
             if (!player.ready) {
                 this.bot.whisper(player.memberNumber,
@@ -2652,7 +3091,7 @@ export class StripDiceGame {
 
     private checkAllReady(): void {
         if (this.players.size === 0) return;
-
+        if (this.players.size < this.minPlayers) return;
         for (const [, player] of this.players) {
             if (!player.ready) return;
         }
@@ -2662,6 +3101,7 @@ export class StripDiceGame {
 
     private startGame(): void {
         this.state = GameState.Rolling;
+        this.lobbyOpen = false;
 
         // Generate password
         this.gamePassword = TEST_MODE ? TEST_PASSWORD : generatePassword();
@@ -2703,6 +3143,28 @@ export class StripDiceGame {
 
     private advanceTurn(): void {
         this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
+
+        // Decrement all pending second-chance countdowns.
+        for (const sc of this.secondChanceQueue) {
+            sc.countdown--;
+        }
+
+        // Fire the first ready second chance (if any) before starting the next regular turn.
+        const readyIdx = this.secondChanceQueue.findIndex(sc => sc.countdown <= 0);
+        if (readyIdx !== -1) {
+            const sc = this.secondChanceQueue.splice(readyIdx, 1)[0];
+            const candidate = this.players.get(sc.memberNumber);
+            if (candidate && !candidate.isFullyBound && !candidate.pendingReturn) {
+                this.fireSecondChance(sc.memberNumber);
+                return;
+            }
+            // Player gone or in leave-grace — skip and fall through to regular turn.
+            if (candidate) {
+                candidate.missedTurnPending = false;
+                candidate.missedSecondChance = false;
+            }
+        }
+
         this.resolveCurrentTurn();
     }
 
@@ -2735,6 +3197,15 @@ export class StripDiceGame {
                 continue;
             }
 
+            // Missed second chance last round — fire penalty immediately instead of rolling.
+            if (player.missedSecondChance) {
+                player.missedSecondChance = false;
+                this.handleLoss(player);
+                return true;
+            }
+
+            if (this.maybeStartJoinPause(() => this.resolveCurrentTurn())) return true;
+
             this.state = GameState.Rolling;
             this.announceCurrentTurn();
             this.startTurnTimer();
@@ -2746,6 +3217,8 @@ export class StripDiceGame {
     // true if the game ended as a result of the removal.
     private removeLeftPlayer(player: Player): boolean {
         this.bot.sendChat(`${player.name} did not return in time and has been removed from the game.`);
+
+        this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== player.memberNumber);
 
         const removedIndex = this.turnOrder.indexOf(player.memberNumber);
         this.players.delete(player.memberNumber);
@@ -3306,6 +3779,11 @@ export class StripDiceGame {
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
+        this.minPlayers = 2;
+        this.maxPlayers = 6;
+        this.lobbyOpen = false;
+        this.hostMemberNumber = null;
+        this.awaitingMinMaxReply = false;
         for (const timer of this.pendingLateJoinConfirmations.values()) {
             clearTimeout(timer);
         }
@@ -3317,6 +3795,19 @@ export class StripDiceGame {
         this.pendingLockApplyChecks.clear();
         this.clearCountdown();
         this.clearTurnTimer();
+        this.clearSecondChanceTimer();
+        this.activeSecondChance = null;
+        this.secondChanceQueue = [];
+        this.pendingTurnTimerBonusMs = 0;
+        if (this.joinPauseTimer) {
+            clearTimeout(this.joinPauseTimer);
+            this.joinPauseTimer = null;
+        }
+        this.joinPauseActive.clear();
+        this.joinPauseJoined = [];
+        this.pendingTurnResume = null;
+        this.pendingJoinPauses = [];
+        this.pendingYesNoJoin.clear();
 
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
     }
@@ -3444,14 +3935,14 @@ export class StripDiceGame {
     // TURN TIMER
     // ============================================================
 
-    // Default timeout grows by ~5s per prior miss this player has racked up,
-    // giving them a little more leeway as warnings escalate.
     private startTurnTimer(ms?: number): void {
         this.clearTurnTimer();
         const player = this.getCurrentPlayer();
         if (!player) return;
 
-        const timeout = ms ?? (30000 + player.timeoutCount * 5000);
+        const bonus = this.pendingTurnTimerBonusMs;
+        this.pendingTurnTimerBonusMs = 0;
+        const timeout = (ms ?? 30000) + bonus;
         this.turnTimer = setTimeout(() => {
             if (this.state === GameState.WaitingRemove) {
                 this.handleRemoveTimeout(player);
@@ -3476,23 +3967,188 @@ export class StripDiceGame {
     }
 
     private handleTurnTimeout(player: Player): void {
-        if (!player.timeoutWarned) {
-            player.timeoutWarned = true;
-            this.bot.sendChat(`⏰ ${player.name}, !roll or you'll be skipped!`);
-            this.bot.whisper(player.memberNumber, `Still your turn — !roll in chat or you'll be skipped.`);
-            this.startTurnTimer(30000 + (player.timeoutCount + 1) * 5000);
-        } else {
-            player.timeoutWarned = false;
-            player.timeoutCount++;
-            this.bot.sendChat(`⏭️ ${player.name} was skipped for inactivity.`);
+        // Silent skip: queue a second chance for end-of-round.
+        player.missedTurnPending = true;
+        this.secondChanceQueue.push({ memberNumber: player.memberNumber, countdown: this.turnOrder.length });
+        this.advanceTurn();
+    }
 
-            if (player.timeoutCount >= 2) {
-                player.timeoutCount = 0;
-                this.handleLoss(player);
-            } else {
-                this.advanceTurn();
-            }
+    private fireSecondChance(memberNumber: number): void {
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.resolveCurrentTurn();
+            return;
         }
+        this.activeSecondChance = memberNumber;
+        this.state = GameState.Rolling;
+        this.bot.whisper(memberNumber,
+            `⚠️ You missed your turn! This is your second chance — type !roll now (${SECOND_CHANCE_TIMER_MS / 1000}s).`
+        );
+        this.secondChanceTimer = setTimeout(() => {
+            this.handleSecondChanceTimeout(memberNumber);
+        }, SECOND_CHANCE_TIMER_MS);
+    }
+
+    private handleSecondChanceTimeout(memberNumber: number): void {
+        this.secondChanceTimer = null;
+        this.activeSecondChance = null;
+        const player = this.players.get(memberNumber);
+        if (player) {
+            player.missedTurnPending = false;
+            player.missedSecondChance = true;
+        }
+        this.resolveCurrentTurn();
+    }
+
+    private handleSecondChanceRoll(memberNumber: number, name: string): void {
+        this.clearSecondChanceTimer();
+        this.activeSecondChance = null;
+
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.resolveCurrentTurn();
+            return;
+        }
+        player.missedTurnPending = false;
+
+        let roll: number;
+        if (this.debugNextRoll !== null) {
+            roll = this.debugNextRoll;
+            this.debugNextRoll = null;
+        } else {
+            roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
+        }
+        this.bot.sendChat(`🎲 ${name} takes their second chance — D${this.currentDiceMax}... ${roll}!`);
+
+        const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+
+        if (isD100 && roll === 100) {
+            player.freePass = true;
+            this.bot.sendChat(`🎟️ ${name} rolled 100 — free pass! They can skip their next required roll.`);
+            this.resolveCurrentTurn();
+            return;
+        }
+
+        if (isD100 && roll === 1) {
+            this.handleDoublePenalty(player);
+            return;
+        }
+
+        if (roll === 1) {
+            this.handleLoss(player);
+            return;
+        }
+
+        this.currentDiceMax = roll;
+        this.resolveCurrentTurn();
+    }
+
+    private clearSecondChanceTimer(): void {
+        if (this.secondChanceTimer) {
+            clearTimeout(this.secondChanceTimer);
+            this.secondChanceTimer = null;
+        }
+    }
+
+    // ============================================================
+    // MID-GAME JOIN PAUSE
+    // ============================================================
+
+    // Called right before the next turn would start. If a mid-game joiner is
+    // still waiting to get into rotation, pauses the game for them instead of
+    // starting the next turn. Returns true if a pause was started (caller
+    // should not proceed); onResume is invoked once the pause ends.
+    private maybeStartJoinPause(onResume: () => void): boolean {
+        while (this.pendingJoinPauses.length > 0) {
+            const joiner = this.pendingJoinPauses.shift()!;
+            const player = this.players.get(joiner.memberNumber);
+            if (!player || !player.midGameJoin) continue; // already in rotation, or left
+            this.beginJoinPause(joiner, onResume);
+            return true;
+        }
+        return false;
+    }
+
+    // Starts the single shared pause window. Any other joiners already queued
+    // in pendingJoinPauses are pulled into this same window (and share its
+    // timer) instead of starting their own pauses later.
+    private beginJoinPause(joiner: { memberNumber: number; name: string }, onResume: () => void): void {
+        this.clearTurnTimer();
+        this.joinPauseActive.clear();
+        this.joinPauseJoined = [];
+        this.pendingTurnResume = onResume;
+        this.state = GameState.PausedForJoin;
+
+        this.joinPauseActive.set(joiner.memberNumber, joiner.name);
+        this.bot.sendChat(`⏸️ ${joiner.name} is joining — game paused for up to 60 seconds.`);
+        this.sendJoinPauseInstructions(joiner.memberNumber);
+
+        while (this.pendingJoinPauses.length > 0) {
+            const extra = this.pendingJoinPauses.shift()!;
+            const player = this.players.get(extra.memberNumber);
+            if (!player || !player.midGameJoin) continue;
+            this.joinPauseActive.set(extra.memberNumber, extra.name);
+            this.sendJoinPauseInstructions(extra.memberNumber);
+        }
+
+        this.joinPauseTimer = setTimeout(() => this.handleJoinPauseTimeout(), JOIN_PAUSE_TIMEOUT_MS);
+    }
+
+    private sendJoinPauseInstructions(memberNumber: number): void {
+        this.bot.whisper(memberNumber,
+            `⏸️ The game is paused for you to get set up (up to 60 seconds). The dice is currently down to D${this.currentDiceMax}. ` +
+            `Finish declaring your outfit (!wearing / !naked) and whisper !ready to join this round's rotation — ` +
+            `if the pause ends before you're ready, you'll join the rotation as soon as you are.`
+        );
+    }
+
+    private handleJoinPauseTimeout(): void {
+        if (this.state !== GameState.PausedForJoin) return;
+        this.joinPauseTimer = null;
+        this.resumeFromJoinPause();
+    }
+
+    // Ends the join pause window and resumes the turn it interrupted, announcing
+    // which joiners made it into the rotation and which didn't.
+    private resumeFromJoinPause(): void {
+        if (this.joinPauseTimer) {
+            clearTimeout(this.joinPauseTimer);
+            this.joinPauseTimer = null;
+        }
+
+        const notCompleted = [...this.joinPauseActive.values()];
+        this.joinPauseActive.clear();
+
+        const joined = this.joinPauseJoined.map(j => j.name);
+        this.joinPauseJoined = [];
+
+        this.bot.sendChat(this.buildJoinPauseResumeMessage(joined, notCompleted));
+
+        const resume = this.pendingTurnResume;
+        this.pendingTurnResume = null;
+        if (resume) resume();
+    }
+
+    private buildJoinPauseResumeMessage(joined: string[], notCompleted: string[]): string {
+        const joinedList = this.formatNameList(joined);
+        const notCompletedList = this.formatNameList(notCompleted);
+
+        if (joined.length > 0 && notCompleted.length === 0) {
+            return `Game resuming — ${joinedList} ${joined.length === 1 ? "has" : "have"} joined the rotation!`;
+        }
+        if (joined.length > 0 && notCompleted.length > 0) {
+            return `Game resuming — ${joinedList} joined, ${notCompletedList} did not complete in time and will be able to join next round.`;
+        }
+        if (notCompleted.length > 0) {
+            return `Game resuming — ${notCompletedList} did not complete in time and will be able to join next round.`;
+        }
+        return `Game resuming.`;
+    }
+
+    // Joins names as "A", "A and B", or "A, B and C".
+    private formatNameList(names: string[]): string {
+        if (names.length <= 1) return names[0] ?? "";
+        return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
     }
 
     // ============================================================

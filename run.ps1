@@ -15,7 +15,12 @@ while ($true) {
 
     # Redirect via cmd.exe so output is appended as raw UTF-8 bytes, regardless
     # of PowerShell's pipeline encoding (which can flip to UTF-16LE on restart).
-    cmd /c "node build/index.js >> wrapper.output 2>&1"
+    # Log file is dated so each calendar day gets its own file; the date is
+    # evaluated once per restart, so the file rolls over on the next restart
+    # after midnight.
+    $logDate = Get-Date -Format "yyyy-MM-dd"
+    $logFile = "wrapper_$logDate.log"
+    cmd /c "node build/index.js >> $logFile 2>&1"
 
     $exitCode = $LASTEXITCODE
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
