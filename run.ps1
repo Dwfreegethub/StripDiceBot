@@ -4,6 +4,8 @@ $ErrorActionPreference = "Continue"
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+$host.UI.RawUI.WindowTitle = "StripDiceBot"
+
 while ($true) {
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$time] Starting StripDiceBot..."

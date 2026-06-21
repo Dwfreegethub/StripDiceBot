@@ -22,17 +22,21 @@ const DEFAULT_LOCK_MINUTES = 10;
 const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
 const STARTING_DICE_MAX = 100;
 
-// Buffer added to the next turn timer once a wardrobe-open is detected for
-// the current player's removal — the Wardrobe status event fires on open,
-// not close, so this gives them time to actually finish removing the item.
-const WARDROBE_OPEN_TURN_TIMER_BUFFER_MS = 5 * 1000;
-
 // How long a missed player has to roll during their end-of-round second chance.
 const SECOND_CHANCE_TIMER_MS = 30 * 1000;
 
 // How long a mid-game join pause can run before the game resumes without the
 // joining player (they can still join the rotation later via !ready).
 const JOIN_PAUSE_TIMEOUT_MS = 60 * 1000;
+
+// Minimum time a player who left mid-game gets before they're actually
+// removed, even if their 2-round skip allowance runs out sooner (e.g. other
+// players resolve their turns quickly).
+const MIN_RETURN_WINDOW_MS = 90 * 1000;
+
+// How long players get to answer the pre-game toys consent question (or a
+// late joiner has to answer the same question) before being treated as "no".
+const TOYS_CONSENT_TIMEOUT_MS = 60 * 1000;
 
 // ============================================================
 // SOLO GAME MODE
@@ -43,11 +47,10 @@ const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bra
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
 const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
-// How long to wait for the player to open their Wardrobe (detected via
+// How long to wait for the player to close their Wardrobe (detected via
 // handleWardrobe) before nudging them with the !removed fallback.
 const SOLO_REMOVAL_REMINDER_MS = 60 * 1000;
-// Gives the player time to close their Wardrobe (the !removed event fires on
-// open, not close) before the end-of-game bondage penalty is applied.
+// Brief pause after wardrobe-close before applying the end-of-game bondage penalty.
 const SOLO_BONDAGE_DELAY_MS = 10 * 1000;
 
 // ============================================================
@@ -253,8 +256,12 @@ interface Player {
     bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
     pendingReturn: boolean;     // Left the room mid-game; in grace period to return
     leaveRoundsRemaining: number; // Rounds left to return before removal, while pendingReturn
+    leaveTime: number | null;   // Date.now() when they left; gates removal behind a 90s minimum (MIN_RETURN_WINDOW_MS), reset on rejoin
     freePass: boolean;          // Rolled 100 on the D100 - skips their next roll automatically
     pendingPenaltySteps: number; // Extra penalty steps still owed from a double-penalty (rolled 1 on the D100)
+    removalWarned: boolean;      // First 15s expired without response — second 10s window now active
+    pendingRemovalKick: boolean; // Both windows missed — next turn gives 15s before removal from game
+    toysConsent: boolean | null; // null = unanswered, true/false = answered the pre-game toys question
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock
@@ -468,6 +475,10 @@ export class StripDiceGame {
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
     private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
+    // Deferred removal timers for players whose 2-round grace period expired
+    // before the 90s minimum return window did. Cleared on rejoin or once the
+    // timer fires and actually removes them.
+    private pendingLeaveRemovalTimers: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
     private pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
     private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
@@ -509,6 +520,14 @@ export class StripDiceGame {
     private lobbyOpen: boolean = false;
     private hostMemberNumber: number | null = null;
     private awaitingMinMaxReply: boolean = false;
+    // Toys consent: whether the winner may add toys/touch players at the end
+    // of the current game, decided once all ready players answer (or time out).
+    private toysAllowed: boolean = false;
+    private awaitingToysConsent: boolean = false;
+    private toysConsentTimer: NodeJS.Timeout | null = null;
+    // Mid-game joiners being asked the toys consent question before their join
+    // completes (only used when toysAllowed is true for the current game).
+    private pendingLateJoinToysConsent: Map<number, { onAccept: () => void; onDecline: () => void; timeout: NodeJS.Timeout }> = new Map();
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -547,7 +566,9 @@ export class StripDiceGame {
         if (player?.pendingReturn) {
             player.pendingReturn = false;
             player.leaveRoundsRemaining = 0;
+            player.leaveTime = null;
             player.name = name;
+            this.cancelPendingLeaveRemoval(memberNumber);
             this.bot.sendChat(`${name} is back! They've been added back to the turn order.`);
             return;
         }
@@ -588,6 +609,7 @@ export class StripDiceGame {
         if (activeGameplay) {
             player.pendingReturn = true;
             player.leaveRoundsRemaining = 2;
+            player.leaveTime = Date.now();
             player.missedTurnPending = false;
             player.missedSecondChance = false;
             this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== memberNumber);
@@ -660,6 +682,7 @@ export class StripDiceGame {
 
             player.pendingReturn = true;
             player.leaveRoundsRemaining = 2;
+            player.leaveTime = Date.now();
             player.missedTurnPending = false;
             player.missedSecondChance = false;
             this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== memberNumber);
@@ -771,7 +794,7 @@ export class StripDiceGame {
         "!feedback": { handler: (mn) => this.handleFeedbackPrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
-        "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name), whisperOnly: true },
+        "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name) },
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
         "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
         "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
@@ -811,6 +834,25 @@ export class StripDiceGame {
         }
     }
 
+    // Yes/No confirmation for a pending !join. Shared by handleWhisper and
+    // handleChat so a player can confirm from either channel. Returns true
+    // if the message was consumed as a yes/no answer.
+    private tryHandleYesNoJoin(memberNumber: number, name: string, msg: string): boolean {
+        if (!this.pendingYesNoJoin.has(memberNumber)) return false;
+        if (msg === "yes" || msg === "y") {
+            const pending = this.pendingYesNoJoin.get(memberNumber)!;
+            this.pendingYesNoJoin.delete(memberNumber);
+            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax);
+            return true;
+        }
+        if (msg === "no" || msg === "n") {
+            this.pendingYesNoJoin.delete(memberNumber);
+            this.bot.whisper(memberNumber, "No problem! Come back anytime.");
+            return true;
+        }
+        return false;
+    }
+
     public handleWhisper(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
 
@@ -829,6 +871,18 @@ export class StripDiceGame {
         const player = this.players.get(memberNumber);
         if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.handleGuidedAnswer(memberNumber, msg);
+            return;
+        }
+
+        // Pre-game toys consent question, while this player hasn't answered yet.
+        if (this.awaitingToysConsent && player?.toysConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.recordToysConsentAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
+        // Toys consent question for a mid-game joiner, while pending.
+        if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.handleLateJoinToysConsentAnswer(memberNumber, msg === "yes" || msg === "y");
             return;
         }
 
@@ -854,19 +908,7 @@ export class StripDiceGame {
         }
 
         // Yes/No confirmation for pending !join
-        if (this.pendingYesNoJoin.has(memberNumber)) {
-            if (msg === "yes" || msg === "y") {
-                const pending = this.pendingYesNoJoin.get(memberNumber)!;
-                this.pendingYesNoJoin.delete(memberNumber);
-                this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax);
-                return;
-            }
-            if (msg === "no" || msg === "n") {
-                this.pendingYesNoJoin.delete(memberNumber);
-                this.bot.whisper(memberNumber, "No problem! Come back anytime.");
-                return;
-            }
-        }
+        if (this.tryHandleYesNoJoin(memberNumber, name, msg)) return;
 
         // Lock verification: accept bare "yes"/"no" too, so OOC responses
         // like "(yes)"/"(no)" (which strip down to just "yes"/"no") work
@@ -908,6 +950,32 @@ export class StripDiceGame {
     public handleChat(memberNumber: number, name: string, message: string): void {
         const msg = message.trim().toLowerCase();
 
+        // Guided clothing Q&A (!wearing) is whisper-only — nudge the player
+        // to whisper instead of silently dropping their yes/no.
+        const player = this.players.get(memberNumber);
+        if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (Your outfit choices are between us.)");
+            return;
+        }
+
+        // Pre-game toys consent question is whisper-only — same nudge.
+        if (this.awaitingToysConsent && player?.toysConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (Toy consent is between us.)");
+            return;
+        }
+
+        // Toys consent question for a mid-game joiner is whisper-only — same nudge.
+        if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me!");
+            return;
+        }
+
+        // Solo game setup clothing Q&A is whisper-only — same nudge.
+        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (The solo game is just between us.)");
+            return;
+        }
+
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so a roll typed in room chat (instead of whispered) still counts and
         // doesn't get silently swallowed by the multiplayer roll handler.
@@ -919,6 +987,30 @@ export class StripDiceGame {
         // Solo item-removal confirmation, while waiting on it (see handleWhisper).
         if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
             this.handleSoloRemoved(memberNumber);
+            return;
+        }
+
+        // Yes/No confirmation for pending !join — nothing sensitive here, so
+        // accept it from chat the same as a whisper.
+        if (this.tryHandleYesNoJoin(memberNumber, name, msg)) return;
+
+        // Min/max reply from host during lobby setup is whisper-only — nudge
+        // instead of silently dropping their digits.
+        if (this.awaitingMinMaxReply && memberNumber === this.hostMemberNumber && /^\d/.test(msg)) {
+            this.bot.whisper(memberNumber, "Psst — whisper your min and max to me! (e.g., whisper `2 6`)");
+            return;
+        }
+
+        // !solo / !solo race / !solo survive are whisper-only — nudge instead
+        // of silently dropping the command.
+        if (msg === "!solo" || msg.startsWith("!solo ")) {
+            this.bot.whisper(memberNumber, "Solo games start with a whisper! Whisper me `!solo race` or `!solo survive` to get started.");
+            return;
+        }
+
+        // !feedback is whisper-only — nudge instead of silently dropping it.
+        if (msg === "!feedback" || msg.startsWith("!feedback ")) {
+            this.bot.whisper(memberNumber, "Feedback is sent privately — whisper `!feedback your message` to me so it stays between us.");
             return;
         }
 
@@ -962,6 +1054,10 @@ export class StripDiceGame {
     }
 
     private handleJoin(memberNumber: number, name: string, rawMessage: string = ""): void {
+        if (this.pendingLateJoinToysConsent.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "Please answer the toy consent question above first (yes/no).");
+            return;
+        }
         if (this.state === GameState.Idle && Date.now() < this.gameCooldownUntil) {
             const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
             this.bot.whisper(memberNumber,
@@ -1027,6 +1123,18 @@ export class StripDiceGame {
 
         const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin;
 
+        if (midGame && this.toysAllowed) {
+            this.gateLateJoinOnToysConsent(memberNumber,
+                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame),
+                () => {} // declined — cancellation whisper already sent, don't add them as a player
+            );
+            return;
+        }
+
+        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame);
+    }
+
+    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean): void {
         const player: Player = {
             memberNumber,
             name,
@@ -1044,8 +1152,12 @@ export class StripDiceGame {
             bondageOutfit: null,
             pendingReturn: false,
             leaveRoundsRemaining: 0,
+            leaveTime: null,
             freePass: false,
             pendingPenaltySteps: 0,
+            removalWarned: false,
+            pendingRemovalKick: false,
+            toysConsent: null,
         };
         this.players.set(memberNumber, player);
 
@@ -1144,6 +1256,9 @@ export class StripDiceGame {
         this.bot.sendChat(
             `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
         );
+        this.bot.sendChat(
+            `You're the only player right now! A second player needs to join before the game can start, or you can go solo with !solo.`
+        );
     }
 
     // Handles !join attempts after bondage penalties have already started for this game.
@@ -1175,6 +1290,13 @@ export class StripDiceGame {
             return;
         }
 
+        this.gateLateJoinOnToysConsent(memberNumber,
+            () => this.finishLateJoin(memberNumber, name),
+            () => {} // declined — cancellation whisper already sent, don't add them as a player
+        );
+    }
+
+    private finishLateJoin(memberNumber: number, name: string): void {
         const player: Player = {
             memberNumber,
             name,
@@ -1192,13 +1314,54 @@ export class StripDiceGame {
             bondageOutfit: null,
             pendingReturn: false,
             leaveRoundsRemaining: 0,
+            leaveTime: null,
             freePass: false,
             pendingPenaltySteps: 0,
+            removalWarned: false,
+            pendingRemovalKick: false,
+            toysConsent: null,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
 
         this.bot.sendChat(`${name} has joined the game naked — brave!`);
+    }
+
+    // Gate shared by both mid-game join paths (clothed mid-game join and the
+    // naked late join). If toys are allowed for the current game, asks the
+    // joiner to opt in before letting them in; otherwise lets them straight
+    // through. onDecline is only invoked for an explicit "no" or a timeout —
+    // the "removed from queue" whisper is sent here either way.
+    private gateLateJoinOnToysConsent(memberNumber: number, onAccept: () => void, onDecline: () => void): void {
+        if (!this.toysAllowed) {
+            onAccept();
+            return;
+        }
+
+        const timeout = setTimeout(() => {
+            this.pendingLateJoinToysConsent.delete(memberNumber);
+            this.bot.whisper(memberNumber, "No problem! You've been removed from the joining queue.");
+            onDecline();
+        }, TOYS_CONSENT_TIMEOUT_MS);
+
+        this.pendingLateJoinToysConsent.set(memberNumber, { onAccept, onDecline, timeout });
+        this.bot.whisper(memberNumber,
+            "This is a toy game — the winner may add toys and touch players at the end. Are you OK with that? (yes/no)"
+        );
+    }
+
+    private handleLateJoinToysConsentAnswer(memberNumber: number, accepted: boolean): void {
+        const pending = this.pendingLateJoinToysConsent.get(memberNumber);
+        if (!pending) return;
+        clearTimeout(pending.timeout);
+        this.pendingLateJoinToysConsent.delete(memberNumber);
+
+        if (accepted) {
+            pending.onAccept();
+        } else {
+            this.bot.whisper(memberNumber, "No problem! You've been removed from the joining queue.");
+            pending.onDecline();
+        }
     }
 
     private handleStart(memberNumber: number): void {
@@ -1348,6 +1511,7 @@ export class StripDiceGame {
         }
 
         player.ready = true;
+        player.clothingQuestionIndex = null;
         if (player.clothing.length > 0) {
             this.lastClothing.set(memberNumber, [...player.clothing]);
         }
@@ -1390,6 +1554,11 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
         }
         this.bot.sendChat(`${player.name} is ready!`);
+        if (this.players.size === 1) {
+            this.bot.sendChat(
+                `Waiting for a second player to join — the game will start automatically when they do! Or type !solo to play solo right now.`
+            );
+        }
         this.checkAllReady();
     }
 
@@ -2013,7 +2182,7 @@ export class StripDiceGame {
         this.startSoloInactivityTimer(memberNumber);
     }
 
-    // Called once the player confirms (whispered !removed, or opened their
+    // Called once the player confirms (whispered !removed, or closed their
     // Wardrobe) that the item they just lost is off.
     private handleSoloRemoved(memberNumber: number): void {
         const solo = this.soloGames.get(memberNumber);
@@ -2036,7 +2205,7 @@ export class StripDiceGame {
 
     // Soft nudge if the player goes quiet after a prompt. Does not end the
     // game; resets whenever the player acts. While awaiting a clothing
-    // removal, we wait for the Wardrobe-open event (handleWardrobe) rather
+    // removal, we wait for the Wardrobe-close event (handleWardrobe) rather
     // than rushing the player, only mentioning !removed as a fallback if
     // SOLO_REMOVAL_REMINDER_MS passes with no Wardrobe activity — then keeps
     // re-reminding every interval until they act.
@@ -2437,18 +2606,32 @@ export class StripDiceGame {
         }
     }
 
-    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; lastUpdated: string } {
+    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; toysDeclineCount: number; lastUpdated: string } {
         try {
             const raw = fs.readFileSync(this.gameCountsPath, "utf8");
             return JSON.parse(raw);
         } catch {
-            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, lastUpdated: new Date().toISOString() };
+            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, toysDeclineCount: 0, lastUpdated: new Date().toISOString() };
         }
     }
 
     private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted"): void {
         const counts = this.loadGameCounts();
         counts[type]++;
+        counts.lastUpdated = new Date().toISOString();
+        try {
+            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write game_counts.json: ${err}`);
+        }
+    }
+
+    // Running total across all games of explicit "no" answers to the toys
+    // consent question (late-join timeouts/declines are NOT counted here —
+    // only players who actually answered "no").
+    private incrementToysDeclineCount(): void {
+        const counts = this.loadGameCounts();
+        counts.toysDeclineCount = (counts.toysDeclineCount ?? 0) + 1;
         counts.lastUpdated = new Date().toISOString();
         try {
             fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
@@ -2854,7 +3037,7 @@ export class StripDiceGame {
             `=== Solo & Stats ===\n` +
             `!solo race - Solo whisper game: fewest rolls to get naked wins\n` +
             `!solo survive - Solo whisper game: most rolls before getting naked wins\n` +
-            `!removed - Whisper this once you've taken off an item the game told you to remove (or just open your Wardrobe). No rush, the game waits for you.\n` +
+            `!removed - Whisper this once you've taken off an item the game told you to remove (or just close your Wardrobe). No rush, the game waits for you.\n` +
             `!scores / !scores race / !scores survive - View solo leaderboards\n` +
             `!scores me - View your personal solo stats`;
 
@@ -2951,6 +3134,14 @@ export class StripDiceGame {
         }
     }
 
+    public handleWardrobeOpen(memberNumber: number): void {
+        if (this.state !== GameState.WaitingRemove) return;
+        const currentPlayer = this.getCurrentPlayer();
+        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
+        // They opened their wardrobe — cancel the 15s nudge and wait for them to close it
+        this.clearTurnTimer();
+    }
+
     public handleWardrobe(memberNumber: number, name: string): void {
         if (this.soloGames.get(memberNumber)?.awaitingRemoval) {
             this.handleSoloRemoved(memberNumber);
@@ -2961,9 +3152,6 @@ export class StripDiceGame {
         const currentPlayer = this.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
 
-        // Wardrobe-open fires before the player has actually finished taking
-        // the item off — give whichever turn timer starts next a 5s buffer.
-        this.pendingTurnTimerBonusMs += WARDROBE_OPEN_TURN_TIMER_BUFFER_MS;
         this.handleRemoved(memberNumber, name);
     }
 
@@ -2975,6 +3163,8 @@ export class StripDiceGame {
 
         this.clearTurnTimer();
         const player = this.players.get(memberNumber)!;
+        player.removalWarned = false;
+        player.pendingRemovalKick = false;
         player.clothingRemoved++;
 
         this.bot.sendChat(`✅ ${name} has removed their item.`);
@@ -3092,8 +3282,78 @@ export class StripDiceGame {
     private checkAllReady(): void {
         if (this.players.size === 0) return;
         if (this.players.size < this.minPlayers) return;
+        if (this.awaitingToysConsent) return;
         for (const [, player] of this.players) {
             if (!player.ready) return;
+        }
+
+        this.beginToysConsent();
+    }
+
+    // The moment the game would normally start: every ready player is asked,
+    // simultaneously, whether the eventual winner may add toys/touch them.
+    // The game doesn't actually start until everyone has answered or the
+    // window times out (unanswered players are then treated as "no").
+    private beginToysConsent(): void {
+        clearTimeout(this.toysConsentTimer);
+        this.toysConsentTimer = null;
+        this.awaitingToysConsent = true;
+        for (const player of this.players.values()) {
+            player.toysConsent = null;
+            this.bot.whisper(player.memberNumber,
+                "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no)"
+            );
+            logGameEvent(`[ToysConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        this.toysConsentTimer = setTimeout(() => this.resolveToysConsent(), TOYS_CONSENT_TIMEOUT_MS);
+    }
+
+    // Records one player's answer to the pre-game toys question and starts
+    // the game immediately once everyone still in the lobby has answered.
+    private recordToysConsentAnswer(memberNumber: number, accepted: boolean): void {
+        const player = this.players.get(memberNumber);
+        if (!player || player.toysConsent !== null) return;
+        player.toysConsent = accepted;
+        logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) answered: ${accepted ? "yes" : "no"}`);
+        if (!accepted) this.incrementToysDeclineCount();
+
+        if ([...this.players.values()].every(p => p.toysConsent !== null)) {
+            this.resolveToysConsent();
+        }
+    }
+
+    // Finalizes toysAllowed from however many players answered (anyone still
+    // unanswered when this fires — i.e. the 60s window expired — counts as
+    // "no") and starts the game.
+    private resolveToysConsent(): void {
+        if (!this.awaitingToysConsent) return;
+        for (const player of this.players.values()) {
+            logGameEvent(`[ToysConsent] Resolving — ${player.name}: ${player.toysConsent}`);
+        }
+        this.awaitingToysConsent = false;
+        if (this.toysConsentTimer) {
+            clearTimeout(this.toysConsentTimer);
+            this.toysConsentTimer = null;
+        }
+
+        for (const player of this.players.values()) {
+            if (player.toysConsent === null) player.toysConsent = false;
+        }
+        this.toysAllowed = [...this.players.values()].every(p => p.toysConsent === true);
+        logGameEvent(`[ToysConsent] Result: toysAllowed=${this.toysAllowed}`);
+
+        if (this.toysAllowed) {
+            this.bot.sendChat("All players have agreed — the winner may add toys at the end of the game! 🎉");
+        } else {
+            this.bot.sendChat("Not everyone agreed to toys this round — toys will not be part of this game.");
+        }
+
+        // The 60s wait gives a window for someone new to join the lobby (or an
+        // existing player to un-ready via !wearing) before the game actually
+        // starts. If that happened, hold off — the next !ready re-runs
+        // checkAllReady() and we'll re-evaluate from there.
+        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+            return;
         }
 
         this.startGame();
@@ -3138,7 +3398,7 @@ export class StripDiceGame {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.whisper(player.memberNumber, `${player.name}, !roll (D${this.currentDiceMax})`);
+        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll`);
     }
 
     private advanceTurn(): void {
@@ -3181,6 +3441,11 @@ export class StripDiceGame {
             if (player.pendingReturn) {
                 player.leaveRoundsRemaining--;
                 if (player.leaveRoundsRemaining <= 0) {
+                    if (this.isWithinMinReturnWindow(player)) {
+                        this.deferLeftPlayerRemoval(player);
+                        this.currentTurnIndex = (this.currentTurnIndex + 1) % this.turnOrder.length;
+                        continue;
+                    }
                     if (this.removeLeftPlayer(player)) return false;
                     continue;
                 }
@@ -3204,6 +3469,14 @@ export class StripDiceGame {
                 return true;
             }
 
+            // Player skipped a removal last round — give them 20 seconds to confirm or be kicked.
+            if (player.pendingRemovalKick) {
+                this.state = GameState.WaitingRemove;
+                this.bot.sendChat(`⚠️ ${player.name}, you still need to remove your item! Whisper !removed within 20 seconds or you'll be removed from the game.`);
+                this.startTurnTimer(20000);
+                return true;
+            }
+
             if (this.maybeStartJoinPause(() => this.resolveCurrentTurn())) return true;
 
             this.state = GameState.Rolling;
@@ -3213,9 +3486,52 @@ export class StripDiceGame {
         }
     }
 
+    // True if a player whose 2-round grace period just ran out hasn't yet
+    // been away for the full MIN_RETURN_WINDOW_MS - i.e. removal should be
+    // deferred rather than happening immediately (other players may have
+    // resolved their turns quickly, cutting the grace period short in wall-
+    // clock terms).
+    private isWithinMinReturnWindow(player: Player): boolean {
+        const elapsed = Date.now() - (player.leaveTime ?? 0);
+        return elapsed < MIN_RETURN_WINDOW_MS;
+    }
+
+    // Schedules removeLeftPlayer() for whenever the 90s minimum return window
+    // actually closes, instead of removing the player right away. A no-op if
+    // a timer is already pending for this player. Cancelled on rejoin via
+    // cancelPendingLeaveRemoval().
+    private deferLeftPlayerRemoval(player: Player): void {
+        const memberNumber = player.memberNumber;
+        if (this.pendingLeaveRemovalTimers.has(memberNumber)) return;
+
+        const elapsed = Date.now() - (player.leaveTime ?? 0);
+        const remaining = Math.max(0, MIN_RETURN_WINDOW_MS - elapsed);
+        const remainingSeconds = Math.round(remaining / 1000);
+        const secondsWord = remainingSeconds === 1 ? "second" : "seconds";
+        this.bot.sendChat(`${player.name} hasn't had long to return — we'll give them ${remainingSeconds} more ${secondsWord} before the game moves on.`);
+
+        const timer = setTimeout(() => {
+            this.pendingLeaveRemovalTimers.delete(memberNumber);
+            const current = this.players.get(memberNumber);
+            if (!current || !current.pendingReturn) return;
+            this.removeLeftPlayer(current);
+        }, remaining);
+        this.pendingLeaveRemovalTimers.set(memberNumber, timer);
+    }
+
+    // Cancels a pending deferred-removal timer for a player, if any. Called
+    // when they rejoin the room before the 90s window closes.
+    private cancelPendingLeaveRemoval(memberNumber: number): void {
+        const timer = this.pendingLeaveRemovalTimers.get(memberNumber);
+        if (!timer) return;
+        clearTimeout(timer);
+        this.pendingLeaveRemovalTimers.delete(memberNumber);
+    }
+
     // Removes a player whose post-leave grace period has expired. Returns
     // true if the game ended as a result of the removal.
     private removeLeftPlayer(player: Player): boolean {
+        this.cancelPendingLeaveRemoval(player.memberNumber);
         this.bot.sendChat(`${player.name} did not return in time and has been removed from the game.`);
 
         this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== player.memberNumber);
@@ -3250,7 +3566,7 @@ export class StripDiceGame {
             if (nextItem) {
                 this.state = GameState.WaitingRemove;
                 this.bot.sendChat(`😳 ${player.name} rolled a 1! Remove your ${nextItem}!`);
-                this.startTurnTimer(60000);
+                this.startTurnTimer(20000);
 
                 if (player.clothingRemoved + 1 >= player.clothing.length) {
                     player.isNaked = true;
@@ -3284,14 +3600,14 @@ export class StripDiceGame {
             this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Remove your ${item1} and ${item2}!`);
             player.pendingPenaltySteps = 1;
             this.state = GameState.WaitingRemove;
-            this.startTurnTimer(60000);
+            this.startTurnTimer(20000);
         } else {
             const item1 = player.clothing[player.clothingRemoved];
             this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Remove your ${item1} — bondage starts immediately after!`);
             player.pendingPenaltySteps = 1;
             player.isNaked = true;
             this.state = GameState.WaitingRemove;
-            this.startTurnTimer(60000);
+            this.startTurnTimer(20000);
         }
     }
 
@@ -3307,7 +3623,7 @@ export class StripDiceGame {
         if (nextItem) {
             this.state = GameState.WaitingRemove;
             this.bot.sendChat(`😳 ${name}, remove your ${nextItem} too!`);
-            this.startTurnTimer(60000);
+            this.startTurnTimer(20000);
 
             if (player.clothingRemoved + 1 >= player.clothing.length) {
                 player.isNaked = true;
@@ -3328,6 +3644,7 @@ export class StripDiceGame {
     ): any {
         return {
             ...item.property,
+            Difficulty: 20,
             Effect: [...(item.property.Effect || []), "Lock"],
             LockedBy: "TimerPasswordPadlock",
             LockMemberNumber: this.bot.getMemberNumber(),
@@ -3443,6 +3760,12 @@ export class StripDiceGame {
             this.logMultiplayerGameEnd("all-bound");
             this.endGame();
             return true;
+        } else if (this.players.size === 1 && activePlayers.length === 1) {
+            // Everyone else left or was removed — not a win, just end the game.
+            this.bot.sendChat(`Only one player remaining — not enough to continue. Ending the game, no winner this time.`);
+            this.logMultiplayerGameEnd("aborted", { logSuffix: "not enough players" });
+            this.resetGame();
+            return true;
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
@@ -3467,6 +3790,12 @@ export class StripDiceGame {
     private applyEndGameLocks(winner?: Player): void {
         const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
+
+        if (winner && this.toysAllowed) {
+            this.bot.whisper(winner.memberNumber,
+                "Reminder: you may add toys and touch the other players — but please, no locks on any toys."
+            );
+        }
 
         this.bot.sendChat(`🔒 Hold still everyone — applying everyone's end-game locks now, this'll take a few moments!`);
 
@@ -3772,6 +4101,9 @@ export class StripDiceGame {
         this.writeBotState();
 
         this.state = GameState.Idle;
+        for (const player of this.players.values()) {
+            player.toysConsent = null;
+        }
         this.players.clear();
         this.turnOrder = [];
         this.currentTurnIndex = 0;
@@ -3784,10 +4116,24 @@ export class StripDiceGame {
         this.lobbyOpen = false;
         this.hostMemberNumber = null;
         this.awaitingMinMaxReply = false;
+        this.toysAllowed = false;
+        this.awaitingToysConsent = false;
+        if (this.toysConsentTimer) {
+            clearTimeout(this.toysConsentTimer);
+            this.toysConsentTimer = null;
+        }
+        for (const pending of this.pendingLateJoinToysConsent.values()) {
+            clearTimeout(pending.timeout);
+        }
+        this.pendingLateJoinToysConsent.clear();
         for (const timer of this.pendingLateJoinConfirmations.values()) {
             clearTimeout(timer);
         }
         this.pendingLateJoinConfirmations.clear();
+        for (const timer of this.pendingLeaveRemovalTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.pendingLeaveRemovalTimers.clear();
         for (const pending of this.pendingLockVerifications.values()) {
             clearTimeout(pending.timeout);
         }
@@ -3960,10 +4306,49 @@ export class StripDiceGame {
     }
 
     private handleRemoveTimeout(player: Player): void {
-        this.bot.whisper(player.memberNumber,
-            `Already removed it? !removed to continue.`
-        );
-        this.startTurnTimer(60000);
+        if (player.pendingRemovalKick) {
+            // Back for their next turn and still no response — remove them.
+            this.kickForFailedRemoval(player);
+        } else if (player.removalWarned) {
+            // Second window (15s) also expired — skip to next player.
+            player.removalWarned = false;
+            player.pendingRemovalKick = true;
+            this.bot.whisper(player.memberNumber,
+                `Skipping your turn — open your wardrobe and remove the item or whisper !removed before your next roll.`
+            );
+            this.advanceTurn();
+        } else {
+            // First window (20s) expired — send a visible reminder and give 15 more seconds.
+            player.removalWarned = true;
+            this.bot.sendChat(`⏰ ${player.name}, you still need to remove your item! 15 seconds or your turn is skipped.`);
+            this.startTurnTimer(15000);
+        }
+    }
+
+    private kickForFailedRemoval(player: Player): void {
+        this.bot.sendChat(`❌ ${player.name} didn't remove their item and has been removed from the game.`);
+
+        this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== player.memberNumber);
+        const removedIndex = this.turnOrder.indexOf(player.memberNumber);
+        this.players.delete(player.memberNumber);
+        this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
+
+        if (this.players.size === 0) {
+            this.bot.sendChat(`No players remaining. Resetting.`);
+            this.resetGame();
+            return;
+        }
+
+        if (removedIndex !== -1 && removedIndex < this.currentTurnIndex) {
+            this.currentTurnIndex--;
+        }
+        if (this.currentTurnIndex >= this.turnOrder.length) {
+            this.currentTurnIndex = 0;
+        }
+
+        if (!this.checkGameEndCondition()) {
+            this.resolveCurrentTurn();
+        }
     }
 
     private handleTurnTimeout(player: Player): void {

@@ -34,10 +34,24 @@ async function main() {
     const bot = new BCConnection();
     const game = new StripDiceGame(bot);
 
-    // Strip OOC wrappers: (!roll) or [!roll] -> !roll
+    // Strip OOC wrappers: (!roll) or [!roll] -> !roll. Applied repeatedly so
+    // doubled/tripled wrapping like "((yes))" or "(((yes)))" -> "yes" too,
+    // not just a single layer.
     function stripOOC(msg: string): string {
-        return msg.trim().replace(/^[\(\[]\s*(.*?)\s*[\)\]]$/, '$1');
+        let result = msg.trim();
+        let previous: string;
+        do {
+            previous = result;
+            result = result.replace(/^[\(\[]\s*(.*?)\s*[\)\]]$/, '$1');
+        } while (result !== previous);
+        return result;
     }
+
+    // Track players who have opened their wardrobe so we can fire the removal
+    // handler on close rather than open. The close event (Status/null) is not
+    // wardrobe-exclusive — BCX sends it when any screen is dismissed — so we
+    // gate on having previously seen the wardrobe-open event for that member.
+    const playersWithOpenWardrobe = new Set<number>();
 
     bot.onMessage((data: any) => {
         log(`MSG [${data.Type}] from ${data.Sender}: ${data.Content}`);
@@ -56,6 +70,12 @@ async function main() {
             game.handleChat(memberNumber, name, stripOOC(data.Content));
         }
         if (data.Type === "Status" && data.Content === "Wardrobe") {
+            playersWithOpenWardrobe.add(memberNumber);
+            game.handleWardrobeOpen(memberNumber);
+        }
+        if (data.Type === "Status" && (data.Content === null || data.Content === "null") &&
+            playersWithOpenWardrobe.has(memberNumber)) {
+            playersWithOpenWardrobe.delete(memberNumber);
             game.handleWardrobe(memberNumber, name);
         }
 
@@ -122,6 +142,7 @@ async function main() {
     bot.onMemberLeave((data: any) => {
         const memberNumber = data.SourceMemberNumber;
         log(`Member #${memberNumber} left the room.`);
+        playersWithOpenWardrobe.delete(memberNumber);
         game.onMemberLeave(memberNumber);
     });
 

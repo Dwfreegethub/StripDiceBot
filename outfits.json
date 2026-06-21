@@ -2,13 +2,29 @@
   "outfits": [
     {
       "name": "Steel Restraints",
-      "code": "NobwRAcghgtgpmAXGMAaMBxATgewK4AOSYAgljAM4AycAZgC5gC+q408xamuhxZlAJQCWAcwAWjFm1gJkXbPiLIAElAB2AE2p1JrSDM7oFvFeq3Dxu6RxUAGAJwB2W/J5KwyuKIlcAwjgAbHCwkYABdKX0bMABRAGMxHAA1ACZXRWIAIRwNAE8AZXpcgIR0fyCQxHDI9lkwAA0qKCwRUu4M5Gy8gFUCAjgQssDgvgohdS4ABVx+rCKkcAAVXP6BODjgjQWwIv6txFsWMCocOIBrOA1M3KR6LDw4dBPzgFk4GAAjAYg8T4GkFK2AAcAFYACwAZiYNQMyEazVa6RMYC6uROAHd/jDojFcnAPrh0RQAIxI9y4/GEihTGYDeaIcAxAAeBCwcAoYxwaiQajwAQCT1OFyuN0Qdwegte7y+WB+f0qgNBkOhelqxApFHsZPVeOp6GmOFm9MZLLZHKEXJ5fIFxyFl2ut3uj1tUvlcplAOB4Kh2LqGq1RjcOvZaX1tLmopNrPZnO5iF5/MlwodYqdSbebt+HsQiu9KusdTWIj5zW1yBe+HoYj8w0qwDAABE6FA+Yx0E3aC2AowwmHDXTI2Blqt1pttgEkLZ0IwDkcG0JaLQhHFW6KpyigudQr2PEINLJwuhlHu4ABJejvbfoEj8nDokhxehCABuQnph9I9DuQg+eAvV6HFY6gCWx6BcdBmWjc1LXja0k3tUVxWdZ4zgzGV3X+HMvWVX1iAgIQ+hKChQ3aZF8MI9lmFVWEwEmPAOVyUlAw6Wj6IoG4+yNQcUIQx0JRdVDpW+LNMNzHDqOifIxDgTxBlI9wDTUfA1D1Wjw2NWJF3WGd6xoKAKGrHceJFPjkKFNDhPlT0lR9CS6g7Ls23k4hPCgLZcM6AJ6OrZjkUyLyDJpfsI22SCzVjK1EwE3jU34lCLNlESFWw2yC2IAAxLy91U4x3EyvBsqCrjQtNGMLTjBMbWMlMkPTITEqsrCbPzKI/RgHAnw2blfPJdrOstTiB22arELTASEow5Lmo8sBAGq4wANrMAecViVsOIYDLMBAFyMwA0TQWgB9Kg8AALyEKi0tMIRZS5NpcpcqBLsyKAtxm1RLvS3A1HoAA2IENterB3q5JzyhGKowAAYhBYliXSmGuHBkhiRSEFkbACI7KyZSinyAr6DifS4BiGACHmHriHPd4XiECg4hrCpQkbZtWzRwaQoZMAKawKAny5akc3gkzYrM110KS6y8xmgB1IQ1BEHKg2QCkpLcu86dBiHiQhTXNbO1qXO8QpijgQo4DgAISDUM4Sl8PBF3lliKZgdLTeB2sGYc5n2yZ7suA9n2dwNYr2eHOA1g2LB9nAXZLgBOcFyXFduzXAWarG+L6sm8XxPOsBJfuih6BoERVCwNQYw2x3JjN19VJBusIbBWxG8b+HfFsNu2/hoFgR7+Hm6b8CIY79vB/B/uW/QBHbBIafR4hWx5/n1uR87yfF4X0fh9XiGQVsXfd/hzJbCPo++4HieIZP4/R/S3x7BiXwmIb8/R6v0/J5IGISCBRwG3h+wQT2AhECEgZ9+7wxIJAqBECgRAghPYP+k9MgxHsCkTuAd1KDhDmHMc7MJyIGJOgJkk50DJzALTA46BnwkJ2JOOOi5lyriQBCdA/khQAWPPuDhJ5HYARvEEe8j4XxvlFB+EgX4sA/j/AeIydpBa1XGhnMWTUJYY2QJMQI1NpIaF8GIfST4iiZC5hXC8MAjFwH0WreufsewzXyCUTQAwTZm3KAEUsZNkCOwgOsM4ViGbgx+l9WwQS0YvQNkUEoziAg2ztiY94/Ba5uzBjY323seysw0tg0cEdtjR32MSI4+Q4D0A0RQA8KInpnGyEyRYQgEA7n4XeB8T5nxwFKeUx65xqm1PqSnUacVzJKMamJH0YQgA=",
-      "groups": ["ItemFeet", "ItemPelvis", "ItemBreast", "ItemNeck", "ItemArms"]
+      "code": "NobwRAcghgtgpmAXGMAaMBxATgewK4AOSYAgljAM4AycAZgC5gC+q408xamuhxZlAJQCWAcwAWjFm1gJkXbPiLIAElAB2AE2p1JrSDM7oFvFeq3Dxu6RxUAGAJwB2W/J5KwyuKIlcAwjgAbHCwkYABdKX0bMABRAGMxHAA1ACZXRWIAIRwNAE8AZXpcgIR0fyCQxHDI9lkwAA0qKCwRUu4M5Gy8gFUCAjgQssDgvgohdS4ABVx+rCKkcAAVXP6BODjgjQWwIv6txFsWMCocOIBrOA1M3KR6LDw4dBPzgFk4GAAjAYg8T4GkFK2AAcAFYACwAZiYNQMyEazVa6RMYC6uROAHd/jDojFcnAPrh0RQAIxI9y4/GEijMPS1YgUij2Mn0vHU7F1BlMoxuFlwChpdnENYiPABZrM5AvfD0MR+YaVYBgAAidCgosY6BVtDVAUYYXQ0xws3miCWKzgaw2WH24ACSFs6EYByOSqEtFoQji6puB3QmSC51C+o8Qg0snC6GUobgAEl6O8g+gSAEguiSHF6EIAG5CE0R0j0O5CD54eOJsDLfrEAK2eguJ6nC5XH13B4N17vL5YH5/SqA0GQ6G02GQIR9Er8iWj8d8mnWOqTPAUCi5UncjpgRfLm6C5D5MRwTyDdrIw1qfBqNnD6JanUak/uTxQLa7lEBJey9fI/0fudROoAGLvqG1Jfu4QF4CBf50sgMQwDgmYbGoU5wQhno4Mhr6ANVxgAbWYA84rErYcQwFOgC5GYAaJq4QA+lQeAAF5CNBI6qEI3YYW0xiPlArGZFAgavixWAAbgaj0AAbECU6CcJGH3uUIxVGAADEILEsSAHqVwSkkMSKQgnpYARNedTZHgokFJB9BxFAFBwHBBDzGBxBxu8LxCBQcRyhUoTKqq6qGQaMwDCa4AuVgUCZhh1KICk7ZNtctz3I8xyNm8vY9l2ALAuCUKvgA6kIagiKBD68vuz44OiXkKcpxIQnVdVMdEUbiIUxRwIUcBwAEJBqGcJS+Hg7olZxznxjAAFdXJ8o+be/man5upcHNS3Boaxo+maqzrJs2y7JcAIum6HperqPoOil5yXAliCtslzxnGlXYZf8MXZYO+XcRQ9A0CIqhYGofIjTyyAuTAkzdTmJXyQqylgrY8Pw1pvi2CjKNaUCwJY1piMI/Wylo6j+NKbjSPoNptgkJTxMQrYtO08jRPo+T9N08ThPM8pIK2Nz3NaZktgCwLON42TylC4LxMAb49gxL4a5w6LxMS8L5MkDEJBAo4SpafYIL2BCQIkCLuNaSQ5sW2bQJAhC9g6+TmQxPYKTo2tQVzJtFbmpau2mmAdqIMS6AAB72ug53oJ5vpgFmYc7PaR3up63pIBCfoBmc5ZRmGWfRmD5bJqm6aZjmebBiQhZYMWpbhsGD3XS2SVxU93y/Jlb0DrlxnEJMgTuQeGi+GINmZkUmThVOYPj3AI/VbDK16q++QlJoAydd15Riseo2g+NEDrJnQzeYpSkSWJtjn4ZAneG1JTrwEg3DZP438NDM2KQvy2LXqgVGsFnuVgtDta0e1zT7GJEcfIcB6C91sj5Xi5xsjB0WEIBA5cUyVWLtmOAsDwwoj4mcJBKC0FxQbolNsl1Hqdlbr2LKnchzzmIL4XAVkxBD24shJyu93iLGCBQHAaQj4KUVJ/CIYQgA==",
+      "groups": [
+        "ItemFeet",
+        "ItemPelvis",
+        "ItemBreast",
+        "ItemNeck",
+        "ItemArms",
+        "ItemTorso2"
+      ]
     },
     {
       "name": "BondageDice",
       "code": "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=",
-      "groups": ["ItemFeet", "ItemLegs", "ItemPelvis", "ItemTorso2", "ItemTorso", "ItemArms", "ItemNeckRestraints", "ItemNeck"]
+      "groups": [
+        "ItemFeet",
+        "ItemLegs",
+        "ItemPelvis",
+        "ItemTorso2",
+        "ItemTorso",
+        "ItemArms",
+        "ItemNeckRestraints",
+        "ItemNeck"
+      ]
     },
     {
       "name": "Male Restraints",
@@ -16,38 +32,102 @@
         {
           "group": "ItemFeet",
           "name": "LeatherDeluxeAnkleCuffs",
-          "color": ["#909090", "#131313", "#006460", "#909090", "Default"],
+          "color": [
+            "#909090",
+            "#131313",
+            "#006460",
+            "#909090",
+            "Default"
+          ],
           "property": {
-            "TypeRecord": { "typed": 2 },
+            "TypeRecord": {
+              "typed": 2
+            },
             "Difficulty": 0
           }
         },
         {
           "group": "ItemLegs",
           "name": "LeatherDeluxeLegCuffs",
-          "color": ["#909090", "#131313", "#006460", "#909090", "Default"],
+          "color": [
+            "#909090",
+            "#131313",
+            "#006460",
+            "#909090",
+            "Default"
+          ],
           "property": {
-            "TypeRecord": { "typed": 2 },
-            "Effect": ["Slow"],
-            "SetPose": ["BaseLower"],
-            "AllowActivePose": ["BaseLower", "Kneel", "LegsOpen", "LegsClosed", "Spread", "Hogtied", "AllFours"]
+            "TypeRecord": {
+              "typed": 2
+            },
+            "Effect": [
+              "Slow"
+            ],
+            "SetPose": [
+              "BaseLower"
+            ],
+            "AllowActivePose": [
+              "BaseLower",
+              "Kneel",
+              "LegsOpen",
+              "LegsClosed",
+              "Spread",
+              "Hogtied",
+              "AllFours"
+            ]
           }
         },
         {
           "group": "ItemTorso",
           "name": "LeatherStrapHarness",
-          "color": ["#C6C6C6"],
+          "color": [
+            "#C6C6C6"
+          ],
           "property": {
-            "TypeRecord": { "typed": 0 },
+            "TypeRecord": {
+              "typed": 0
+            },
             "Difficulty": 0
           }
         },
         {
           "group": "ItemPelvis",
           "name": "WaistLegHarness",
-          "color": ["#404040", "#C0C0C0", "#808080", "#404040", "#C0C0C0", "#404040", "#A0A0A0", "#303030", "#C0C0C0", "#303030", "#C0C0C0", "#505050", "#B0B0B0", "#404040", "#B0B0B0", "#FC9EC1", "#404040", "#B0B0B0", "#AEA87D", "#95938A", "#404040", "#AAAAAA", "#A8839D", "#BE92C0"],
+          "color": [
+            "#404040",
+            "#C0C0C0",
+            "#808080",
+            "#404040",
+            "#C0C0C0",
+            "#404040",
+            "#A0A0A0",
+            "#303030",
+            "#C0C0C0",
+            "#303030",
+            "#C0C0C0",
+            "#505050",
+            "#B0B0B0",
+            "#404040",
+            "#B0B0B0",
+            "#FC9EC1",
+            "#404040",
+            "#B0B0B0",
+            "#AEA87D",
+            "#95938A",
+            "#404040",
+            "#AAAAAA",
+            "#A8839D",
+            "#BE92C0"
+          ],
           "property": {
-            "TypeRecord": { "l": 1, "x": 0, "y": 0, "c": 0, "v": 0, "t": 0 },
+            "TypeRecord": {
+              "l": 1,
+              "x": 0,
+              "y": 0,
+              "c": 0,
+              "v": 0,
+              "t": 0
+            },
             "Difficulty": 3,
             "Block": [],
             "Hide": [],
@@ -59,13 +139,18 @@
         {
           "group": "ItemNeck",
           "name": "SlenderSteelCollar",
-          "color": ["#686060"],
+          "color": [
+            "#686060"
+          ],
           "property": {}
         },
         {
           "group": "ItemNeckRestraints",
           "name": "ChokeChain",
-          "color": ["Default", "Default"],
+          "color": [
+            "Default",
+            "Default"
+          ],
           "property": {
             "OverridePriority": 31
           }
@@ -73,9 +158,16 @@
         {
           "group": "ItemArms",
           "name": "ShinyArmbinder",
-          "color": ["#009993", "#5D5D5D", "#CACACA", "Default"],
+          "color": [
+            "#009993",
+            "#5D5D5D",
+            "#CACACA",
+            "Default"
+          ],
           "property": {
-            "TypeRecord": { "typed": 3 }
+            "TypeRecord": {
+              "typed": 3
+            }
           }
         }
       ]
@@ -86,63 +178,110 @@
         {
           "group": "ItemLegs",
           "name": "LeatherDeluxeLegCuffs",
-          "color": ["#717171", "#717171", "#717171", "#717171", "#717171"],
+          "color": [
+            "#717171",
+            "#717171",
+            "#717171",
+            "#717171",
+            "#717171"
+          ],
           "property": {
-            "TypeRecord": { "typed": 2 }
+            "TypeRecord": {
+              "typed": 2
+            }
           }
         },
         {
           "group": "ItemFeet",
           "name": "SpreaderMetal",
-          "color": ["#717171"],
+          "color": [
+            "#717171"
+          ],
           "property": {
-            "TypeRecord": { "typed": 0 },
-            "SetPose": ["LegsOpen"],
-            "AllowActivePose": ["LegsOpen"]
+            "TypeRecord": {
+              "typed": 0
+            },
+            "SetPose": [
+              "LegsOpen"
+            ],
+            "AllowActivePose": [
+              "LegsOpen"
+            ]
           }
         },
         {
           "group": "ItemBoots",
           "name": "BalletHeels1",
-          "color": ["#717171"],
+          "color": [
+            "#717171"
+          ],
           "property": {
-            "TypeRecord": { "typed": 0 },
+            "TypeRecord": {
+              "typed": 0
+            },
             "Difficulty": 0
           }
         },
         {
           "group": "ItemTorso",
           "name": "LeatherStrapHarness",
-          "color": ["#C6C6C6"],
+          "color": [
+            "#C6C6C6"
+          ],
           "property": {
-            "TypeRecord": { "typed": 0 },
+            "TypeRecord": {
+              "typed": 0
+            },
             "Difficulty": 0
           }
         },
         {
           "group": "ItemTorso2",
           "name": "FuturisticHarness",
-          "color": ["#BDBDBD", "#BDBDBD", "#BDBDBD", "#BDBDBD"],
+          "color": [
+            "#BDBDBD",
+            "#BDBDBD",
+            "#BDBDBD",
+            "#BDBDBD"
+          ],
           "property": {
-            "TypeRecord": { "typed": 2 },
+            "TypeRecord": {
+              "typed": 2
+            },
             "Difficulty": 0
           }
         },
         {
           "group": "ItemArms",
           "name": "SmoothLeatherArmbinder1",
-          "color": ["#717171", "#717171", "#717171", "#717171", "#717171"],
+          "color": [
+            "#717171",
+            "#717171",
+            "#717171",
+            "#717171",
+            "#717171"
+          ],
           "property": {
-            "TypeRecord": { "b": 0, "s": 3 },
+            "TypeRecord": {
+              "b": 0,
+              "s": 3
+            },
             "Difficulty": 40,
-            "Block": ["ItemHands"],
-            "Effect": ["Block", "BlockWardrobe"]
+            "Block": [
+              "ItemHands"
+            ],
+            "Effect": [
+              "Block",
+              "BlockWardrobe"
+            ]
           }
         },
         {
           "group": "ItemNeck",
           "name": "LatexPostureCollar",
-          "color": ["#C5C5C5"],
+          "color": [
+            "#C5C5C5"
+          ],
           "property": {
             "OverridePriority": 35
           }
@@ -150,11 +289,25 @@
         {
           "group": "ItemNeckRestraints",
           "name": "CollarChainMedium",
-          "color": ["#717171"],
+          "color": [
+            "#717171"
+          ],
           "property": {
             "OverridePriority": 14
           }
         }
+      ]
+    },
+    {
+      "name": "Wefa_Bondage",
+      "code": "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",
+      "groups": [
+        "ItemArms",
+        "ItemTorso",
+        "ItemTorso2",
+        "ItemPelvis",
+        "ItemLegs",
+        "ItemBreast"
       ]
     }
   ]
