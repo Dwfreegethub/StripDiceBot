@@ -1,0 +1,148 @@
+=== OUTFIT ITEM TALLY ===
+Generated: 2026-06-23T16:46:32.766Z
+
+--- ArmsLeft ---
+  (unknown asset) (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- ArmsRight ---
+  (unknown asset) (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Blush ---
+  Blush (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- BodyLower ---
+  XLarge (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- BodyStyle ---
+  EchoV2 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- BodyUpper ---
+  XLarge (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Emoticon ---
+  Emoticon (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- EyeShadow ---
+  CatEye (1 outfit): Wefa_Bondage
+  Wings (1 outfit): Steel Restraints
+
+--- Eyebrows ---
+  Eyebrows1 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Eyes ---
+  Eyes9 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Eyes2 ---
+  Eyes9 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Fluids ---
+  Fluids (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- HairBack ---
+  HairNone (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- HairFront ---
+  HairFront68 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- HandsLeft ---
+  (unknown asset) (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- HandsRight ---
+  (unknown asset) (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Head ---
+  Default (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Height ---
+  H0970 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- ItemAddon ---
+  CeilingChain (1 outfit): Wefa_Bondage
+
+--- ItemArms ---
+  HighStyleSteelCuffs (1 outfit): Steel Restraints
+  ShinyArmbinder (3 outfits): BondageDice, Male Restraints, Wefa_Bondage
+  SmoothLeatherArmbinder1 (1 outfit): DroneSlave
+
+--- ItemBoots ---
+  BalletHeels1 (1 outfit): DroneSlave
+
+--- ItemBreast ---
+  PolishedChastityBra (1 outfit): Steel Restraints
+  TickleBra (1 outfit): Wefa_Bondage
+
+--- ItemFeet ---
+  HighStyleSteelAnkleCuffs (1 outfit): Steel Restraints
+  LeatherDeluxeAnkleCuffs (2 outfits): BondageDice, Male Restraints
+  SpreaderMetal (1 outfit): DroneSlave
+
+--- ItemLegs ---
+  LeatherDeluxeLegCuffs (3 outfits): BondageDice, Male Restraints, DroneSlave
+  ShinyLegBinder (1 outfit): Wefa_Bondage
+
+--- ItemMisc ---
+  BountySuitcaseEmpty (1 outfit): Steel Restraints
+
+--- ItemMouth3 ---
+  ModularGag (1 outfit): Wefa_Bondage
+
+--- ItemNeck ---
+  BordelleCollar (1 outfit): BondageDice
+  LatexPostureCollar (1 outfit): DroneSlave
+  SlenderSteelCollar (2 outfits): Steel Restraints, Male Restraints
+
+--- ItemNeckAccessories ---
+  CollarRose (1 outfit): BondageDice
+
+--- ItemNeckRestraints ---
+  ChokeChain (2 outfits): BondageDice, Male Restraints
+  CollarChainMedium (1 outfit): DroneSlave
+
+--- ItemNipples ---
+  NippleVibe (1 outfit): BondageDice
+
+--- ItemPelvis ---
+  HempRope (1 outfit): BondageDice
+  ModularChastityBelt (1 outfit): Wefa_Bondage
+  WaistLegHarness (2 outfits): Steel Restraints, Male Restraints
+
+--- ItemTorso ---
+  ClassicLatexCorset (1 outfit): Wefa_Bondage
+  Corset4 (1 outfit): BondageDice
+  LeatherStrapHarness (2 outfits): Male Restraints, DroneSlave
+
+--- ItemTorso2 ---
+  CrotchChain (1 outfit): Steel Restraints
+  FuturisticHarness (1 outfit): DroneSlave
+  HempRopeHarness (1 outfit): BondageDice
+  StuddedHarness (1 outfit): Wefa_Bondage
+
+--- ItemVulva ---
+  PenisDildo (1 outfit): BondageDice
+
+--- ItemVulvaPiercings ---
+  TapedClitEgg (1 outfit): BondageDice
+
+--- Mask ---
+  Kissmark (1 outfit): BondageDice
+
+--- Mouth ---
+  Regular (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Nipples ---
+  Nipples2 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Pronouns ---
+  SheHer (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- Pussy ---
+  Pussy1 (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+--- 额外身高_Luzi ---
+  身高减10cm (3 outfits): Steel Restraints, BondageDice, Wefa_Bondage
+
+=== SUMMARY ===
+Total slots: 41
+Total unique (slot, asset) pairs: 58
+Outfits processed: 5 / 5
+Errors: 0
