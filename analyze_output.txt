@@ -1,0 +1,31 @@
+
+=== ItemArms ===
+  ShinyArmbinder (1): Male Restraints
+  SmoothLeatherArmbinder1 (1): DroneSlave
+
+=== ItemBoots ===
+  BalletHeels1 (1): DroneSlave
+
+=== ItemFeet ===
+  LeatherDeluxeAnkleCuffs (1): Male Restraints
+  SpreaderMetal (1): DroneSlave
+
+=== ItemLegs ===
+  LeatherDeluxeLegCuffs (2): Male Restraints, DroneSlave
+
+=== ItemNeck ===
+  SlenderSteelCollar (1): Male Restraints
+  LatexPostureCollar (1): DroneSlave
+
+=== ItemNeckRestraints ===
+  ChokeChain (1): Male Restraints
+  CollarChainMedium (1): DroneSlave
+
+=== ItemPelvis ===
+  WaistLegHarness (1): Male Restraints
+
+=== ItemTorso ===
+  LeatherStrapHarness (2): Male Restraints, DroneSlave
+
+=== ItemTorso2 ===
+  FuturisticHarness (1): DroneSlave

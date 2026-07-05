@@ -8,10 +8,9 @@ const HEARTBEAT_TIMEOUT = 3 * 60 * 1000; // 3 minutes without ServerInfo = assum
 export class BCConnection {
     private socket: Socket;
     private playerNumber: number = 0;
-    private connected: boolean = false;
     private heartbeatTimer: NodeJS.Timeout | null = null;
     private onReconnectCallback: (() => void) | null = null;
-    private isReconnecting: boolean = false;
+    private reconnecting: boolean = false;
 
     constructor() {
         this.socket = io(BC_SERVER, {
@@ -30,7 +29,7 @@ export class BCConnection {
         return new Promise((resolve, reject) => {
 
             this.socket.on("connect", () => {
-                if (this.isReconnecting) {
+                if (this.reconnecting) {
                     log("Reconnected to server. Logging back in...");
                 } else {
                     log("Socket connected. Logging in...");
@@ -48,7 +47,6 @@ export class BCConnection {
                     return;
                 }
                 this.playerNumber = data.MemberNumber;
-                this.connected = true;
 
                 this.socket.emit("AccountUpdate", {
                     Inventory:      data.Inventory      ?? [],
@@ -57,11 +55,11 @@ export class BCConnection {
                 this.socket.emit("AccountUpdate", { Game: data.Game ?? {} });
                 this.socket.emit("AccountUpdate", { AssetFamily: "Female3DCG" });
 
-                if (this.isReconnecting) {
+                if (this.reconnecting) {
                     log(`Re-logged in as #${this.playerNumber}. Rejoining room...`);
                     this.joinRoom();
                     if (this.onReconnectCallback) this.onReconnectCallback();
-                    this.isReconnecting = false;
+                    this.reconnecting = false;
                 } else {
                     log(`Logged in successfully! Member #${this.playerNumber}`);
                     log("Initialization sequence sent.");
@@ -101,8 +99,7 @@ export class BCConnection {
 
             this.socket.on("disconnect", (reason: string) => {
                 log(`Disconnected: ${reason}`);
-                this.connected = false;
-                this.isReconnecting = true;
+                this.reconnecting = true;
                 this.clearHeartbeat();
                 if (reason === "io server disconnect") {
                     // Server forced disconnect — manually reconnect
@@ -118,8 +115,7 @@ export class BCConnection {
         this.clearHeartbeat();
         this.heartbeatTimer = setTimeout(() => {
             logError("No ServerInfo received in 3 minutes — possible void. Forcing reconnect...");
-            this.connected = false;
-            this.isReconnecting = true;
+            this.reconnecting = true;
             this.socket.disconnect();
             this.socket.connect();
         }, HEARTBEAT_TIMEOUT);
@@ -136,9 +132,20 @@ export class BCConnection {
         this.onReconnectCallback = callback;
     }
 
-    public joinRoom(): void {
-        log(`Creating room: ${secrets.roomName}`);
-        this.socket.emit("ChatRoomCreate", {
+    // True while the socket is disconnected and Socket.IO is attempting to
+    // reconnect (between a "disconnect" event and the next "connect").
+    public isReconnecting(): boolean {
+        return this.reconnecting;
+    }
+
+    // Fires once the next time the socket reconnects. Used to defer retries
+    // that would otherwise be dropped while the connection is down.
+    public onceConnected(callback: () => void): void {
+        this.socket.once("connect", callback);
+    }
+
+    private roomConfig(): Record<string, unknown> {
+        return {
             Name: secrets.roomName,
             Description: "A Strip Dice game room - type !join to play!",
             Background: "NightClub",
@@ -149,8 +156,21 @@ export class BCConnection {
             Limit: 10,
             BlockCategory: [],
             Language: "EN",
-            Visibility: ["Admin"],
+            Visibility: ["All"],
             Access: ["All"],
+        };
+    }
+
+    public joinRoom(): void {
+        log(`Creating room: ${secrets.roomName}`);
+        this.socket.emit("ChatRoomCreate", this.roomConfig());
+    }
+
+    public makeRoomPublic(): void {
+        this.socket.emit("ChatRoomAdmin", {
+            MemberNumber: this.playerNumber,
+            Action: "Update",
+            Room: this.roomConfig(),
         });
     }
 
@@ -182,6 +202,13 @@ export class BCConnection {
         });
     }
 
+    public moveLeft(): void {
+        this.socket.emit("ChatRoomAdmin", {
+            MemberNumber: this.playerNumber,
+            Action: "MoveLeft",
+        });
+    }
+
     public removeItem(targetNumber: number, group: string): void {
         this.socket.emit("ChatRoomCharacterItemUpdate", {
             Target: targetNumber,
@@ -200,6 +227,7 @@ export class BCConnection {
             "ChatRoomSyncMemberLeave",
             "ChatRoomMessage",
             "ChatRoomSyncItem",
+            "ChatRoomSyncSingle",
             "ChatRoomSyncCharacter",
             "ChatRoomSyncExpression",
             "ServerInfo",
@@ -224,6 +252,10 @@ export class BCConnection {
         this.socket.on("ChatRoomSyncItem", handler);
     }
 
+    public onSyncSingle(handler: (data: any) => void): void {
+        this.socket.on("ChatRoomSyncSingle", handler);
+    }
+
     public onMemberJoin(handler: (data: any) => void): void {
         this.socket.on("ChatRoomSyncMemberJoin", handler);
     }
@@ -234,9 +266,5 @@ export class BCConnection {
 
     public getMemberNumber(): number {
         return this.playerNumber;
-    }
-
-    public isConnected(): boolean {
-        return this.connected;
     }
 }

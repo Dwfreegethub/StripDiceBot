@@ -1,17 +1,58 @@
+import * as fs from "fs";
+import * as path from "path";
 import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
+import { decodeMessage } from "./decodeMessage";
+
+process.on("uncaughtException", (err: Error) => {
+    logError(`Uncaught exception: ${err.stack || err.message || err}`);
+    process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+    const details = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    logError(`Unhandled rejection: ${details}`);
+    process.exit(1);
+});
 
 async function main() {
+    const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
+    let updateNote: string | null = null;
+    if (fs.existsSync(pendingUpdatePath)) {
+        try {
+            updateNote = fs.readFileSync(pendingUpdatePath, "utf8").trim();
+        } catch {
+            updateNote = "";
+        }
+        fs.unlinkSync(pendingUpdatePath);
+        log(`Removed pending_update.txt from previous restart (note: "${updateNote}").`);
+    }
+    let restartAnnounced = false;
+
     log("StripDiceBot starting...");
 
     const bot = new BCConnection();
     const game = new StripDiceGame(bot);
 
-    // Strip OOC wrappers: (!roll) or [!roll] -> !roll
+    // Strip OOC wrappers: (!roll) or [!roll] -> !roll. Applied repeatedly so
+    // doubled/tripled wrapping like "((yes))" or "(((yes)))" -> "yes" too,
+    // not just a single layer.
     function stripOOC(msg: string): string {
-        return msg.trim().replace(/^[\(\[]\s*(.*?)\s*[\)\]]$/, '$1');
+        let result = msg.trim();
+        let previous: string;
+        do {
+            previous = result;
+            result = result.replace(/^[\(\[]\s*(.*?)\s*[\)\]]$/, '$1');
+        } while (result !== previous);
+        return result;
     }
+
+    // Track players who have opened their wardrobe so we can fire the removal
+    // handler on close rather than open. The close event (Status/null) is not
+    // wardrobe-exclusive — BCX sends it when any screen is dismissed — so we
+    // gate on having previously seen the wardrobe-open event for that member.
+    const playersWithOpenWardrobe = new Set<number>();
 
     bot.onMessage((data: any) => {
         log(`MSG [${data.Type}] from ${data.Sender}: ${data.Content}`);
@@ -22,51 +63,74 @@ async function main() {
         if (data.Type === "Whisper") {
             const msg = stripOOC(data.Content).trim().toLowerCase();
 
-            // Test command - keep during development
-            if (msg === "!testcuffs") {
-                bot.whisper(memberNumber, "Applying ankle cuffs with timer lock...");
-                bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                    TypeRecord: { typed: 2 },
-                    Difficulty: 0,
-                    Effect: ["Slow"]
-                });
-                setTimeout(() => {
-                    bot.applyItem(memberNumber, "ItemFeet", "HighStyleSteelAnkleCuffs", "#A23939", {
-                        TypeRecord: { typed: 2 },
-                        Difficulty: 0,
-                        Effect: ["Slow", "Lock"],
-                        LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: bot.getMemberNumber(),
-                        LockMemberName: "GameBot",
-                        Password: "DICE",
-                        Hint: "The game password",
-                        LockSet: true,
-                        RemoveItem: true,
-                        ShowTimer: true,
-                        EnableRandomInput: false,
-                        MemberNumberList: [],
-                        RemoveTimer: Date.now() + (5 * 60 * 1000)
-                    });
-                }, 500);
-                return;
-            }
-
             // Pass to game handler
-            game.handleWhisper(memberNumber, name, stripOOC(data.Content));
+            game.handleWhisper(memberNumber, name, stripOOC(decodeMessage(data)));
         }
 
         if (data.Type === "Chat") {
-            game.handleChat(memberNumber, name, stripOOC(data.Content));
+            game.handleChat(memberNumber, name, stripOOC(decodeMessage(data)));
         }
         if (data.Type === "Status" && data.Content === "Wardrobe") {
+            playersWithOpenWardrobe.add(memberNumber);
+            game.handleWardrobeOpen(memberNumber);
+        }
+        if (data.Type === "Status" && (data.Content === null || data.Content === "null") &&
+            playersWithOpenWardrobe.has(memberNumber)) {
+            playersWithOpenWardrobe.delete(memberNumber);
             game.handleWardrobe(memberNumber, name);
+        }
+
+        // BCX relays wardrobe open/close as a Hidden BCXMsg ChatRoomStatusEvent
+        // rather than a raw Status message. Detect it the same way alongside
+        // the raw-Status handling above so either source triggers the game logic.
+        if (data.Type === "Hidden" && data.Content === "BCXMsg" && data.Dictionary?.type === "ChatRoomStatusEvent") {
+            const status = data.Dictionary.message?.Type;
+            if (status === "Wardrobe") {
+                playersWithOpenWardrobe.add(memberNumber);
+                game.handleWardrobeOpen(memberNumber);
+            } else if (status === "None" && playersWithOpenWardrobe.has(memberNumber)) {
+                playersWithOpenWardrobe.delete(memberNumber);
+                game.handleWardrobe(memberNumber, name);
+            }
+        }
+
+        // BC fires a ChatRoomMessage with Type "Action" and Content matching a
+        // Safeword pattern when a player uses their in-game safeword. Trigger
+        // the full-stop handler only if they're in the active multiplayer game.
+        if (data.Type === "Action" && memberNumber &&
+            typeof data.Content === "string" && data.Content.includes("Safeword")) {
+            game.handleBCSafewordEvent(memberNumber, name);
         }
     });
 
     bot.onRoomSync((data: any) => {
         log(`Room synced. Players in room: ${data.Character?.length ?? 0}`);
         game.onRoomSync(data.Character ?? []);
+        if (data.Visibility?.[0] !== "All" || data.Private) {
+            log("Room is not public, updating room settings to make it public...");
+            bot.makeRoomPublic();
+        }
+
+        const myIndex = (data.Character ?? []).findIndex((c: any) => c.MemberNumber === bot.getMemberNumber());
+        if (myIndex > 0) {
+            log(`GameBot is at position ${myIndex} — moving to the leftmost spot...`);
+            for (let i = 0; i < myIndex; i++) {
+                bot.moveLeft();
+            }
+        }
+
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
+
+        if (!restartAnnounced) {
+            restartAnnounced = true;
+            if (updateNote !== null) {
+                bot.sendChat(updateNote
+                    ? `⚙️ Update applied — ${updateNote}. Back online!`
+                    : `⚙️ Update applied. Back online!`);
+            } else {
+                bot.sendChat("Sorry for the interruption — I'm back!");
+            }
+        }
     });
 
     bot.onMemberJoin((data: any) => {
@@ -87,18 +151,28 @@ async function main() {
             `FEEDBACK: Whisper !feedback [your thoughts] — we read everything!\n\n` +
             `Whisper !join to play!`
         );
-        game.onMemberJoin(memberNumber, name);
+        game.onMemberJoin(memberNumber, name, data.Character);
     });
 
     bot.onMemberLeave((data: any) => {
         const memberNumber = data.SourceMemberNumber;
         log(`Member #${memberNumber} left the room.`);
+        playersWithOpenWardrobe.delete(memberNumber);
         game.onMemberLeave(memberNumber);
+    });
+
+    bot.onItemChange((data: any) => {
+        game.onItemChange(data);
+    });
+
+    bot.onSyncSingle((data: any) => {
+        game.onSyncSingle(data);
     });
 
     bot.onReconnect(() => {
         log("Reconnect complete. Re-announcing bot...");
         bot.sendChat("StripDiceBot reconnected! 🎲 Whisper !join to play or !help for info.");
+        game.onReconnect();
     });
 
     bot.listenAll();
