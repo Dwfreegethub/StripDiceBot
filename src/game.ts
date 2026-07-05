@@ -38,11 +38,15 @@ const MIN_RETURN_WINDOW_MS = 90 * 1000;
 // late joiner has to answer the same question) before being treated as "no".
 const TOYS_CONSENT_TIMEOUT_MS = 60 * 1000;
 
+// How long an admin has to confirm a proxied !feedback (submitted on behalf
+// of another room member) before it's auto-cancelled.
+const ADMIN_FEEDBACK_PROXY_TIMEOUT_MS = 60 * 1000;
+
 // ============================================================
 // SOLO GAME MODE
 // ============================================================
 const SOLO_BRACKET_MIN = 3;
-const SOLO_BRACKET_MAX = 6; // 6 = CLOTHING_SLOTS.length (shoes, socks, top, bottom, bra, panties)
+const SOLO_BRACKET_MAX = 7; // 7 = CLOTHING_SLOTS.length (shoes, socks, jacket, top, bottom, bra, panties)
 const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
 const SOLO_BASE_PENALTY_MINUTES = 5;
 const SOLO_DICE_MAX = 100;
@@ -69,7 +73,11 @@ const REMOVAL_SLOTS = [
     "ItemNeck",
     "ItemNeckRestraints",
     "ItemMouth",
+    "ItemMouth2",
+    "ItemMouth3",
     "ItemHead",
+    "ItemHood",
+    "ItemNipples",
 ];
 const REMOVAL_SLOT_DELAY_MS = 1000; // Stagger between each slot's removal attempt
 const REMOVAL_UNLOCK_GAP_MS = 750; // Gap between unlocking an item and removing it
@@ -104,13 +112,15 @@ const GAME_COOLDOWN_MS = 5 * 60 * 1000;
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
 // ============================================================
-const CLOTHING_SLOTS = ["shoes", "socks", "top", "bottom", "bra", "panties"];
+const CLOTHING_SLOTS = ["shoes", "socks", "jacket", "top", "bottom", "bra", "panties"];
 
 const CLOTHING_ALIASES: Record<string, string> = {
+    // jacket
+    "coat": "jacket", "cardigan": "jacket", "blazer": "jacket",
     // top
     "shirt": "top", "tshirt": "top", "t-shirt": "top", "blouse": "top",
     "tank": "top", "tanktop": "top", "tank-top": "top", "sweater": "top",
-    "hoodie": "top", "jacket": "top", "dress": "top", "corset": "top",
+    "hoodie": "top", "dress": "top", "corset": "top",
     // bottom
     "shorts": "bottom", "pants": "bottom", "jeans": "bottom", "skirt": "bottom",
     "leggings": "bottom", "trousers": "bottom",
@@ -222,6 +232,155 @@ function loadBondageOutfits(): BondageOutfit[] {
 const BONDAGE_OUTFITS: BondageOutfit[] = loadBondageOutfits();
 
 // ============================================================
+// PLAYER-PICK BONDAGE MODE - a designated picker chooses items
+// slot-by-slot from the BC catalog instead of a preset outfit.
+// ============================================================
+type BondageMode = "outfit" | "player-pick";
+
+// Picker-facing display names mapped to BC item groups.
+const PICK_SLOTS: { display: string; group: string }[] = [
+    { display: "Arms", group: "ItemArms" },
+    { display: "Legs", group: "ItemLegs" },
+    { display: "Feet", group: "ItemFeet" },
+    { display: "Torso", group: "ItemTorso" },
+    { display: "Torso (upper)", group: "ItemTorso2" },
+    { display: "Hands", group: "ItemHands" },
+    { display: "Head", group: "ItemHead" },
+    { display: "Hood", group: "ItemHood" },
+    { display: "Neck", group: "ItemNeck" },
+    { display: "Mouth", group: "ItemMouth" },
+    { display: "Boots", group: "ItemBoots" },
+    { display: "Nipples", group: "ItemNipples" },
+    { display: "Breast", group: "ItemBreast" },
+    { display: "Pelvis", group: "ItemPelvis" },
+];
+
+// Consent tiers. Tier 1 is on by default; tier 2 requires explicit consent.
+// Tier 3 (Vulva, Butt) additionally requires the higher-stakes game mode,
+// which is not built yet — the constant exists as a code hook only.
+const TIER1_SLOT_GROUPS = [
+    "ItemArms", "ItemLegs", "ItemFeet", "ItemTorso", "ItemTorso2",
+    "ItemHands", "ItemHead", "ItemHood", "ItemNeck", "ItemMouth", "ItemBoots",
+];
+const TIER2_SLOT_GROUPS = ["ItemNipples", "ItemBreast", "ItemPelvis"];
+const TIER3_SLOT_GROUPS = ["ItemVulva", "ItemButt"]; // code hook — not selectable yet
+
+// ItemMouth2/ItemMouth3 are overflow layers of Mouth: used automatically when
+// ItemMouth is already filled, never exposed as separate picker options.
+const MOUTH_OVERFLOW_GROUPS = ["ItemMouth", "ItemMouth2", "ItemMouth3"];
+
+// Consent-answer token -> BC groups it grants. "torso" covers both layers.
+const CONSENT_TOKEN_GROUPS: Record<string, string[]> = {
+    arms: ["ItemArms"],
+    legs: ["ItemLegs"],
+    feet: ["ItemFeet"],
+    torso: ["ItemTorso", "ItemTorso2"],
+    hands: ["ItemHands"],
+    head: ["ItemHead"],
+    hood: ["ItemHood"],
+    neck: ["ItemNeck"],
+    mouth: ["ItemMouth"],
+    boots: ["ItemBoots"],
+    nipples: ["ItemNipples"],
+    breast: ["ItemBreast"],
+    breasts: ["ItemBreast"],
+    pelvis: ["ItemPelvis"],
+};
+
+// Game ends for a player-pick player once this many items are applied.
+// 7 = median item count of the outfits in outfits.json (6/8/7/8/6).
+const DEFAULT_BONDAGE_ITEM_LIMIT = 7;
+// How many popular items to list per slot (plus one random wildcard).
+const PICK_LIST_TOP_N = 9;
+// Minimum distinct areas a player-pick player must consent to (Mouth counts
+// as one area even though it holds up to 3 gag layers).
+const MIN_CONSENT_AREAS = 6;
+const BONDAGE_MODE_TIMEOUT_MS = 60 * 1000;   // mode question window; unanswered = outfit
+const PICKER_RESPONSE_TIMEOUT_MS = 60 * 1000; // picker slot/item window; then bot picks randomly
+const VETO_TIMEOUT_MS = 30 * 1000;            // target's veto window; then auto-accept
+
+// Full BC item catalog (group -> item names), shared read-only reference that
+// lives one level above the repo. Missing/invalid file disables player-pick
+// mode (everyone silently gets outfit mode) rather than crashing the bot.
+function loadBcItemCatalog(): Map<string, string[]> {
+    const catalog = new Map<string, string[]>();
+    try {
+        const filePath = path.join(__dirname, "..", "..", "bc_items.json");
+        const raw = fs.readFileSync(filePath, "utf8");
+        const data: { group: string; items: string[] }[] = JSON.parse(raw);
+        for (const entry of data) {
+            if (entry?.group && Array.isArray(entry.items)) {
+                catalog.set(entry.group, entry.items);
+            }
+        }
+    } catch (err) {
+        log(`WARNING: Could not load bc_items.json — player-pick bondage mode disabled: ${err}`);
+    }
+    return catalog;
+}
+
+const BC_ITEM_CATALOG: Map<string, string[]> = loadBcItemCatalog();
+
+// One in-flight player-pick selection. Only one can be active at a time —
+// the game sits in WaitingBondage until it resolves.
+interface PendingBondagePick {
+    pickerNumber: number;
+    targetNumber: number;
+    stage: "slot" | "item" | "veto";
+    slotDisplay: string | null;  // picker-facing name, e.g. "Mouth"
+    slotGroup: string | null;    // actual BC group applied, e.g. "ItemMouth2"
+    options: string[];           // current numbered item list
+    chosenItem: string | null;
+    vetoedItems: { group: string; item: string }[]; // vetoed during this pick session, scoped per group
+    timer: NodeJS.Timeout | null; // picker-response or veto timer
+}
+
+// ============================================================
+// ITEM SETTINGS LIBRARY - learned per-item configurations.
+// Many typed items (cuffs especially) are non-restraining in their default
+// mode; the mode lives in Property (TypeRecord + Effect). The bot learns
+// configurations by watching players adjust items in the room, tracks how
+// often each distinct configuration is seen, and applies the most popular
+// one when a picked item lands. Seeded from outfits.json properties.
+// ============================================================
+interface ItemSettingVariant {
+    property: any;
+    count: number;
+}
+type ItemSettingsLibrary = Record<string, ItemSettingVariant[]>; // "Group:ItemName" -> observed configs
+
+const MAX_SETTING_VARIANTS_PER_ITEM = 10; // keep the most popular N configs per item
+// How to choose among learned settings when applying a picked item:
+// "popular" = most-seen config (ties random); "random" = any learned config;
+// "weighted" = random, biased by popularity.
+const ITEM_SETTING_STRATEGY: "popular" | "random" | "weighted" = "popular";
+
+// A property is worth learning if it selects a mode (TypeRecord) or carries
+// active effects — bare default-mode applications teach us nothing.
+function isLearnableProperty(property: any): boolean {
+    if (!property || typeof property !== "object") return false;
+    if (property.TypeRecord && typeof property.TypeRecord === "object" && Object.keys(property.TypeRecord).length > 0) return true;
+    return Array.isArray(property.Effect) && property.Effect.length > 0;
+}
+
+// Stable JSON (sorted keys, recursive) so identical configs dedupe regardless
+// of key order in the incoming payload.
+function canonicalJson(value: any): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(canonicalJson).join(",")}]`;
+    }
+    if (value && typeof value === "object") {
+        const keys = Object.keys(value).sort();
+        return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
+    }
+    return JSON.stringify(value);
+}
+
+function deepClone<T>(value: T): T {
+    return value === undefined ? value : JSON.parse(JSON.stringify(value));
+}
+
+// ============================================================
 // GAME STATES
 // ============================================================
 enum GameState {
@@ -262,6 +421,10 @@ interface Player {
     removalWarned: boolean;      // First 15s expired without response — second 10s window now active
     pendingRemovalKick: boolean; // Both windows missed — next turn gives 15s before removal from game
     toysConsent: boolean | null; // null = unanswered, true/false = answered the pre-game toys question
+    bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "outfit" on timeout
+    allowedSlots: string[];      // BC group names this player consented to for player-pick mode
+    appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
+    lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1; 0 = never lost this game
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock
@@ -475,6 +638,10 @@ export class StripDiceGame {
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
     private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
+    // Admin proxy-feedback confirmation, keyed by admin member number. Set
+    // when an admin runs "!feedback <room member name> <text>" so a follow-up
+    // yes/no whisper can confirm logging it under the target player's name.
+    private pendingAdminFeedbackProxy: Map<number, { targetMemberNumber: number; targetName: string; text: string; timeout: NodeJS.Timeout }> = new Map();
     // Deferred removal timers for players whose 2-round grace period expired
     // before the 90s minimum return window did. Cleared on rejoin or once the
     // timer fires and actually removes them.
@@ -528,9 +695,35 @@ export class StripDiceGame {
     // Mid-game joiners being asked the toys consent question before their join
     // completes (only used when toysAllowed is true for the current game).
     private pendingLateJoinToysConsent: Map<number, { onAccept: () => void; onDecline: () => void; timeout: NodeJS.Timeout }> = new Map();
+    // Player-pick bondage mode state
+    private lastRoundLoser: number | null = null;      // memberNumber of the most recent round loser
+    private lossSeqCounter: number = 0;                // increments on every loss; stamps each loser's lastLossSeq
+    private pickerHistory: number[] = [];              // memberNumbers who have picked this game
+    private allowVeto: boolean = true;                 // false reserved for higher-stakes modes (code hook)
+    private bondageItemLimit: number = DEFAULT_BONDAGE_ITEM_LIMIT;
+    private gameBondageMode: "outfit" | "player-pick" | "mixed" = "outfit";
+    private awaitingBondageMode: boolean = false;
+    private bondageModeTimer: NodeJS.Timeout | null = null;
+    // Late joiners (mid-game join once clothing is confirmed, or naked join
+    // after bondage phase started) are asked the same mode question
+    // individually, since the group question has already resolved.
+    private awaitingLateBondageMode: Set<number> = new Set();
+    private lateBondageModeTimers: Map<number, NodeJS.Timeout> = new Map();
+    private awaitingSlotConsent: boolean = false;
+    private slotConsentTimer: NodeJS.Timeout | null = null;
+    private pendingBondagePick: PendingBondagePick | null = null;
+    private pendingSlotConsent: Set<number> = new Set(); // players yet to answer the slot-consent whisper
+    private bondageUsage: Record<string, Record<string, number>> = {};
+    private readonly bondageUsagePath = path.join(__dirname, "..", "bondage_usage.json");
+    private readonly outfitCandidatesPath = path.join(__dirname, "..", "outfit_candidates.json");
+    private itemSettings: ItemSettingsLibrary = {};
+    private readonly itemSettingsPath = path.join(__dirname, "..", "item_settings.json");
 
     constructor(bot: BCConnection) {
         this.bot = bot;
+        this.loadBondageUsage();
+        this.loadItemSettings();
+        this.seedItemSettingsFromOutfits();
         this.loadFeedbackStatus();
         this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
         this.loadPlayerRecords();
@@ -707,6 +900,15 @@ export class StripDiceGame {
         const target = item?.Target;
         if (typeof target !== "number" || !item?.Group) return;
         this.itemStateCache.set(`${target}:${item.Group}`, item);
+
+        // Learn item configurations from how players set items up in the
+        // room (many adjust the mode right after putting an item on). Skip
+        // the bot's own applies so learned settings never self-reinforce.
+        if (data.Source !== this.bot.getMemberNumber() &&
+            typeof item.Group === "string" && item.Group.startsWith("Item") &&
+            item.Name && item.Property) {
+            this.recordItemSetting(item.Group, item.Name, item.Property, { increment: true, save: true });
+        }
     }
 
     // BC sends ChatRoomSyncSingle as a full appearance snapshot for one
@@ -819,6 +1021,8 @@ export class StripDiceGame {
         "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
         "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
         "!removed": { handler: (mn, name) => this.handleRemoved(mn, name) },
+        "!veto": { handler: (mn) => this.handleVeto(mn), whisperOnly: true },
+        "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
     };
@@ -866,6 +1070,9 @@ export class StripDiceGame {
                 return;
             }
         }
+
+        // Yes/No confirmation for a pending admin proxy-feedback submission.
+        if (this.tryHandleAdminFeedbackProxyYesNo(memberNumber, msg)) return;
 
         // Guided clothing Q&A takes priority over other commands while active
         const player = this.players.get(memberNumber);
@@ -926,7 +1133,9 @@ export class StripDiceGame {
 
         // Min/max reply from host during lobby setup — intercept any message
         // that starts with a digit so commands still fall through normally.
-        if (this.awaitingMinMaxReply && memberNumber === this.hostMemberNumber && /^\d/.test(msg)) {
+        // Scoped to the open lobby: once the game starts, a digit whisper from
+        // the host must not be swallowed (e.g. a player-pick item number).
+        if (this.awaitingMinMaxReply && this.lobbyOpen && memberNumber === this.hostMemberNumber && /^\d/.test(msg)) {
             this.awaitingMinMaxReply = false;
             const parts = msg.trim().split(/\s+/);
             const n1 = parseInt(parts[0], 10);
@@ -941,6 +1150,26 @@ export class StripDiceGame {
             this.maxPlayers = n2;
             const hostName = this.players.get(memberNumber)?.name ?? name;
             this.announceGameStart(hostName);
+            return;
+        }
+
+        // Bondage mode question ("outfit" or "pick"), while unanswered — either
+        // the pre-game group question or a late joiner's individual question.
+        if (player && player.bondageMode === null &&
+            (this.awaitingBondageMode || this.awaitingLateBondageMode.has(memberNumber))) {
+            if (this.tryHandleBondageModeAnswer(memberNumber, msg)) return;
+        }
+
+        // Picker's slot/item choice for an in-flight player-pick selection.
+        if (this.tryHandleBondagePickInput(memberNumber, message)) return;
+
+        // Veto target's bare yes/no (aliases for !accept/!veto).
+        if (this.tryHandleVetoYesNo(memberNumber, msg)) return;
+
+        // Slot-consent answer (comma-separated slot list or "all"). Only
+        // consumes non-command whispers, which would otherwise be ignored.
+        if (this.pendingSlotConsent.has(memberNumber) && !msg.startsWith("!")) {
+            this.handleSlotConsentAnswer(memberNumber, message);
             return;
         }
 
@@ -1158,6 +1387,10 @@ export class StripDiceGame {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            bondageMode: null,
+            allowedSlots: [...TIER1_SLOT_GROUPS],
+            appliedBondageItems: [],
+            lastLossSeq: 0,
         };
         this.players.set(memberNumber, player);
 
@@ -1320,11 +1553,16 @@ export class StripDiceGame {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            bondageMode: null, // resolved right after registering, via askLateBondageMode below
+            allowedSlots: [...TIER1_SLOT_GROUPS],
+            appliedBondageItems: [],
+            lastLossSeq: 0,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
 
         this.bot.sendChat(`${name} has joined the game naked — brave!`);
+        this.askLateBondageMode(player);
     }
 
     // Gate shared by both mid-game join paths (clothed mid-game join and the
@@ -1528,6 +1766,7 @@ export class StripDiceGame {
             player.midGameJoin = false;
             this.turnOrder.push(memberNumber);
             this.bot.whisper(memberNumber, "You're ready! You've been added to the turn rotation.");
+            this.askLateBondageMode(player);
 
             if (this.joinPauseActive.has(memberNumber)) {
                 this.joinPauseActive.delete(memberNumber);
@@ -1700,9 +1939,18 @@ export class StripDiceGame {
             target.bondageApplied = 0;
             target.isFullyBound = false;
             target.bondageOutfit = null;
+            target.appliedBondageItems = [];
 
             if (wasFullyBound && !this.turnOrder.includes(target.memberNumber)) {
                 this.turnOrder.push(target.memberNumber);
+            }
+
+            // If a player-pick selection was in flight for them, abandon it
+            // and hand the turn back to the game.
+            if (this.pendingBondagePick?.targetNumber === target.memberNumber) {
+                this.cancelPendingBondagePick();
+                this.currentDiceMax = STARTING_DICE_MAX;
+                this.resolveCurrentTurn();
             }
 
             this.bot.sendChat(`Admin has freed ${target.name} from their restraints.`);
@@ -1783,6 +2031,14 @@ export class StripDiceGame {
 
         const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === target.memberNumber;
 
+        // A pick targeting them is moot; a pick they were making resolves
+        // via the pick timer's random fallback.
+        let cancelledPickForKicked = false;
+        if (this.pendingBondagePick?.targetNumber === target.memberNumber) {
+            this.cancelPendingBondagePick();
+            cancelledPickForKicked = true;
+        }
+
         this.clearTurnTimer();
         this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== target.memberNumber);
         if (this.activeSecondChance === target.memberNumber) {
@@ -1819,7 +2075,7 @@ export class StripDiceGame {
             return;
         }
 
-        if (wasCurrentTurn) {
+        if (wasCurrentTurn || (cancelledPickForKicked && this.state === GameState.WaitingBondage)) {
             this.currentDiceMax = STARTING_DICE_MAX;
             this.resolveCurrentTurn();
         }
@@ -1868,6 +2124,15 @@ export class StripDiceGame {
         player.isNaked = false;
         player.isFullyBound = false;
         player.bondageOutfit = null;
+        player.appliedBondageItems = [];
+
+        // Abandon any in-flight player-pick selection involving them (as
+        // target or picker) — the safeword pause takes over the game state.
+        if (this.pendingBondagePick &&
+            (this.pendingBondagePick.targetNumber === memberNumber ||
+             this.pendingBondagePick.pickerNumber === memberNumber)) {
+            this.cancelPendingBondagePick();
+        }
 
         this.clearTurnTimer();
         this.safewordMember = memberNumber;
@@ -1978,6 +2243,33 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
             return;
         }
+
+        // Admin proxy: "!feedback <room member name> <text>" logs the feedback
+        // under that player's name/number instead of the admin's, after a
+        // yes/no confirmation. Falls through to normal behavior if the first
+        // word doesn't match anyone currently in the room.
+        if (this.isAdmin(memberNumber)) {
+            const spaceIdx = text.indexOf(" ");
+            if (spaceIdx !== -1) {
+                const firstWord = text.slice(0, spaceIdx);
+                const rest = text.slice(spaceIdx + 1).trim();
+                const target = rest ? this.matchRoomMemberByName(firstWord) : undefined;
+                if (target && target.memberNumber !== memberNumber) {
+                    this.startAdminFeedbackProxy(memberNumber, target, rest);
+                    return;
+                }
+            }
+        }
+
+        this.logFeedbackEntry(memberNumber, name, text);
+        this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
+    }
+
+    // Appends a feedback.log line and updates feedback-tracking state for the
+    // given member/name. Shared by normal feedback submission and the admin
+    // proxy-feedback confirmation, which logs under the target player's
+    // identity rather than the submitting admin's.
+    private logFeedbackEntry(memberNumber: number, name: string, text: string): void {
         const timestamp = centralTimestamp();
         const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
         const filePath = path.join(__dirname, "..", "feedback.log");
@@ -2001,8 +2293,70 @@ export class StripDiceGame {
             playerRecord.feedbackGiven = true;
             this.savePlayerRecords();
         }
+    }
 
-        this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
+    // Finds a room member whose name matches the query, preferring an exact
+    // (case-insensitive) name match and falling back to a prefix match.
+    private matchRoomMemberByName(query: string): { memberNumber: number; name: string } | undefined {
+        const lowerQuery = query.toLowerCase();
+        let prefixMatch: { memberNumber: number; name: string } | undefined;
+        for (const roomMemberNumber of this.roomMembers) {
+            const name = this.nameCache.get(roomMemberNumber);
+            if (!name) continue;
+            const lowerName = name.toLowerCase();
+            if (lowerName === lowerQuery) {
+                return { memberNumber: roomMemberNumber, name };
+            }
+            if (!prefixMatch && lowerName.startsWith(lowerQuery)) {
+                prefixMatch = { memberNumber: roomMemberNumber, name };
+            }
+        }
+        return prefixMatch;
+    }
+
+    // Starts (or restarts) the yes/no confirmation window for an admin's
+    // proxied feedback submission on behalf of a room member.
+    private startAdminFeedbackProxy(adminMemberNumber: number, target: { memberNumber: number; name: string }, text: string): void {
+        const existing = this.pendingAdminFeedbackProxy.get(adminMemberNumber);
+        if (existing) clearTimeout(existing.timeout);
+
+        const timeout = setTimeout(() => {
+            this.pendingAdminFeedbackProxy.delete(adminMemberNumber);
+            this.bot.whisper(adminMemberNumber, "Feedback proxy confirmation timed out — nothing was logged.");
+        }, ADMIN_FEEDBACK_PROXY_TIMEOUT_MS);
+
+        this.pendingAdminFeedbackProxy.set(adminMemberNumber, {
+            targetMemberNumber: target.memberNumber,
+            targetName: target.name,
+            text,
+            timeout,
+        });
+
+        this.bot.whisper(
+            adminMemberNumber,
+            `Did you mean to submit this feedback on behalf of **${target.name}**? Reply **yes** to confirm or **no** to cancel.`
+        );
+    }
+
+    // Yes/No confirmation for a pending admin proxy-feedback submission.
+    // Returns true if the message was consumed as a yes/no answer.
+    private tryHandleAdminFeedbackProxyYesNo(memberNumber: number, msg: string): boolean {
+        const pending = this.pendingAdminFeedbackProxy.get(memberNumber);
+        if (!pending) return false;
+        if (msg === "yes" || msg === "y") {
+            clearTimeout(pending.timeout);
+            this.pendingAdminFeedbackProxy.delete(memberNumber);
+            this.logFeedbackEntry(pending.targetMemberNumber, pending.targetName, pending.text);
+            this.bot.whisper(memberNumber, `Feedback logged on behalf of ${pending.targetName}.`);
+            return true;
+        }
+        if (msg === "no" || msg === "n") {
+            clearTimeout(pending.timeout);
+            this.pendingAdminFeedbackProxy.delete(memberNumber);
+            this.bot.whisper(memberNumber, "Feedback cancelled.");
+            return true;
+        }
+        return false;
     }
 
     private handleOutfitSubmission(memberNumber: number, name: string, message: string): void {
@@ -2662,6 +3016,10 @@ export class StripDiceGame {
         this.gameEndLogged = true;
 
         if (outcome === "win" || outcome === "all-bound") {
+            this.logOutfitCandidates();
+        }
+
+        if (outcome === "win" || outcome === "all-bound") {
             this.incrementGameCount("multiplayer");
         } else {
             this.incrementGameCount("aborted");
@@ -3087,6 +3445,13 @@ export class StripDiceGame {
         }
         if (this.state !== GameState.Rolling) return;
 
+        // Late joiners must answer the bondage mode question before their
+        // first roll — holds their turn instead of racing the question.
+        if (this.awaitingLateBondageMode.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "Please answer the bondage mode question above first (outfit/pick) before rolling.");
+            return;
+        }
+
         // Second chance takes priority: only the active second-chance player can roll.
         if (this.activeSecondChance !== null) {
             if (memberNumber === this.activeSecondChance) {
@@ -3156,10 +3521,20 @@ export class StripDiceGame {
     }
 
     private handleRemoved(memberNumber: number, name: string): void {
-        if (this.state !== GameState.WaitingRemove) return;
+        if (this.state !== GameState.WaitingRemove) {
+            if (this.players.has(memberNumber)) {
+                this.bot.whisper(memberNumber, "Got it — I'll be watching for your wardrobe to close, no need to send !removed right now.");
+            }
+            return;
+        }
 
         const currentPlayer = this.getCurrentPlayer();
-        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
+        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) {
+            if (this.players.has(memberNumber)) {
+                this.bot.whisper(memberNumber, "It's not your turn to confirm — hang tight.");
+            }
+            return;
+        }
 
         this.clearTurnTimer();
         const player = this.players.get(memberNumber)!;
@@ -3283,6 +3658,8 @@ export class StripDiceGame {
         if (this.players.size === 0) return;
         if (this.players.size < this.minPlayers) return;
         if (this.awaitingToysConsent) return;
+        if (this.awaitingBondageMode) return;
+        if (this.awaitingSlotConsent) return;
         for (const [, player] of this.players) {
             if (!player.ready) return;
         }
@@ -3356,12 +3733,14 @@ export class StripDiceGame {
             return;
         }
 
-        this.startGame();
+        this.beginBondageModeSelection();
     }
 
     private startGame(): void {
         this.state = GameState.Rolling;
         this.lobbyOpen = false;
+        this.awaitingMinMaxReply = false; // lobby sizing is settled once play begins
+        this.pendingSlotConsent.clear(); // players who never answered keep the tier-1 defaults
 
         // Generate password
         this.gamePassword = TEST_MODE ? TEST_PASSWORD : generatePassword();
@@ -3536,6 +3915,14 @@ export class StripDiceGame {
 
         this.secondChanceQueue = this.secondChanceQueue.filter(sc => sc.memberNumber !== player.memberNumber);
 
+        // A pick targeting them is moot; a pick they were making resolves
+        // via the pick timer's random fallback.
+        let cancelledPickForRemoved = false;
+        if (this.pendingBondagePick?.targetNumber === player.memberNumber) {
+            this.cancelPendingBondagePick();
+            cancelledPickForRemoved = true;
+        }
+
         const removedIndex = this.turnOrder.indexOf(player.memberNumber);
         this.players.delete(player.memberNumber);
         this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
@@ -3553,11 +3940,20 @@ export class StripDiceGame {
             this.currentTurnIndex = 0;
         }
 
-        return this.checkGameEndCondition();
+        const ended = this.checkGameEndCondition();
+        // If we cancelled a pick that had the game parked in WaitingBondage
+        // (deferred leave-removal timer path — resolveCurrentTurn isn't
+        // driving), restart the turn cycle ourselves.
+        if (!ended && cancelledPickForRemoved && this.state === GameState.WaitingBondage) {
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.resolveCurrentTurn();
+        }
+        return ended;
     }
 
     private handleLoss(player: Player): void {
         this.clearTurnTimer();
+        this.noteRoundLoser(player);
 
         if (player.isNaked) {
             this.applyNextBondageItem(player);
@@ -3585,6 +3981,7 @@ export class StripDiceGame {
     // first step resolves (after !removed, or after the first bondage item locks).
     private handleDoublePenalty(player: Player): void {
         this.clearTurnTimer();
+        this.noteRoundLoser(player);
 
         if (player.isNaked) {
             this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Two bondage items will be applied!`);
@@ -3661,6 +4058,11 @@ export class StripDiceGame {
     }
 
     private applyNextBondageItem(player: Player): void {
+        if (player.bondageMode === "player-pick") {
+            this.beginPlayerPickBondage(player);
+            return;
+        }
+
         if (!player.bondageOutfit) {
             const pool = this.getEligibleOutfits(player.memberNumber);
             if (pool.length === 0) {
@@ -3715,41 +4117,908 @@ export class StripDiceGame {
         setTimeout(() => {
             player.bondageApplied++;
             const becameFullyBound = player.bondageApplied >= player.bondageOutfit!.items.length;
+            this.continueAfterBondageApply(player, becameFullyBound);
+        }, 500);
+    }
 
-            if (becameFullyBound) {
-                player.isFullyBound = true;
-                this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
-                this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
-            } else {
-                const followUp = player.pendingPenaltySteps > 0
-                    ? `Applying the second item from their double penalty...`
-                    : `Back to the game...`;
-                this.bot.sendChat(`✅ ${player.name} has been restrained! ${followUp}`);
+    // Shared continuation after a bondage item lands (preset outfit or
+    // player-pick): announces the result, chains double-penalty items, and
+    // hands the turn back to the game.
+    private continueAfterBondageApply(player: Player, becameFullyBound: boolean): void {
+        if (becameFullyBound) {
+            player.isFullyBound = true;
+            this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
+            this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
+        } else {
+            const followUp = player.pendingPenaltySteps > 0
+                ? `Applying the second item from their double penalty...`
+                : `Back to the game...`;
+            this.bot.sendChat(`✅ ${player.name} has been restrained! ${followUp}`);
+        }
+
+        // Double penalty: apply the second bondage item immediately, unless
+        // the first one already fully bound the player (nothing left to apply).
+        if (player.pendingPenaltySteps > 0 && !becameFullyBound) {
+            player.pendingPenaltySteps--;
+            this.applyNextBondageItem(player);
+            return;
+        }
+        player.pendingPenaltySteps = 0;
+
+        if (becameFullyBound) {
+            if (this.checkGameEndCondition()) return;
+
+            if (this.currentTurnIndex >= this.turnOrder.length) {
+                this.currentTurnIndex = 0;
             }
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.resolveCurrentTurn();
+        } else {
+            this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.resolveCurrentTurn();
+        }
+    }
 
-            // Double penalty: apply the second bondage item immediately, unless
-            // the first one already fully bound the player (nothing left to apply).
-            if (player.pendingPenaltySteps > 0 && !becameFullyBound) {
-                player.pendingPenaltySteps--;
-                this.applyNextBondageItem(player);
+    // ============================================================
+    // PLAYER-PICK BONDAGE MODE
+    // ============================================================
+
+    // Captures who lost this round. Each loss stamps the loser with the
+    // current loss sequence number — picker selection favors the player
+    // who has gone longest without rolling a 1 (lowest stamp; 0 = never).
+    private noteRoundLoser(player: Player): void {
+        this.lastRoundLoser = player.memberNumber;
+        this.lossSeqCounter++;
+        player.lastLossSeq = this.lossSeqCounter;
+    }
+
+    // --- pre-game mode selection -------------------------------
+
+    private beginBondageModeSelection(): void {
+        if (BC_ITEM_CATALOG.size === 0) {
+            // Catalog unavailable — player-pick mode can't work, skip the question.
+            for (const player of this.players.values()) player.bondageMode = "outfit";
+            this.gameBondageMode = "outfit";
+            this.startGame();
+            return;
+        }
+
+        if (this.bondageModeTimer) {
+            clearTimeout(this.bondageModeTimer);
+            this.bondageModeTimer = null;
+        }
+        this.awaitingBondageMode = true;
+        for (const player of this.players.values()) {
+            player.bondageMode = null;
+            this.sendBondageModeQuestion(player.memberNumber);
+            logGameEvent(`[BondageMode] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        this.bondageModeTimer = setTimeout(() => this.resolveBondageModeSelection(), BONDAGE_MODE_TIMEOUT_MS);
+    }
+
+    private sendBondageModeQuestion(memberNumber: number): void {
+        this.bot.whisper(memberNumber,
+            "How should your bondage penalties be chosen?\n" +
+            "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
+            "pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
+            "Reply \"outfit\" or \"pick\". (60s — no answer counts as outfit)"
+        );
+    }
+
+    // Asks a single late joiner (mid-game joiner once clothing is confirmed,
+    // or a naked late joiner right after registering) the same mode question,
+    // scoped to just this player since the group question already resolved
+    // for the rest of the game.
+    private askLateBondageMode(player: Player): void {
+        if (BC_ITEM_CATALOG.size === 0) {
+            // Catalog unavailable — player-pick mode can't work, skip the question.
+            player.bondageMode = "outfit";
+            return;
+        }
+
+        const existingTimer = this.lateBondageModeTimers.get(player.memberNumber);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        player.bondageMode = null;
+        this.awaitingLateBondageMode.add(player.memberNumber);
+        this.sendBondageModeQuestion(player.memberNumber);
+        logGameEvent(`[BondageMode] Sent question to ${player.name} (#${player.memberNumber}) [late join]`);
+
+        const timer = setTimeout(() => this.resolveLateBondageMode(player.memberNumber), BONDAGE_MODE_TIMEOUT_MS);
+        this.lateBondageModeTimers.set(player.memberNumber, timer);
+    }
+
+    private resolveLateBondageMode(memberNumber: number): void {
+        if (!this.awaitingLateBondageMode.has(memberNumber)) return;
+        this.awaitingLateBondageMode.delete(memberNumber);
+        const timer = this.lateBondageModeTimers.get(memberNumber);
+        if (timer) {
+            clearTimeout(timer);
+            this.lateBondageModeTimers.delete(memberNumber);
+        }
+        const player = this.players.get(memberNumber);
+        if (player && player.bondageMode === null) player.bondageMode = "outfit";
+    }
+
+    private tryHandleBondageModeAnswer(memberNumber: number, msg: string): boolean {
+        let mode: BondageMode | null = null;
+        if (["outfit", "o", "preset", "1"].includes(msg)) mode = "outfit";
+        else if (["pick", "p", "player-pick", "playerpick", "player pick", "player", "2"].includes(msg)) mode = "player-pick";
+        if (!mode) return false;
+
+        const player = this.players.get(memberNumber);
+        if (!player || player.bondageMode !== null) return false;
+        player.bondageMode = mode;
+        logGameEvent(`[BondageMode] ${player.name} (#${memberNumber}) answered: ${mode}`);
+        this.bot.whisper(memberNumber, mode === "outfit"
+            ? "Preset outfit it is!"
+            : "Player-pick it is — your restraints will be chosen piece by piece. 😈");
+
+        if (this.awaitingLateBondageMode.has(memberNumber)) {
+            this.resolveLateBondageMode(memberNumber);
+        } else if ([...this.players.values()].every(p => p.bondageMode !== null)) {
+            this.resolveBondageModeSelection();
+        }
+        return true;
+    }
+
+    private resolveBondageModeSelection(): void {
+        if (!this.awaitingBondageMode) return;
+        this.awaitingBondageMode = false;
+        if (this.bondageModeTimer) {
+            clearTimeout(this.bondageModeTimer);
+            this.bondageModeTimer = null;
+        }
+
+        for (const player of this.players.values()) {
+            if (player.bondageMode === null) player.bondageMode = "outfit";
+        }
+
+        const pickers = [...this.players.values()].filter(p => p.bondageMode === "player-pick");
+        this.gameBondageMode = pickers.length === 0
+            ? "outfit"
+            : (pickers.length === this.players.size ? "player-pick" : "mixed");
+        logGameEvent(`[BondageMode] Result: ${this.gameBondageMode}`);
+
+        if (this.gameBondageMode === "player-pick") {
+            this.bot.sendChat("Everyone chose player-pick — all restraints will be chosen piece by piece! 😈");
+        } else if (this.gameBondageMode === "mixed") {
+            this.bot.sendChat(`${pickers.map(p => p.name).join(", ")} chose player-pick restraints; everyone else gets preset outfits.`);
+        }
+
+        // Same guard as resolveToysConsent: the question window gives time for
+        // the lobby to change — if it did, the next !ready re-evaluates.
+        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+            return;
+        }
+
+        // Only player-pick players get the slot-consent question; a pure
+        // outfit game has nothing more to ask.
+        if (pickers.length > 0) {
+            this.beginSlotConsentPhase(pickers);
+        } else {
+            this.startGame();
+        }
+    }
+
+    // Asks each player-pick player which slots they consent to, then starts
+    // the game once everyone answered or the window times out (unanswered
+    // players keep the tier-1 defaults).
+    private beginSlotConsentPhase(pickers: Player[]): void {
+        if (this.slotConsentTimer) {
+            clearTimeout(this.slotConsentTimer);
+            this.slotConsentTimer = null;
+        }
+        this.awaitingSlotConsent = true;
+        for (const player of pickers) {
+            this.sendSlotConsentQuestion(player.memberNumber);
+            logGameEvent(`[SlotConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        this.slotConsentTimer = setTimeout(() => this.resolveSlotConsentPhase(), TOYS_CONSENT_TIMEOUT_MS);
+    }
+
+    private resolveSlotConsentPhase(): void {
+        if (!this.awaitingSlotConsent) return;
+        this.awaitingSlotConsent = false;
+        if (this.slotConsentTimer) {
+            clearTimeout(this.slotConsentTimer);
+            this.slotConsentTimer = null;
+        }
+
+        for (const memberNumber of this.pendingSlotConsent) {
+            this.bot.whisper(memberNumber, "No answer — using the default slots (all non-sensitive).");
+        }
+        this.pendingSlotConsent.clear();
+
+        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+            return;
+        }
+
+        this.startGame();
+    }
+
+    // --- slot consent ------------------------------------------
+
+    private sendSlotConsentQuestion(memberNumber: number): void {
+        if (BC_ITEM_CATALOG.size === 0) return; // player-pick disabled, don't bother
+        this.pendingSlotConsent.add(memberNumber);
+        this.sendLongWhisper(memberNumber,
+            "Which bondage slots do you consent to having items applied to?\n" +
+            "Reply with a comma-separated list, or \"all\" for everything. Pick at least 6 different areas.\n" +
+            "Slots: Arms, Legs, Feet, Torso, Hands, Head, Hood, Neck, Mouth, Nipples, Breast, Pelvis, Boots\n" +
+            "Sensitive slots (Pelvis, Nipples, Breast) are OFF by default — include them explicitly if you want them available.\n" +
+            "(60s — no answer keeps the defaults: all non-sensitive slots.)"
+        );
+    }
+
+    private handleSlotConsentAnswer(memberNumber: number, message: string): void {
+        const player = this.players.get(memberNumber);
+        if (!player) {
+            this.pendingSlotConsent.delete(memberNumber);
+            return;
+        }
+
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const tokens = message.split(/[,\s]+/).map(norm).filter(t => t.length > 0);
+
+        const groups = new Set<string>();
+        const ignored: string[] = [];
+        let recognized = false;
+        for (const token of tokens) {
+            if (token === "all" || token === "everything") {
+                for (const g of [...TIER1_SLOT_GROUPS, ...TIER2_SLOT_GROUPS]) groups.add(g);
+                recognized = true;
+            } else if (token === "none") {
+                recognized = true; // explicit empty consent
+            } else if (token === "default" || token === "defaults" || token === "skip") {
+                for (const g of TIER1_SLOT_GROUPS) groups.add(g);
+                recognized = true;
+            } else if (token === "vulva" || token === "butt") {
+                ignored.push(`${token} (not available yet)`); // tier 3 — higher-stakes mode not built
+            } else if (CONSENT_TOKEN_GROUPS[token]) {
+                for (const g of CONSENT_TOKEN_GROUPS[token]) groups.add(g);
+                recognized = true;
+            } else {
+                ignored.push(token);
+            }
+        }
+
+        if (!recognized) {
+            this.bot.whisper(memberNumber,
+                "I didn't recognize any slots there. Reply with slot names separated by commas (e.g. \"Arms, Legs, Mouth\"), or \"all\" for everything.");
+            return;
+        }
+
+        // Player-pick needs room for the full game (7 items) — require at
+        // least MIN_CONSENT_AREAS distinct areas. Mouth holds up to 3 gags
+        // and "Torso" covers both torso layers, so 6 areas is enough.
+        const areaCount = PICK_SLOTS.filter(s => groups.has(s.group)).length;
+        if (areaCount < MIN_CONSENT_AREAS) {
+            this.bot.whisper(memberNumber,
+                `That's only ${areaCount} area${areaCount === 1 ? "" : "s"} — the game needs room for up to 7 items, ` +
+                `so please pick at least ${MIN_CONSENT_AREAS} different areas. ` +
+                `(Mouth can take up to 3 gags, and Torso covers both torso layers.) Send your full list again.`);
+            return;
+        }
+
+        player.allowedSlots = [...groups];
+        this.pendingSlotConsent.delete(memberNumber);
+        logGameEvent(`[SlotConsent] ${player.name} (#${memberNumber}) -> ${player.allowedSlots.join(",") || "(none)"}`);
+
+        const displays = PICK_SLOTS.filter(s => groups.has(s.group)).map(s => s.display);
+        let reply = groups.size === 0
+            ? "Got it — no bondage slots allowed. Pickers won't be able to choose items for you."
+            : `Got it — pickable slots for you: ${displays.join(", ")}.`;
+        if (ignored.length > 0) reply += ` (Ignored: ${ignored.join(", ")})`;
+        this.bot.whisper(memberNumber, reply);
+
+        if (this.awaitingSlotConsent && this.pendingSlotConsent.size === 0) {
+            this.resolveSlotConsentPhase();
+        }
+    }
+
+    // --- pick flow ---------------------------------------------
+
+    // Entry point when bondage is due for a player-pick-mode player.
+    private beginPlayerPickBondage(target: Player): void {
+        this.state = GameState.WaitingBondage;
+        this.bondagePhaseStarted = true;
+
+        const slots = this.availablePickSlots(target);
+        if (slots.length === 0) {
+            // Nothing consented and unfilled remains — nothing more can be applied.
+            this.bot.sendChat(`🔒 ${target.name} has no remaining slots to fill!`);
+            target.pendingPenaltySteps = 0;
+            this.continueAfterBondageApply(target, true);
+            return;
+        }
+
+        const picker = this.choosePickerFor(target);
+        this.pickerHistory.push(picker.memberNumber);
+        this.pendingBondagePick = {
+            pickerNumber: picker.memberNumber,
+            targetNumber: target.memberNumber,
+            stage: "slot",
+            slotDisplay: null,
+            slotGroup: null,
+            options: [],
+            chosenItem: null,
+            vetoedItems: [],
+            timer: null,
+        };
+
+        if (picker.memberNumber === target.memberNumber) {
+            this.bot.sendChat(`⛓️ ${target.name} is naked — and gets to pick their own restraint!`);
+        } else {
+            this.bot.sendChat(`⛓️ ${target.name} is naked! ${picker.name} is picking their next restraint...`);
+        }
+        this.bot.whisper(picker.memberNumber, this.slotPromptText(target));
+        this.startPickTimer();
+    }
+
+    // The picker is whoever has gone longest without rolling a 1 (lowest
+    // lastLossSeq; 0 = never lost, which outranks everyone). Ties — including
+    // round 1, where nobody has lost yet — resolve randomly among the tied.
+    // The target never picks their own items.
+    private choosePickerFor(target: Player): Player {
+        let pool = [...this.players.values()].filter(p =>
+            p.memberNumber !== target.memberNumber && !p.isFullyBound && !p.pendingReturn);
+        if (pool.length === 0) {
+            // Everyone else is away — let an away player pick; the 60s pick
+            // timer auto-picks if they don't respond.
+            pool = [...this.players.values()].filter(p =>
+                p.memberNumber !== target.memberNumber && !p.isFullyBound);
+        }
+        if (pool.length === 0) return target; // unreachable in practice: game would already be over
+
+        const oldestLoss = Math.min(...pool.map(p => p.lastLossSeq));
+        const tied = pool.filter(p => p.lastLossSeq === oldestLoss);
+        return tied[Math.floor(Math.random() * tied.length)];
+    }
+
+    private slotPromptText(target: Player): string {
+        const slots = this.availablePickSlots(target).map(s => s.display).join(", ");
+        return `It's your turn to pick a bondage item for ${target.name}. Choose a slot: ${slots} — type a slot name.`;
+    }
+
+    // Slots the picker may choose for this target: consented, not already
+    // filled (Mouth counts as free while any of its overflow layers is), and
+    // present in the item catalog.
+    private availablePickSlots(target: Player): { display: string; group: string }[] {
+        return PICK_SLOTS.filter(s => {
+            if (!target.allowedSlots.includes(s.group)) return false;
+            const actual = s.group === "ItemMouth"
+                ? this.resolveMouthGroup(target)
+                : (this.isSlotFilled(target, s.group) ? null : s.group);
+            if (!actual) return false;
+            return (BC_ITEM_CATALOG.get(actual) ?? []).length > 0;
+        });
+    }
+
+    // First free layer of Mouth/Mouth2/Mouth3, or null if all are filled.
+    private resolveMouthGroup(target: Player): string | null {
+        return MOUTH_OVERFLOW_GROUPS.find(g => !this.isSlotFilled(target, g)) ?? null;
+    }
+
+    private isSlotFilled(target: Player, group: string): boolean {
+        if (target.appliedBondageItems.some(e => e.slot === group)) return true;
+        // Also respect anything already on the character (pre-existing items).
+        const cached = this.itemStateCache.get(`${target.memberNumber}:${group}`);
+        return !!cached?.Name;
+    }
+
+    // Whisper input from the active picker (slot name, option number, or
+    // free-text item name). Returns true if the message was consumed.
+    private tryHandleBondagePickInput(memberNumber: number, message: string): boolean {
+        const pending = this.pendingBondagePick;
+        if (!pending || memberNumber !== pending.pickerNumber) return false;
+        const input = message.trim();
+        if (input.startsWith("!")) return false; // let commands through
+
+        if (pending.stage === "slot") {
+            this.handleSlotChoice(input);
+            return true;
+        }
+        if (pending.stage === "item") {
+            this.handleItemChoice(input);
+            return true;
+        }
+        return false;
+    }
+
+    // Bare yes/no from the veto target, as aliases for !accept/!veto —
+    // consistent with every other yes/no flow in the bot.
+    private tryHandleVetoYesNo(memberNumber: number, msg: string): boolean {
+        const pending = this.pendingBondagePick;
+        if (!pending || pending.stage !== "veto" || memberNumber !== pending.targetNumber) return false;
+        if (msg === "yes" || msg === "y") {
+            this.handleVetoAccept(memberNumber);
+            return true;
+        }
+        if (msg === "no" || msg === "n") {
+            this.handleVeto(memberNumber);
+            return true;
+        }
+        return false;
+    }
+
+    private handleSlotChoice(input: string): void {
+        const pending = this.pendingBondagePick;
+        if (!pending) return;
+        const target = this.players.get(pending.targetNumber);
+        if (!target) {
+            this.cancelPendingBondagePick();
+            return;
+        }
+
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const q = norm(input);
+        const slots = this.availablePickSlots(target);
+        const match = slots.find(s =>
+            norm(s.display) === q || norm(s.group) === q ||
+            (s.group === "ItemTorso2" && q === "torso2")
+        );
+        if (!match) {
+            this.bot.whisper(pending.pickerNumber,
+                `That's not an available slot for ${target.name}. Choose one of: ${slots.map(s => s.display).join(", ")}`);
+            return;
+        }
+
+        const actualGroup = match.group === "ItemMouth" ? this.resolveMouthGroup(target) : match.group;
+        if (!actualGroup) {
+            this.bot.whisper(pending.pickerNumber, `That slot is already filled — pick a different one.`);
+            return;
+        }
+
+        const { options, hasRandom } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+        if (options.length === 0) {
+            this.bot.whisper(pending.pickerNumber, `No items are available for that slot — pick a different one.`);
+            return;
+        }
+
+        pending.slotDisplay = match.display;
+        pending.slotGroup = actualGroup;
+        pending.options = options;
+        pending.stage = "item";
+        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, hasRandom));
+        this.startPickTimer();
+    }
+
+    private handleItemChoice(input: string): void {
+        const pending = this.pendingBondagePick;
+        if (!pending || !pending.slotGroup) return;
+
+        let chosen: string | null = null;
+        const trimmed = input.trim();
+        if (/^\d+$/.test(trimmed)) {
+            const idx = parseInt(trimmed, 10);
+            if (idx >= 1 && idx <= pending.options.length) {
+                chosen = pending.options[idx - 1];
+            } else {
+                this.bot.whisper(pending.pickerNumber, `Pick a number 1-${pending.options.length} or type an item name.`);
                 return;
             }
-            player.pendingPenaltySteps = 0;
-
-            if (becameFullyBound) {
-                if (this.checkGameEndCondition()) return;
-
-                if (this.currentTurnIndex >= this.turnOrder.length) {
-                    this.currentTurnIndex = 0;
-                }
-                this.currentDiceMax = STARTING_DICE_MAX;
-                this.resolveCurrentTurn();
+        } else {
+            const result = this.fuzzyMatchItem(pending.slotGroup, trimmed, this.vetoedItemsFor(pending, pending.slotGroup));
+            if (result.match) {
+                chosen = result.match;
+            } else if (result.candidates) {
+                this.bot.whisper(pending.pickerNumber,
+                    `Multiple matches: ${result.candidates.slice(0, 8).join(", ")} — be more specific.`);
+                return;
             } else {
-                this.currentTurnIndex = this.turnOrder.indexOf(player.memberNumber);
-                this.currentDiceMax = STARTING_DICE_MAX;
-                this.resolveCurrentTurn();
+                this.bot.whisper(pending.pickerNumber,
+                    `No item matching "${trimmed}" in this slot. Reply with a number 1-${pending.options.length} or an item name.`);
+                return;
             }
+        }
+
+        pending.chosenItem = chosen;
+        this.beginVetoStage();
+    }
+
+    private vetoedItemsFor(pending: PendingBondagePick, group: string): string[] {
+        return pending.vetoedItems.filter(v => v.group === group).map(v => v.item);
+    }
+
+    // Top-N most popular items for this slot plus one random wildcard.
+    // Bootstrap: below N tracked entries, fill from outfits.json items for
+    // this group in the order they appear, so the list is never empty.
+    private buildPickList(group: string, excluded: string[]): { options: string[]; hasRandom: boolean } {
+        const catalogItems = BC_ITEM_CATALOG.get(group) ?? [];
+        const usage = this.bondageUsage[group] ?? {};
+
+        const options: string[] = Object.entries(usage)
+            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name))
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, PICK_LIST_TOP_N)
+            .map(([name]) => name);
+
+        if (options.length < PICK_LIST_TOP_N) {
+            for (const outfit of BONDAGE_OUTFITS) {
+                for (const item of outfit.items) {
+                    if (item.group !== group || options.includes(item.name) || excluded.includes(item.name)) continue;
+                    options.push(item.name);
+                    if (options.length >= PICK_LIST_TOP_N) break;
+                }
+                if (options.length >= PICK_LIST_TOP_N) break;
+            }
+        }
+
+        const rest = catalogItems.filter(n => !options.includes(n) && !excluded.includes(n));
+        let hasRandom = false;
+        if (rest.length > 0) {
+            options.push(rest[Math.floor(Math.random() * rest.length)]);
+            hasRandom = true;
+        }
+        return { options, hasRandom };
+    }
+
+    private formatPickList(slotDisplay: string, options: string[], hasRandom: boolean): string {
+        const lines = [`Slot: ${slotDisplay} — pick one:`];
+        options.forEach((name, i) => {
+            const marker = hasRandom && i === options.length - 1 ? ` ← random pick (not in top ${PICK_LIST_TOP_N})` : "";
+            lines.push(`${i + 1}. ${name}${marker}`);
+        });
+        lines.push("Or type any item name from this slot.");
+        return lines.join("\n");
+    }
+
+    // Case-insensitive fuzzy match against the slot's catalog: exact (spaces
+    // stripped), then startsWith, then includes. Multiple hits ask the picker
+    // to clarify.
+    private fuzzyMatchItem(group: string, input: string, excluded: string[]): { match?: string; candidates?: string[] } {
+        const norm = (s: string) => s.toLowerCase().replace(/[\s_-]/g, "");
+        const q = norm(input);
+        if (!q) return {};
+        const items = (BC_ITEM_CATALOG.get(group) ?? []).filter(n => !excluded.includes(n));
+
+        const exact = items.filter(n => norm(n) === q);
+        if (exact.length >= 1) return { match: exact[0] };
+        const starts = items.filter(n => norm(n).startsWith(q));
+        if (starts.length === 1) return { match: starts[0] };
+        if (starts.length > 1) return { candidates: starts };
+        const includes = items.filter(n => norm(n).includes(q));
+        if (includes.length === 1) return { match: includes[0] };
+        if (includes.length > 1) return { candidates: includes };
+        return {};
+    }
+
+    // --- veto flow ---------------------------------------------
+
+    private beginVetoStage(): void {
+        const pending = this.pendingBondagePick;
+        if (!pending || !pending.chosenItem) return;
+        this.clearPickTimer();
+        pending.stage = "veto";
+
+        const target = this.players.get(pending.targetNumber);
+        if (!target) {
+            this.cancelPendingBondagePick();
+            return;
+        }
+
+        // No veto step for self-picks, or when vetoes are disabled
+        // (higher-stakes mode hook — not built yet).
+        if (!this.allowVeto || pending.pickerNumber === pending.targetNumber) {
+            this.applyPickedItem();
+            return;
+        }
+
+        this.bot.whisper(target.memberNumber,
+            `You are about to have ${pending.chosenItem} applied to your ${pending.slotDisplay}. ` +
+            `Type !veto to decline, or !accept to confirm (or wait 30s to auto-accept). Yes/no works too.`);
+        pending.timer = setTimeout(() => this.applyPickedItem(), VETO_TIMEOUT_MS);
+    }
+
+    private handleVeto(memberNumber: number): void {
+        const pending = this.pendingBondagePick;
+        if (!pending || pending.stage !== "veto" || pending.targetNumber !== memberNumber) {
+            this.bot.whisper(memberNumber, "Nothing to veto right now.");
+            return;
+        }
+        this.clearPickTimer();
+
+        const target = this.players.get(pending.targetNumber);
+        if (!target) {
+            this.cancelPendingBondagePick();
+            return;
+        }
+
+        const vetoed = pending.chosenItem!;
+        pending.vetoedItems.push({ group: pending.slotGroup!, item: vetoed });
+        pending.chosenItem = null;
+        const pickerName = this.getPlayerName(pending.pickerNumber);
+
+        const { options, hasRandom } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
+        if (options.length === 0) {
+            // Every item in this slot has been vetoed — back to slot choice.
+            pending.stage = "slot";
+            pending.slotDisplay = null;
+            pending.slotGroup = null;
+            pending.options = [];
+            this.bot.whisper(pending.pickerNumber,
+                `${target.name} vetoed ${vetoed}, and no other items are available for that slot. ${this.slotPromptText(target)}`);
+            this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is choosing a different slot.`);
+            this.startPickTimer();
+            return;
+        }
+
+        pending.stage = "item";
+        pending.options = options;
+        this.sendLongWhisper(pending.pickerNumber,
+            `${target.name} vetoed ${vetoed} — pick a different item.\n` +
+            this.formatPickList(pending.slotDisplay!, options, hasRandom));
+        this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is picking another item.`);
+        this.startPickTimer();
+    }
+
+    private handleVetoAccept(memberNumber: number): void {
+        const pending = this.pendingBondagePick;
+        if (!pending || pending.stage !== "veto" || pending.targetNumber !== memberNumber) {
+            this.bot.whisper(memberNumber, "Nothing to accept right now.");
+            return;
+        }
+        this.applyPickedItem();
+    }
+
+    // --- application -------------------------------------------
+
+    private applyPickedItem(): void {
+        const pending = this.pendingBondagePick;
+        if (!pending || !pending.chosenItem || !pending.slotGroup) return;
+        this.clearPickTimer();
+        this.pendingBondagePick = null;
+
+        const target = this.players.get(pending.targetNumber);
+        if (!target) return;
+
+        const itemName = pending.chosenItem;
+        const group = pending.slotGroup;
+        const pickerName = this.getPlayerName(pending.pickerNumber);
+
+        // Apply with the most popular learned configuration for this item
+        // (restraining mode etc.); {} = BC default mode if nothing learned yet.
+        const setting = this.pickItemSetting(group, itemName);
+
+        this.bot.sendChat(`⛓️ ${pickerName} chose ${itemName} for ${target.name}'s ${pending.slotDisplay}!`);
+        this.bot.applyItem(target.memberNumber, group, itemName, "Default", setting);
+
+        target.appliedBondageItems.push({ slot: group, item: itemName });
+        // Mirror the pick into a synthesized outfit so the end-game lock /
+        // verify / release machinery works unchanged for player-pick players
+        // (and re-locks keep the same configuration).
+        if (!target.bondageOutfit) {
+            target.bondageOutfit = { name: "Player picks", items: [] };
+        }
+        target.bondageOutfit.items.push({ group, name: itemName, color: "Default", property: setting });
+
+        this.incrementBondageUsage(group, itemName);
+
+        setTimeout(() => {
+            target.bondageApplied++;
+            const becameFullyBound = target.bondageApplied >= this.bondageItemLimit
+                || this.availablePickSlots(target).length === 0;
+            this.continueAfterBondageApply(target, becameFullyBound);
         }, 500);
+    }
+
+    // --- timers ------------------------------------------------
+
+    private startPickTimer(): void {
+        const pending = this.pendingBondagePick;
+        if (!pending) return;
+        this.clearPickTimer();
+        pending.timer = setTimeout(() => this.handlePickTimeout(), PICKER_RESPONSE_TIMEOUT_MS);
+    }
+
+    private clearPickTimer(): void {
+        const pending = this.pendingBondagePick;
+        if (pending?.timer) {
+            clearTimeout(pending.timer);
+            pending.timer = null;
+        }
+    }
+
+    private cancelPendingBondagePick(): void {
+        this.clearPickTimer();
+        this.pendingBondagePick = null;
+    }
+
+    // Picker went quiet — pick randomly so the game keeps moving. The target
+    // still gets their veto window.
+    private handlePickTimeout(): void {
+        const pending = this.pendingBondagePick;
+        if (!pending) return;
+        pending.timer = null;
+
+        const target = this.players.get(pending.targetNumber);
+        if (!target) {
+            this.cancelPendingBondagePick();
+            return;
+        }
+
+        if (pending.stage === "slot") {
+            const slots = this.availablePickSlots(target);
+            if (slots.length === 0) {
+                this.cancelPendingBondagePick();
+                this.beginPlayerPickBondage(target); // re-enters the no-slots path
+                return;
+            }
+            const slot = slots[Math.floor(Math.random() * slots.length)];
+            const actualGroup = slot.group === "ItemMouth" ? this.resolveMouthGroup(target) : slot.group;
+            if (!actualGroup) {
+                this.cancelPendingBondagePick();
+                this.beginPlayerPickBondage(target);
+                return;
+            }
+            const { options } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+            if (options.length === 0) {
+                this.cancelPendingBondagePick();
+                this.beginPlayerPickBondage(target);
+                return;
+            }
+            pending.slotDisplay = slot.display;
+            pending.slotGroup = actualGroup;
+            pending.options = options;
+            pending.chosenItem = options[Math.floor(Math.random() * options.length)];
+            this.bot.whisper(pending.pickerNumber, `Time's up — I picked ${pending.chosenItem} (${slot.display}) for you.`);
+            this.beginVetoStage();
+            return;
+        }
+
+        if (pending.stage === "item") {
+            pending.chosenItem = pending.options[Math.floor(Math.random() * pending.options.length)];
+            this.bot.whisper(pending.pickerNumber, `Time's up — I picked ${pending.chosenItem} for you.`);
+            this.beginVetoStage();
+        }
+    }
+
+    // --- item settings library ---------------------------------
+
+    private loadItemSettings(): void {
+        try {
+            if (fs.existsSync(this.itemSettingsPath)) {
+                this.itemSettings = JSON.parse(fs.readFileSync(this.itemSettingsPath, "utf8"));
+            }
+        } catch (err) {
+            log(`WARNING: Could not load item_settings.json — starting with empty settings library: ${err}`);
+            this.itemSettings = {};
+        }
+    }
+
+    private saveItemSettings(): void {
+        try {
+            fs.writeFileSync(this.itemSettingsPath, JSON.stringify(this.itemSettings, null, 2), "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write item_settings.json: ${err}`);
+        }
+    }
+
+    // Preloads configurations from the preset outfits so common items have a
+    // known-good restraining mode before any room observations come in. Adds
+    // only missing variants — never inflates counts across restarts.
+    private seedItemSettingsFromOutfits(): void {
+        let added = false;
+        for (const outfit of BONDAGE_OUTFITS) {
+            for (const item of outfit.items) {
+                if (this.recordItemSetting(item.group, item.name, item.property, { increment: false, save: false })) {
+                    added = true;
+                }
+            }
+        }
+        if (added) this.saveItemSettings();
+    }
+
+    // Records one observed configuration for an item. Returns true if the
+    // library changed. increment=false only adds unseen variants (seeding).
+    private recordItemSetting(group: string, name: string, rawProperty: any, opts: { increment: boolean; save: boolean }): boolean {
+        const property = cleanDecodedProperty(rawProperty);
+        if (!isLearnableProperty(property)) return false;
+
+        const key = `${group}:${name}`;
+        const canon = canonicalJson(property);
+        const variants = this.itemSettings[key] ?? (this.itemSettings[key] = []);
+        const existing = variants.find(v => canonicalJson(v.property) === canon);
+
+        let changed = false;
+        if (existing) {
+            if (opts.increment) {
+                existing.count++;
+                changed = true;
+            }
+        } else {
+            variants.push({ property: deepClone(property), count: 1 });
+            if (variants.length > MAX_SETTING_VARIANTS_PER_ITEM) {
+                variants.sort((a, b) => b.count - a.count);
+                variants.length = MAX_SETTING_VARIANTS_PER_ITEM;
+            }
+            changed = true;
+        }
+
+        if (changed && opts.save) this.saveItemSettings();
+        return changed;
+    }
+
+    // Chooses the configuration to apply for a picked item, per
+    // ITEM_SETTING_STRATEGY. Returns {} when nothing has been learned yet
+    // (item applies in its BC default mode).
+    private pickItemSetting(group: string, name: string): any {
+        const variants = this.itemSettings[`${group}:${name}`];
+        if (!variants || variants.length === 0) return {};
+
+        if (ITEM_SETTING_STRATEGY === "random") {
+            return deepClone(variants[Math.floor(Math.random() * variants.length)].property);
+        }
+        if (ITEM_SETTING_STRATEGY === "weighted") {
+            const total = variants.reduce((sum, v) => sum + v.count, 0);
+            let roll = Math.random() * total;
+            for (const v of variants) {
+                roll -= v.count;
+                if (roll <= 0) return deepClone(v.property);
+            }
+            return deepClone(variants[variants.length - 1].property);
+        }
+
+        const best = Math.max(...variants.map(v => v.count));
+        const top = variants.filter(v => v.count === best);
+        return deepClone(top[Math.floor(Math.random() * top.length)].property);
+    }
+
+    // --- popularity tracking & candidate logging ---------------
+
+    private loadBondageUsage(): void {
+        try {
+            if (fs.existsSync(this.bondageUsagePath)) {
+                this.bondageUsage = JSON.parse(fs.readFileSync(this.bondageUsagePath, "utf8"));
+            }
+        } catch (err) {
+            log(`WARNING: Could not load bondage_usage.json — starting with empty usage data: ${err}`);
+            this.bondageUsage = {};
+        }
+    }
+
+    private saveBondageUsage(): void {
+        try {
+            fs.writeFileSync(this.bondageUsagePath, JSON.stringify(this.bondageUsage, null, 2), "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write bondage_usage.json: ${err}`);
+        }
+    }
+
+    private incrementBondageUsage(group: string, itemName: string): void {
+        if (!this.bondageUsage[group]) this.bondageUsage[group] = {};
+        this.bondageUsage[group][itemName] = (this.bondageUsage[group][itemName] ?? 0) + 1;
+        this.saveBondageUsage();
+    }
+
+    // Appends this game's player-pick selections to outfit_candidates.json
+    // (gitignored) for periodic manual review / promotion into outfits.json.
+    private logOutfitCandidates(): void {
+        const pickPlayers = [...this.players.values()]
+            .filter(p => p.bondageMode === "player-pick" && p.appliedBondageItems.length > 0);
+        if (pickPlayers.length === 0) return;
+
+        const entry = {
+            date: new Date().toISOString(),
+            players: [...this.players.values()].map(p => p.name),
+            selections: pickPlayers.flatMap(p =>
+                p.appliedBondageItems.map(e => ({ slot: e.slot, item: e.item, appliedTo: p.name }))),
+        };
+
+        try {
+            let existing: any[] = [];
+            if (fs.existsSync(this.outfitCandidatesPath)) {
+                const parsed = JSON.parse(fs.readFileSync(this.outfitCandidatesPath, "utf8"));
+                if (Array.isArray(parsed)) existing = parsed;
+            }
+            existing.push(entry);
+            fs.writeFileSync(this.outfitCandidatesPath, JSON.stringify(existing, null, 2), "utf8");
+            log(`Logged ${entry.selections.length} player-pick selection(s) to outfit_candidates.json`);
+        } catch (err) {
+            log(`ERROR: Failed to write outfit_candidates.json: ${err}`);
+        }
     }
 
     private checkGameEndCondition(): boolean {
@@ -3822,6 +5091,11 @@ export class StripDiceGame {
         for (const player of boundPlayers) {
             const pool = this.getEligibleOutfits(player.memberNumber);
             if (pool.length === 0 || !player.bondageOutfit || player.bondageOutfit.items.length === 0) {
+                if (player.bondageMode === "player-pick") {
+                    // Player-pick player bound with nothing applied (e.g. no
+                    // consented slots) — nothing to lock, skip them.
+                    continue;
+                }
                 this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
                 this.resetGame();
                 return;
@@ -3878,6 +5152,7 @@ export class StripDiceGame {
             : 0;
 
         for (const player of boundPlayers) {
+            if (player.bondageApplied === 0) continue; // nothing was locked on them
             this.sendLockVerificationWhisper(player, lockEndTime, allVerificationsCompleteDelay);
         }
 
@@ -4154,6 +5429,25 @@ export class StripDiceGame {
         this.pendingTurnResume = null;
         this.pendingJoinPauses = [];
         this.pendingYesNoJoin.clear();
+        this.cancelPendingBondagePick();
+        this.lastRoundLoser = null;
+        this.lossSeqCounter = 0;
+        this.pickerHistory = [];
+        this.gameBondageMode = "outfit";
+        this.awaitingBondageMode = false;
+        if (this.bondageModeTimer) {
+            clearTimeout(this.bondageModeTimer);
+            this.bondageModeTimer = null;
+        }
+        this.awaitingSlotConsent = false;
+        if (this.slotConsentTimer) {
+            clearTimeout(this.slotConsentTimer);
+            this.slotConsentTimer = null;
+        }
+        this.pendingSlotConsent.clear();
+        this.awaitingLateBondageMode.clear();
+        for (const timer of this.lateBondageModeTimers.values()) clearTimeout(timer);
+        this.lateBondageModeTimers.clear();
 
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
     }

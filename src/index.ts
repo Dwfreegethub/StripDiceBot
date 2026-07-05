@@ -3,6 +3,7 @@ import * as path from "path";
 import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
+import { decodeMessage } from "./decodeMessage";
 
 process.on("uncaughtException", (err: Error) => {
     logError(`Uncaught exception: ${err.stack || err.message || err}`);
@@ -63,11 +64,11 @@ async function main() {
             const msg = stripOOC(data.Content).trim().toLowerCase();
 
             // Pass to game handler
-            game.handleWhisper(memberNumber, name, stripOOC(data.Content));
+            game.handleWhisper(memberNumber, name, stripOOC(decodeMessage(data)));
         }
 
         if (data.Type === "Chat") {
-            game.handleChat(memberNumber, name, stripOOC(data.Content));
+            game.handleChat(memberNumber, name, stripOOC(decodeMessage(data)));
         }
         if (data.Type === "Status" && data.Content === "Wardrobe") {
             playersWithOpenWardrobe.add(memberNumber);
@@ -77,6 +78,20 @@ async function main() {
             playersWithOpenWardrobe.has(memberNumber)) {
             playersWithOpenWardrobe.delete(memberNumber);
             game.handleWardrobe(memberNumber, name);
+        }
+
+        // BCX relays wardrobe open/close as a Hidden BCXMsg ChatRoomStatusEvent
+        // rather than a raw Status message. Detect it the same way alongside
+        // the raw-Status handling above so either source triggers the game logic.
+        if (data.Type === "Hidden" && data.Content === "BCXMsg" && data.Dictionary?.type === "ChatRoomStatusEvent") {
+            const status = data.Dictionary.message?.Type;
+            if (status === "Wardrobe") {
+                playersWithOpenWardrobe.add(memberNumber);
+                game.handleWardrobeOpen(memberNumber);
+            } else if (status === "None" && playersWithOpenWardrobe.has(memberNumber)) {
+                playersWithOpenWardrobe.delete(memberNumber);
+                game.handleWardrobe(memberNumber, name);
+            }
         }
 
         // BC fires a ChatRoomMessage with Type "Action" and Content matching a
