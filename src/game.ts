@@ -3,6 +3,7 @@ import { log, centralTimestamp } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
 import * as LZString from "lz-string";
+import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./messages";
 
 const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -679,6 +680,11 @@ export class StripDiceGame {
     private characterDataCache: Map<number, any> = new Map();
     private botGameVersion: string | null = null;
     private debugNextRoll: number | null = null;
+    // Bonus flavor-commentary tracking (streak comments, 69 easter egg) —
+    // purely cosmetic, doesn't affect game state/scoring/flow.
+    private lastRollValue: number | null = null;
+    private rollStreakCount: number = 0;
+    private totalRollsThisGame: number = 0;
     private secondChanceQueue: { memberNumber: number; countdown: number }[] = [];
     private activeSecondChance: number | null = null;
     private secondChanceTimer: NodeJS.Timeout | null = null;
@@ -3478,6 +3484,7 @@ export class StripDiceGame {
         this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
 
         const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+        this.emitBonusRollCommentary(roll, this.currentDiceMax);
 
         if (isD100 && roll === 100) {
             currentPlayer.freePass = true;
@@ -3496,6 +3503,33 @@ export class StripDiceGame {
         } else {
             this.currentDiceMax = roll;
             this.advanceTurn();
+        }
+    }
+
+    // Bonus flavor commentary fired after a roll's result is known — repeated
+    // same-number streaks and a 69 easter egg. Purely cosmetic: never touches
+    // game state, scoring, or turn flow beyond this.lastRollValue/rollStreakCount
+    // (which exist only to drive this commentary).
+    private emitBonusRollCommentary(roll: number, diceMax: number): void {
+        this.totalRollsThisGame++;
+        const isFirstRoll = this.totalRollsThisGame === 1;
+
+        if (roll === 69 && !isFirstRoll) {
+            this.bot.sendChat(pickRandomMessage(SIXTY_NINE_MESSAGES));
+            this.lastRollValue = null;
+            this.rollStreakCount = 0;
+            return;
+        }
+
+        if (this.lastRollValue === roll) {
+            this.rollStreakCount++;
+        } else {
+            this.lastRollValue = roll;
+            this.rollStreakCount = 1;
+        }
+
+        if (this.rollStreakCount >= 2 && Math.pow(1 / diceMax, this.rollStreakCount - 1) < 0.01) {
+            this.bot.sendChat(formatStreakMessage(roll));
         }
     }
 
@@ -3751,6 +3785,9 @@ export class StripDiceGame {
         this.shuffleArray(this.turnOrder);
         this.currentTurnIndex = 0;
         this.currentDiceMax = STARTING_DICE_MAX;
+        this.lastRollValue = null;
+        this.rollStreakCount = 0;
+        this.totalRollsThisGame = 0;
 
         this.activeMultiplayer = true;
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
@@ -5383,6 +5420,9 @@ export class StripDiceGame {
         this.turnOrder = [];
         this.currentTurnIndex = 0;
         this.currentDiceMax = STARTING_DICE_MAX;
+        this.lastRollValue = null;
+        this.rollStreakCount = 0;
+        this.totalRollsThisGame = 0;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
@@ -5700,6 +5740,7 @@ export class StripDiceGame {
         this.bot.sendChat(`🎲 ${name} takes their second chance — D${this.currentDiceMax}... ${roll}!`);
 
         const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+        this.emitBonusRollCommentary(roll, this.currentDiceMax);
 
         if (isD100 && roll === 100) {
             player.freePass = true;
