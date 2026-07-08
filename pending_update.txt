@@ -1,1 +1,1 @@
-Added member 247062 as bot admin (isAdmin check in game.ts, Admin array in connection.ts room properties).
+Swapped bondage mode menu order: player-pick is now option 1, predefined outfit is now option 2 (game.ts).

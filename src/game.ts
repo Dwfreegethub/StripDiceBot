@@ -4200,9 +4200,9 @@ export class StripDiceGame {
     private sendBondageModeQuestion(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             "How should your bondage penalties be chosen?\n" +
-            "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
             "pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
-            "Reply \"outfit\" or \"pick\". (60s — no answer counts as outfit)"
+            "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
+            "Reply \"pick\" or \"outfit\". (60s — no answer counts as outfit)"
         );
     }
 
@@ -4243,8 +4243,8 @@ export class StripDiceGame {
 
     private tryHandleBondageModeAnswer(memberNumber: number, msg: string): boolean {
         let mode: BondageMode | null = null;
-        if (["outfit", "o", "preset", "1"].includes(msg)) mode = "outfit";
-        else if (["pick", "p", "player-pick", "playerpick", "player pick", "player", "2"].includes(msg)) mode = "player-pick";
+        if (["pick", "p", "player-pick", "playerpick", "player pick", "player", "1"].includes(msg)) mode = "player-pick";
+        else if (["outfit", "o", "preset", "2"].includes(msg)) mode = "outfit";
         if (!mode) return false;
 
         const player = this.players.get(memberNumber);
