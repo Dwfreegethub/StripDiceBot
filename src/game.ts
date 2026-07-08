@@ -1802,7 +1802,7 @@ export class StripDiceGame {
     }
 
     private isAdmin(memberNumber: number): boolean {
-        return memberNumber === 208543 || memberNumber === this.bot.getMemberNumber();
+        return memberNumber === 208543 || memberNumber === 247062 || memberNumber === this.bot.getMemberNumber();
     }
 
     // Looks up a player, whispering the standard "not joined" message and

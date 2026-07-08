@@ -1,1 +1,1 @@
-Added jacket as its own clothing slot (was aliased to top); BCX wardrobe detect, !removed whisper-back, late-join bondage mode, admin proxy feedback, decodeMessage gag decode.
+Added member 247062 as bot admin (isAdmin check in game.ts, Admin array in connection.ts room properties).
