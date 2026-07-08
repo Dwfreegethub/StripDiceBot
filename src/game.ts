@@ -3332,7 +3332,7 @@ export class StripDiceGame {
     private handleFeedbackList(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
 
-        const entries = Object.entries(this.feedbackStatus);
+        const entries = Object.entries(this.feedbackStatus).filter(([k]) => !k.startsWith("_"));
         if (entries.length === 0) {
             this.bot.whisper(memberNumber, "No feedback recorded yet.");
             return;
