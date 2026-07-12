@@ -560,6 +560,8 @@ interface GameLogEntry {
     winner?: string;
     score?: number;
     penaltyMin?: number;
+    isTeamMode?: boolean;
+    teamSize?: 2 | 3;
 }
 
 interface SoloRecordEntry {
@@ -3371,16 +3373,19 @@ export class StripDiceGame {
         }
     }
 
-    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; toysDeclineCount: number; lastUpdated: string } {
+    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; team_2v2: number; team_3v3: number; toysDeclineCount: number; lastUpdated: string } {
         try {
             const raw = fs.readFileSync(this.gameCountsPath, "utf8");
-            return JSON.parse(raw);
+            const parsed = JSON.parse(raw);
+            parsed.team_2v2 ??= 0;
+            parsed.team_3v3 ??= 0;
+            return parsed;
         } catch {
-            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, toysDeclineCount: 0, lastUpdated: new Date().toISOString() };
+            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, team_2v2: 0, team_3v3: 0, toysDeclineCount: 0, lastUpdated: new Date().toISOString() };
         }
     }
 
-    private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted"): void {
+    private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted" | "team_2v2" | "team_3v3"): void {
         const counts = this.loadGameCounts();
         counts[type]++;
         counts.lastUpdated = new Date().toISOString();
@@ -3412,7 +3417,8 @@ export class StripDiceGame {
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
         const outcomeLabel = options?.logSuffix ? `${outcome} (${options.logSuffix})` : outcome;
         const winnerPart = options?.winner ? ` | winner: ${options.winner}` : "";
-        logGameEvent(`[GAME END] multiplayer | outcome: ${outcomeLabel}${winnerPart} | players: ${playerNames}`);
+        const teamTag = this.isTeamMode ? ` | team: ${this.teamSize}v${this.teamSize}` : "";
+        logGameEvent(`[GAME END] multiplayer${teamTag} | outcome: ${outcomeLabel}${winnerPart} | players: ${playerNames}`);
 
         const entry: GameLogEntry = {
             type: "multiplayer",
@@ -3423,6 +3429,10 @@ export class StripDiceGame {
             outcome,
         };
         if (options?.winner) entry.winner = options.winner;
+        if (this.isTeamMode) {
+            entry.isTeamMode = true;
+            entry.teamSize = this.teamSize;
+        }
         this.appendGameLog(entry);
         this.gameEndLogged = true;
 
@@ -3431,7 +3441,11 @@ export class StripDiceGame {
         }
 
         if (outcome === "win" || outcome === "all-bound") {
-            this.incrementGameCount("multiplayer");
+            if (this.isTeamMode) {
+                this.incrementGameCount(this.teamSize === 3 ? "team_3v3" : "team_2v2");
+            } else {
+                this.incrementGameCount("multiplayer");
+            }
         } else {
             this.incrementGameCount("aborted");
         }
@@ -3846,7 +3860,7 @@ export class StripDiceGame {
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / solo / aborted)`;
+            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -3854,10 +3868,12 @@ export class StripDiceGame {
     private handleGameStats(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
         const counts = this.loadGameCounts();
-        const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted;
+        const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted + counts.team_2v2 + counts.team_3v3;
         this.bot.whisper(memberNumber,
             `=== Game Stats ===\n` +
             `Multiplayer: ${counts.multiplayer}\n` +
+            `Team 2v2: ${counts.team_2v2}\n` +
+            `Team 3v3: ${counts.team_3v3}\n` +
             `Solo (strip): ${counts.solo_strip}\n` +
             `Solo (bondage): ${counts.solo_bondage}\n` +
             `Aborted: ${counts.aborted}\n` +
@@ -4242,7 +4258,8 @@ export class StripDiceGame {
 
         this.activeMultiplayer = true;
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
-        logGameEvent(`[GAME START] multiplayer | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
+        const teamTag = this.isTeamMode ? ` | team: ${this.teamSize}v${this.teamSize}` : "";
+        logGameEvent(`[GAME START] multiplayer${teamTag} | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
         this.writeBotState();
 
         const orderNames = this.turnOrder
