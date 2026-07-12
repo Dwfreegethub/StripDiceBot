@@ -1,1 +1,1 @@
-Added jacket as its own clothing slot (was aliased to top); BCX wardrobe detect, !removed whisper-back, late-join bondage mode, admin proxy feedback, decodeMessage gag decode.
+end-game lock-time vote, fixed lock password/duration bugs, smarter clothing-removal detection (no more wrongful kicks), end-game locks now preserve manual recolors/item swaps, longer roll timer, returning 69/streak roll commentary

@@ -307,7 +307,8 @@
         "ItemTorso2",
         "ItemPelvis",
         "ItemLegs",
-        "ItemBreast"
+        "ItemBreast",
+        "ItemMouth3"
       ]
     }
   ]
