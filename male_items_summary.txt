@@ -1,0 +1,432 @@
+=== MALE-BODY BONDAGE ITEM SUMMARY ===
+
+IMPORTANT CORRECTION vs. task premise — read this first:
+- No fetch script, notes, or task history for bc_items.json exist anywhere in
+  this project or in D:\Games\BC-Bot. Its origin is undocumented.
+- bc_items.json has NO "AllowType" field (or any gender field) on its entries —
+  it is a flat {group, items[]} dump with no per-item metadata at all.
+- The URL pattern in the task ("bondageclub.club") does not appear anywhere in
+  this codebase. The bot actually connects to bondage-club-server.herokuapp.com
+  (src/connection.ts), Origin bondageprojects.elementfx.com.
+- Bondage Club does NOT have separate "female catalog" / "male catalog" fetch
+  endpoints or asset files. There is exactly ONE item catalog (defined in the
+  open-source client at Assets/Female3DCG/Female3DCG.js — "Female3DCG" is the
+  name of the art-continuity/rendering family used by ALL characters regardless
+  of in-game gender, not a female-exclusive asset set). Confirmed no Male3DCG
+  asset folder exists in the source repo (BondageProjects/Bondage-College).
+- The real per-item field that restricts a body type is `Gender` ('M' or 'F',
+  optional — omitted means unisex/shared), confirmed via the project's own
+  Female3DCG_Types.d.ts. This is very likely what the task meant by "AllowType".
+- Since there is only one catalog, "male-only items" below = items in that single
+  catalog flagged Gender:"M". "Shared" = no Gender flag (works for any body).
+  Items flagged Gender:"F" are listed too for completeness (female-only).
+- Source fetched this run: raw Female3DCG.js from
+  https://gitgud.io/BondageProjects/Bondage-College (official upstream, per
+  BondageProjects org on GitLab/gitgud.io), parsed with a sandboxed Node vm.
+  2426 total assets across 85 groups; 444 carry an explicit Gender field.
+
+bc_items.json vs. real catalog — group coverage:
+  Real catalog has 29 Item* groups; bc_items.json has all of them minus
+  "ItemScript" (an internal/plugin-only group, correctly excluded).
+
+CAVEAT — untranslated/CN item names: bc_items.json contains a number of
+Chinese-character item names per group (e.g. "鬼手", "宠物服下") that do NOT
+exist in the base Female3DCG.js fetched this run. They likely come from
+Female3DCGExtended.js (a community items add-on) and/or a CN-localized fork,
+neither of which was fetched for this task. Their Gender status is UNKNOWN —
+not included in the male/female/shared classification below. Ask if you want
+that extended file pulled too.
+
+--- ItemArms ---
+  Total in real catalog: 82  |  bc_items.json has: 93
+  MALE-ONLY (Gender:"M") [1]:
+    - CanvasStraitjacket1  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [49]:
+    - LeatherArmbinder
+    - ArmbinderJacket
+    - FuturisticCuffs
+    - StraitLeotard
+    - FuturisticStraitjacket
+    - StraitJacket
+    - LeatherStraitJacket
+    - Bolero
+    - DuctTape
+    - BitchSuit
+    - ShinyPetSuit
+    - ShinyStraitjacket
+    - StraitDress
+    - StraitDressOpen
+    - SeamlessStraitDress
+    - SeamlessStraitDressOpen
+    - Pillory
+    - FullLatexSuit
+    - Zipties
+    - BoxTieArmbinder
+    - PetCrawler
+    - MermaidSuit
+    - Web
+    - LatexArmbinder
+    - FuturisticArmbinder
+    - SeamlessLatexArmbinder
+    - FullBodyLeatherHarness
+    - UnderBedBondageCuffs
+    - TightJacket
+    - LatexSleevelessLeotard
+    - LatexBoxtieLeotard
+    - LatexButterflyLeotard
+    - PrisonLockdownSuit
+    - LeatherArmSplints
+    - TightJacketCrotch
+    - PantyhoseBody
+    - PantyhoseBodyOpen
+    - WoodenCuffs
+    - InflatableStraightLeotard
+    - MedicalBedRestraints
+    - TransportJacket
+    - PlasticWrap
+    - WrappedBlanket
+    - Ribbons
+    - Tentacles
+    - BondageBra
+    - SleepSac
+    - PrisonSJ
+    - ArmbinderSuit
+  SHARED / unisex (no Gender flag) [32]: NylonRope, HempRope, MetalCuffs, SturdyLeatherBelts, LeatherCuffs, LeatherDeluxeCuffs, CeilingShackles, SteelCuffs, OrnateCuffs, HighStyleSteelCuffs, FourLimbsShackles, Manacles, FullBodyShackles, WristShackles, CollarCuffs, FurStraitJacket, Yoke, HeavyYoke, BondageBouquet, Chains, ShinyArmbinder, HighSecurityStraitJacket, StrictLeatherPetCrawler, ThinLeatherStraps, Slime, InflatableDress, SmoothLeatherArmbinder1, CollarMetalcuffs, BedMetalCuffs, SteelBelt, PawPaddedPetsuitArms, StrappedPetsuitArms
+
+--- ItemHands ---
+  Total in real catalog: 18  |  bc_items.json has: 19
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [4]:
+    - LeatherMittens
+    - PaddedLeatherMittens
+    - PolishedMittens
+    - HoofMittens
+  SHARED / unisex (no Gender flag) [14]: PaddedMittens, PawMittens, FuturisticMittens, DuctTape, SmoothLeatherMittens1, CheerleaderPomPoms, PonyMittensBinder, ElbowLengthMittens, GlueMittens, HempRopeCuffs, FullMittens, LatexBondageMitts, FoamMittens, BalletBootsMittens
+
+--- ItemLegs ---
+  Total in real catalog: 27  |  bc_items.json has: 35
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [1]:
+    - BarrelCorset
+  SHARED / unisex (no Gender flag) [26]: NylonRope, HempRope, LeatherBelt, SturdyLeatherBelts, DuctTape, LeatherLegCuffs, LeatherDeluxeLegCuffs, FuturisticLegCuffs, OrnateLegCuffs, LegBinder, ShinyLegBinder, HobbleSkirt, SeamlessLegBinder, SeamlessHobbleSkirt, Zipties, Chains, PlasticWrap, FrogtieStraps, MermaidTail, MedicalBedRestraints, Ribbons, Tentacles, Slime, FrogtieMetalCuffs, StrappedPetsuitLegs, PawPaddedPetsuitLegs
+
+--- ItemFeet ---
+  Total in real catalog: 32  |  bc_items.json has: 33
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [2]:
+    - SpreaderDildoBar
+    - SpreaderVibratingDildoBar
+  SHARED / unisex (no Gender flag) [30]: NylonRope, HempRope, LeatherBelt, SturdyLeatherBelts, Irish8Cuffs, HeavyAnkleCuffs, DuctTape, LeatherAnkleCuffs, LeatherDeluxeAnkleCuffs, FloorShackles, SteelAnkleCuffs, EscortAnkleCuffs, FuturisticAnkleCuffs, OrnateAnkleCuffs, HighStyleSteelAnkleCuffs, SpreaderMetal, HeavySpreaderMetal, BallChain, AnkleShackles, PlasticWrap, Zipties, Chains, WoodenCuffs, MedicalBedRestraints, SuspensionCuffs, Tentacles, Slime, MassiveAnkleCuffs, HeelBinders, KneeOvernighter
+
+--- ItemBoots ---
+  Total in real catalog: 30  |  bc_items.json has: 30
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [30]: PonyBoots, BalletHeels, BalletHeels1, MetalBallet, TormentHeels, BalletWedges, ToeCuffs, LeatherToeCuffs, ToeTie, ThighHighLatexHeels, LockingHeels, LockingHeels2, LockingShoes1, LockingShoes2, FuturisticHeels, FuturisticHeels2, LockingBoots1, LeatherFootMitts1, ToeTape, Zipties, HighThighBoots, Slime, MonoHeel, ShortPonyBoots, StrictPonyBoots, BalletMittens, HeellessHoof, HoofBoots, ZipperBBoots, SingleBalletBoot
+
+--- ItemHead ---
+  Total in real catalog: 37  |  bc_items.json has: 42
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [37]: ClothBlindfold, ScarfBlindfold, LeatherBlindfold, PaddedBlindfold, InteractiveVisor, FuturisticMask, InteractiveVRHeadset, HypnoticVisor, LeatherSlimMask, LeatherSlimMaskOpenMouth, LeatherSlimMaskOpenEyes, StuddedBlindfold, KittyBlindfold, DuctTape, SmallBlindfold, FullBlindfold, LewdBlindfold, LatexBlindfold, FrilledSleepMask, BlackoutLenses, AnimeLenses, WebBlindfold, RopeBlindfold, SleepMask, PrisonLockdownBlindfold, Pantyhose, Snorkel, Ribbons, Tentacles, MedicalPatch, DroneMask, Slime, FurScarf, Stitches, BigMouthHood, Kigu2Hood, AsylumBlindfold
+
+--- ItemHood ---
+  Total in real catalog: 60  |  bc_items.json has: 67
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [60]: LeatherHoodSealed, BlanketHood, PolishedSteelHood, Paperbag, Fu, InflatedBallHood, OldGasMask, KirugumiMask, PumpkinHead, SackHood, LeatherHoodSensDep, LatexHoodOpenHair, LeatherHood, LeatherHoodOpenEyes, GasMask, DogHood, FoxyMask, PonyHood, LeatherHoodOpenMouth, CanvasHood, Pantyhose, PantyHood, GP9GasMask, OpenFaceHood, GwenHood, DobermanMask, TechnoHelmet1, FuturisticHelmet, GGTSHelmet, LampHeadHood, AccentHood, CollarHood, ZipperHood, LatexHabit, CowHood, HeadboxSeethrough, Slime, KittyHood, LatexDogHood, OpenMouthPlugHood, DroneMask, CustomLatexHood, HarnessCatMask, FestivalFoxMask, InflatableGagMask, LatexDogMask, LatexBunny, FoxHood, VacHood, SensoryDeprivationHood, CorsetHood, SpaceMask, BigMouthHood, RubberMask, CustomBallHood, Balloon, Kigu2Hood, CreepyIronMask, HalloIII, TransparentLatexHood
+
+--- ItemNose ---
+  Total in real catalog: 11  |  bc_items.json has: 12
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [11]: ClownNose, NoseHook, PigNose, NoseRing, NoseShackle, DuctTape, NosePlugs, BarbelPiercing, PigNoseHook, GlueNose, NoseClip
+
+--- ItemEars ---
+  Total in real catalog: 12  |  bc_items.json has: 12
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [12]: LightDutyEarPlugs, HeavyDutyEarPlugs, HeadphoneEarPlugs, BluetoothEarbuds, FuturisticEarphones, Headphones, CustomizableFluffyEars1, CustomizableFluffyEars2, CustomizableFluffyEars3, CustomizableCatEars, CustomizableElfEars, CustomizableCowEars
+
+--- ItemNeck ---
+  Total in real catalog: 51  |  bc_items.json has: 51
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [51]: LeatherCollar, LeatherCollarBell, LeatherCollarBow, SlaveCollar, ClubSlaveCollar, ShockCollar, AutoShockCollar, PetSuitShockCollar, BatCollar, PostureCollar, SteelPostureCollar, DogCollar, SpikeCollar, HighCollar, FuturisticCollar, LeatherChoker, LeatherDeluxeCollar, PetCollar, MaidCollar, BordelleCollar, LoveLeatherCollar, NobleCorsetCollar, StrictPostureCollar, HeartCollar, LeatherCorsetCollar, LatexPostureCollar, HighSecurityCollar, OrnateCollar, HighStyleSteelCollar, SlenderSteelCollar, ShinySteelCollar, HeartLinkChoker, NeckRope, NylonCollar, GothicCollar, LatexCollar1, LatexCollar2, TechnoCollar, ComboHarness, BonedNeckCorset, ExtendablePostureCollar, LatexRingCollar, SpikedChoker, PaddedBeltCollar, MoonCollar, SunCollar, AsylumCollar, ChainCollar, SteampunkCollar, SSpikedCollar, RibbonCollar
+
+--- ItemNeckAccessories ---
+  Total in real catalog: 22  |  bc_items.json has: 24
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [22]: CustomCollarTag, ElectronicTag, CollarBell, CollarBow, CollarShockUnit, CollarAutoShockUnit, Key, CollarNameTag, CollarNameTagOval, CollarNameTagPet, CollarNameTagLover, CollarNameTagLivestock, CollarMoon, CollarSun, CollarLapis, CollarButterfly, CollarPentagram, CollarFlower, CollarRose, CollarCowBell, CollarPupBone, CollarRoseAmulet
+
+--- ItemNeckRestraints ---
+  Total in real catalog: 13  |  bc_items.json has: 17
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [13]: CollarChainLong, CollarChainShort, Post, CollarLeash, ChainLeash, CollarChainMedium, CollarRopeLong, CollarRopeShort, CollarRopeMedium, PetPost, Bedchain, ChokeChain, MCuffCollar
+
+--- ItemMouth ---
+  Total in real catalog: 104  |  bc_items.json has: 121
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [104]: ClothGag, WiffleGag, HarnessBallGag, Ball, HarnessPanelGag, RingGag, DuctTape, PacifierGag, HarnessPacifierGag, DusterGag, CupholderGag, HarnessPonyBits, PumpGag, KittyGag, KittyHarnessPanelGag, KittyMuzzleGag, CarrotGag, MuzzleGag, FuturisticPanelGag, FuturisticHarnessPanelGag, FuturisticHarnessBallGag, RegularSleepingPill, PantiesMask, PlugGag, DildoGag, BoneGag, ChopstickGag, BambooGag, HarnessBallGag1, PumpkinGag, PumpkinHarnessGag, LipGag, SpiderGag, ClothStuffing, PantyStuffing, LargeDildo, ChloroformCloth, ScarfGag, LewdGag, DeepthroatGag, LeatherCorsetCollar, LatexPostureCollar, BitGag, XLBoneGag, DogMuzzleExposed, FoxyHarnessPanelGag, BallGag, TongueStrapGag, BallGagMask, HookGagMask, DildoPlugGag, SteelMuzzleGag, StitchedMuzzleGag, LatexBallMuzzleGag, SockStuffing, GasMaskGag, WebGag, RopeGag, RopeBallGag, MilkBottle, MedicalMask, RegressedMilk, PrisonLockdownGag, ShoeGag, FunnelGag, PlasticWrap, BigMouth, FuturisticMuzzle, CageMuzzle, DentalGag, Ribbons, CropGag, CaneGag, PaciGag, Tentacles, OTNPlugGag, TechnoGag, PonyGag, LatexSheathGag, Slime, FurScarf, LatexMuzzleMask, ModularGag, TonguePiercingGag, Stitches, PaddedFaceMask, MouthFeatureGag, LatexRespirator, Kissmark, GlueGag, QualityHarnessGag, GenitalGag, PremiumMuzzle, OverfilledGag, XmasStickerGag, AOMGag, HorrorMuzzle, AsylumMuzzle, Cigarette, CompGag, RoseBallGag, BishopGag, BallGag2, ShapedMouthCage
+
+--- ItemMouth2 ---
+  Total in real catalog: 102  |  bc_items.json has: 106
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [102]: ClothGag, WiffleGag, HarnessBallGag, HarnessPanelGag, RingGag, DuctTape, HarnessPacifierGag, DusterGag, CupholderGag, HarnessPonyBits, KittyGag, KittyHarnessPanelGag, KittyMuzzleGag, CarrotGag, MuzzleGag, PantiesMask, DildoGag, BoneGag, HarnessBallGag1, PumpkinGag, PumpkinHarnessGag, LipGag, SpiderGag, ChloroformCloth, ScarfGag, LewdGag, LeatherCorsetCollar, LatexPostureCollar, BitGag, XLBoneGag, FoxyHarnessPanelGag, BallGag, BallGagMask, SteelMuzzleGag, StitchedMuzzleGag, LatexBallMuzzleGag, GasMaskGag, WebGag, RopeGag, RopeBallGag, MedicalMask, RegressedMilk, PrisonLockdownGag, ShoeGag, PlasticWrap, FuturisticHarnessPanelGag, FuturisticPanelGag, FuturisticHarnessBallGag, FuturisticMuzzle, CageMuzzle, Ribbons, PaciGag, Tentacles, PonyGag, MouthFeatureGag, Slime, FurScarf, LatexMuzzleMask, ModularGag, Stitches, PaddedFaceMask, LatexRespirator, Kissmark, PacifierGag, Ball, BambooGag, CaneGag, ChopstickGag, ClothStuffing, CropGag, DeepthroatGag, DentalGag, BigMouth, DildoPlugGag, DogMuzzleExposed, FunnelGag, HookGagMask, LargeDildo, LatexSheathGag, MilkBottle, OTNPlugGag, PantyStuffing, PlugGag, PumpGag, RegularSleepingPill, SockStuffing, TechnoGag, TonguePiercingGag, TongueStrapGag, GlueGag, QualityHarnessGag, GenitalGag, PremiumMuzzle, OverfilledGag, XmasStickerGag, AOMGag, HorrorMuzzle, AsylumMuzzle, CompGag, RoseBallGag, BishopGag, BallGag2
+
+--- ItemMouth3 ---
+  Total in real catalog: 99  |  bc_items.json has: 103
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [99]: ClothGag, WiffleGag, HarnessBallGag, HarnessPanelGag, RingGag, DuctTape, HarnessPacifierGag, DusterGag, CupholderGag, HarnessPonyBits, KittyGag, KittyHarnessPanelGag, KittyMuzzleGag, CarrotGag, MuzzleGag, PantiesMask, DildoGag, BoneGag, HarnessBallGag1, PumpkinGag, PumpkinHarnessGag, LipGag, SpiderGag, ChloroformCloth, ScarfGag, LewdGag, LeatherCorsetCollar, LatexPostureCollar, BitGag, XLBoneGag, FoxyHarnessPanelGag, BallGag, BallGagMask, SteelMuzzleGag, StitchedMuzzleGag, LatexBallMuzzleGag, GasMaskGag, WebGag, RopeGag, RopeBallGag, MedicalMask, RegressedMilk, PrisonLockdownGag, ShoeGag, FuturisticMuzzle, CageMuzzle, PlasticWrap, Ribbons, PaciGag, Tentacles, PonyGag, Stitches, Slime, FurScarf, LatexRespirator, Kissmark, PaddedFaceMask, LatexMuzzleMask, ModularGag, FuturisticHarnessPanelGag, FuturisticPanelGag, FuturisticHarnessBallGag, MouthFeatureGag, XmasStickerGag, HorrorMuzzle, AsylumMuzzle, PacifierGag, Ball, BambooGag, CaneGag, ChopstickGag, ClothStuffing, CropGag, DeepthroatGag, DentalGag, BigMouth, DildoPlugGag, DogMuzzleExposed, FunnelGag, HookGagMask, LargeDildo, LatexSheathGag, MilkBottle, OTNPlugGag, PantyStuffing, PlugGag, PumpGag, RegularSleepingPill, SockStuffing, TechnoGag, TonguePiercingGag, TongueStrapGag, QualityHarnessGag, PremiumMuzzle, OverfilledGag, AOMGag, RoseBallGag, BishopGag, BallGag2
+
+--- ItemTorso ---
+  Total in real catalog: 36  |  bc_items.json has: 53
+  MALE-ONLY (Gender:"M") [1]:
+    - LeatherChestHarness1  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [27]:
+    - NylonRopeHarness
+    - HempRopeHarness
+    - LeatherHarness
+    - LeatherStrapHarness
+    - HarnessBra1
+    - HarnessBra2
+    - Corset2
+    - FuturisticHarness
+    - HighSecurityHarness
+    - Corset3
+    - Corset5
+    - LeatherBreastBinder
+    - LatexCorset1
+    - LeatherStrapBra1
+    - CrotchChain
+    - StuddedHarness
+    - ClassicLatexCorset
+    - Ribbons
+    - ThinLeatherStraps
+    - LockingSwimsuit
+    - LockingSwimsuit2
+    - HipHarness
+    - FemPelvisHarness
+    - ShinyLeotardLock
+    - ExtremeCorset
+    - BarrelCorset
+    - FullBodyStraps
+  SHARED / unisex (no Gender flag) [8]: AdultBabyHarness, Corset4, HeavyLatexCorset, Underbust, RibbonCorset, NavelBar1, TightCorset, SteelBelt
+
+--- ItemTorso2 ---
+  Total in real catalog: 35  |  bc_items.json has: 52
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [35]: LeatherStrapHarness, LeatherHarness, NylonRopeHarness, HempRopeHarness, AdultBabyHarness, HarnessBra1, HarnessBra2, Corset2, FuturisticHarness, HighSecurityHarness, Corset3, Corset4, Corset5, LeatherBreastBinder, LatexCorset1, LeatherStrapBra1, CrotchChain, StuddedHarness, HeavyLatexCorset, ClassicLatexCorset, Ribbons, ThinLeatherStraps, LockingSwimsuit, LockingSwimsuit2, Underbust, HipHarness, RibbonCorset, FemPelvisHarness, LeatherChestHarness1, NavelBar1, TightCorset, ShinyLeotardLock, SteelBelt, ExtremeCorset, BarrelCorset
+
+--- ItemPelvis ---
+  Total in real catalog: 33  |  bc_items.json has: 36
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [21]:
+    - StraponPanties
+    - LeatherChastityBelt
+    - SleekLeatherChastityBelt
+    - StuddedChastityBelt
+    - ForbiddenChastityBelt
+    - PolishedChastityBelt
+    - FuturisticChastityBelt
+    - FuturisticTrainingBelt
+    - SteelChastityPanties
+    - HarnessPanties1
+    - HarnessPanties2
+    - LeatherStrapPanties1
+    - LoveChastityBelt
+    - HempRope
+    - DiaperHarness
+    - Ribbons
+    - HybridChastityBelt
+    - ObedienceBelt
+    - HipHarness
+    - WaistLegHarness
+    - FemPelvisHarness
+  SHARED / unisex (no Gender flag) [12]: MetalChastityBelt, SciFiPleasurePanties, OrnateChastityBelt, PelvisChainLeash, BulkyDiaper, PoofyDiaper, LatexDiaper, UntrainersThin, PortalPanties, HeavyDutyBelt, ModularChastityBelt, WombTattoos
+
+--- ItemNipples ---
+  Total in real catalog: 22  |  bc_items.json has: 28
+  MALE-ONLY (Gender:"M") [1]:
+    - NippleClamps2  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [2]:
+    - NippleVibe
+    - XmasBell
+  SHARED / unisex (no Gender flag) [19]: NippleClamp, VibeNippleClamp, VibratorRemote, ChainClamp, ScrewClamps, ChainTassles, HeartPasties, TapedVibeEggs, NippleSuctionCups, NippleTape, ChopStickNippleClamps, KittyPasties, Clothespins, NippleWeightClamps, BellClamps, LactationPump, ShockClamps, PlateClamps, StretchClovers
+
+--- ItemNipplesPiercings ---
+  Total in real catalog: 13  |  bc_items.json has: 16
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [1]:
+    - VibeHeartPiercings
+  SHARED / unisex (no Gender flag) [12]: StraightPiercing, RoundPiercing, NecklacePiercingChain, NippleAccessory1, NippleAccessory2, NippleAccessory3, BarbellPiercing, NippleChastityPiercing1, NippleChastityPiercing2, BellPiercing, CrossedStraightPiercing, PiercingNameBadge
+
+--- ItemBreast ---
+  Total in real catalog: 11  |  bc_items.json has: 12
+  MALE-ONLY (Gender:"M") [1]:
+    - ChastityPlate  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [8]:
+    - MetalChastityBra
+    - PolishedChastityBra
+    - FuturisticBra
+    - FuturisticBra2
+    - OrnateChastityBra
+    - ForbiddenChastityBra
+    - Ribbons
+    - TickleBra
+  SHARED / unisex (no Gender flag) [2]: LeatherBreastBinder, LeatherStrapBra1
+
+--- ItemVulva ---
+  Total in real catalog: 36  |  bc_items.json has: 41
+  MALE-ONLY (Gender:"M") [11]:
+    - BasicCockring  [already in bc_items.json]
+    - LockingCockring  [already in bc_items.json]
+    - PlasticChastityCage1  [already in bc_items.json]
+    - VibeEggPenisBase  [already in bc_items.json]
+    - PlasticChastityCage2  [already in bc_items.json]
+    - TechnoChastityCage  [already in bc_items.json]
+    - FlatChastityCage  [already in bc_items.json]
+    - Ballspreader  [already in bc_items.json]
+    - ChastityPouch  [already in bc_items.json]
+    - FullCasingCage  [already in bc_items.json]
+    - LatexNulge  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [24]:
+    - VibratingEgg
+    - VibratorRemote
+    - VibratingLatexPanties
+    - WandBelt
+    - PenisDildo
+    - ShockDildo
+    - VibratingDildo
+    - FuturisticVibrator
+    - InflatableVibeDildo
+    - InflatableVibratingPanties
+    - ClitoralStimulator
+    - ClitSuctionCup
+    - TapeStrips
+    - BenWaBalls
+    - HeavyWeightClamp
+    - FullLatexSuitWand
+    - ClitAndDildoVibratorbelt
+    - HempRopeBelt
+    - WiredEgg
+    - LoversVibrator
+    - LoversVibratorRemote
+    - DoubleEndDildo
+    - Stitches
+    - UsedCondom
+  SHARED / unisex (no Gender flag) [1]: MysteryBox
+
+--- ItemVulvaPiercings ---
+  Total in real catalog: 15  |  bc_items.json has: 15
+  MALE-ONLY (Gender:"M") [3]:
+    - VibeEggGlans  [already in bc_items.json]
+    - UrethralSound  [already in bc_items.json]
+    - CockRingLeash  [already in bc_items.json]
+  FEMALE-ONLY (Gender:"F") [12]:
+    - StraightClitPiercing
+    - RoundClitPiercing
+    - BarbellClitPiercing
+    - ChastityClitPiercing
+    - ChastityClitShield
+    - HighSecurityVulvaShield
+    - JewelClitPiercing
+    - AdornedClitPiercing
+    - VibeHeartClitPiercing
+    - ClitRing
+    - TapedClitEgg
+    - ModularVulvaPiercings
+  SHARED / unisex (no Gender flag) [0]:
+
+--- ItemButt ---
+  Total in real catalog: 40  |  bc_items.json has: 42
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [40]: BlackButtPlug, PenisPlug, TailButtPlug, HorsetailPlug, HorsetailPlug1, PuppyTailPlug, PuppyTailPlug1, SuccubusButtPlug, SuccubusHeartButtPlug, FoxTails, RaccoonButtPlug, RaccoonTailPlug, AnalBeads, AnalBeads2, ButtPump, VibratingButtplug, InflVibeButtPlug, AnalHook, ButtPlugLock, KittenTail1, KittenTail2, FoxTail, WolfTail1, WolfTail2, WolfTail3, DemonPlug, MouseTail1, MouseTail2, VibratingDildoPlug, BunnyTailPlug1, BunnyTailPlug2, BunnyTailVibePlug, EggVibePlugXXL, LockingVibePlug, ShockPlug, Cowtail, HollowButtPlug, Tentacles, Stitches, FuckPlug
+
+--- ItemAddon ---
+  Total in real catalog: 8  |  bc_items.json has: 16
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [8]: Covers, BedRopes, BedStraps, BedTape, BedChains, CeilingRope, CeilingChain, CeilingNeckCuff
+
+--- ItemMisc ---
+  Total in real catalog: 41  |  bc_items.json has: 57
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [41]: MetalPadlock, IntricatePadlock, HighSecurityPadlock, TimerPadlock, CombinationPadlock, PasswordPadlock, TimerPasswordPadlock, OwnerPadlock, OwnerTimerPadlock, LoversPadlock, LoversTimerPadlock, FamilyPadlock, MistressPadlock, MistressTimerPadlock, PandoraPadlock, ExclusivePadlock, SafewordPadlock, PortalLinkPadlock, MetalPadlockKey, OwnerPadlockKey, LoversPadlockKey, FamilyPadlockKey, MistressPadlockKey, PandoraPadlockKey, MetalCuffsKey, Lockpicks, WoodenMaidTray, WoodenMaidTrayFull, BountySuitcase, BountySuitcaseEmpty, WoodenPaddle, WoodenSign, ServingTray, TeddyBear, PetPost, BunPlush, FoxPlush, Karl, PetPotato, Plushie, MiniDolls
+
+--- ItemDevices ---
+  Total in real catalog: 76  |  bc_items.json has: 103
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [7]:
+    - OneBarPrison
+    - Vacbed
+    - VacBedDeluxe
+    - VacbedClear
+    - VacCube
+    - FuckMachine
+    - OneBarGirl
+  SHARED / unisex (no Gender flag) [69]: WoodenBox, SmallWoodenBox, MilkCan, WaterCell, Cage, LowCage, SaddleStand, BurlapSack, InflatableBodyBag, FurBlanketWrap, BondageBench, BBQ, WetFloor, LittleMonster, Familiar, Coffin, CryoCapsule, PersonalCage, LeatherCage, TheDisplayFrame, TheHangingFrame, Sybian, StrapOnSmooth, StrapOnStuds, Potty, DisplayCase, SmallDisplayCase, FuturisticCrate, DollBox, WoodenBoxOpenHead, SmallWoodenBoxOpenHead, WoodenStocks, Crib, Enema, Bed, X-Cross, ChangingTable, Locker, SmallLocker, ConcealingCloak, Kennel, PetBed, TransportWoodenBox, PetBowl, Pole, Cushion, Net, Snowman, MedicalBed, WoodenRack, WoodenHorse, LuckyWheel, WheelFortune, FoldingScreen, KabeshiriWall, Trolley, GlueFloor, Cement, BrickWall, PogoBall, Throne, ExclusiveWaitress, Highchair, SingleBalletBoot, Microphone, GiftBox, XFrame, InflatableRestraintBag, LongBag
+
+--- ItemHandheld ---
+  Total in real catalog: 81  |  bc_items.json has: 115
+  MALE-ONLY (Gender:"M") [0]:
+    (none)
+  FEMALE-ONLY (Gender:"F") [0]:
+    (none)
+  SHARED / unisex (no Gender flag) [81]: KeyProp, MedicalInjector, Crop, Flogger, Cane, HeartCrop, Paddle, CustomPaddle, WhipPaddle, Whip, CattleProd, TennisRacket, ForSaleSign, RainbowWand, Gavel, Feather, FeatherDuster, LongDuster, IceCube, Diaper, BabyPowder, Wipes, WartenbergWheel, VibratingWand, SmallVibratingWand, CandleWax, LargeDildo, PetToy, Vibrator, Belt, Hairbrush, SmallDildo, ElectricToothbrush, Toothbrush, ShockWand, Lotion, Ruler, Sword, VibeRemote, ShockRemote, Towel, RopeCoilLong, RopeCoilShort, Ballgag, LongSock, Baguette, Panties, TapeRoll, Spatula, Broom, Phone1, Phone2, Scissors, PlasticWrap, GlassEmpty, GlassFilled, PotionBottle, Mug, Popcorn, PortalTablet, Shark, BunPlush, FoxPlush, Karl, PetPotato, Smartphone, GlueTube, AnimeGirlWand, Brick, Trowel, Kyosensu, Uchiwa, Plushie, Cigarette, FoamRoll, MiniDolls, GiftBox, DragonPlush, Chocolate, ElectricGuitar, Laptop
+
+=== TOTALS (restraint-relevant groups above) ===
+Male-only items:    18
+Female-only items:  158
+Shared/unisex:      971
+Male-only items already present in bc_items.json: 18
+Male-only items NOT in bc_items.json:              0
+
+Note on the last two lines: since bc_items.json has no Gender filtering at all,
+any male-only item already listed there got in incidentally, not by design —
+this indicates bc_items.json was likely never gender-filtered in the first
+place, just a flat dump of every asset name per group.

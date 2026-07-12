@@ -3,6 +3,7 @@ import { log, centralTimestamp } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
 import * as LZString from "lz-string";
+import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./messages";
 
 const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -385,6 +386,7 @@ function deepClone<T>(value: T): T {
 // ============================================================
 enum GameState {
     Idle,           // No game running, waiting for players to join
+    TeamSetup,      // Team mode lobby: picking team size and !join team1/team2
     Registration,   // Players joining, declaring clothing
     Countdown,      // All players joined, 30 second countdown
     Rolling,        // Active game, waiting for current player to roll
@@ -425,6 +427,15 @@ interface Player {
     allowedSlots: string[];      // BC group names this player consented to for player-pick mode
     appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
     lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1; 0 = never lost this game
+    teamId: 1 | 2 | null;        // which team in team mode; null outside team mode
+    isGhost: boolean;            // true = auto-rolls 1 every turn (safeworded out but still counted for team win condition)
+    ghostReason?: "safeword" | "disconnect";
+    // Appearance.length captured (see markAwaitingRemoval) the moment this
+    // player was told to remove an item — null when no removal is
+    // outstanding. Compared against fresh ChatRoomSyncSingle snapshots in
+    // onSyncSingle to auto-detect the removal the instant BC confirms it,
+    // instead of waiting on !removed or a wardrobe close/open pair.
+    pendingRemovalBaselineCount: number | null;
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock
@@ -592,8 +603,13 @@ interface OutfitSuggestion {
 // ============================================================
 // PASSWORD GENERATOR
 // ============================================================
+// Letters-only (no digits) — BC's TimerPasswordPadlock appears to
+// reject/silently fail to save a password that starts with a digit,
+// confirmed via live testing. Nobody's ever shown this password (it's
+// never whispered to a player, only logged), so it doesn't need to be
+// memorable — just needs to actually save.
 function generatePassword(): string {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
     let result = "";
     for (let i = 0; i < 8; i++) {
         result += chars[Math.floor(Math.random() * chars.length)];
@@ -626,6 +642,24 @@ export class StripDiceGame {
     private countdownTimer: NodeJS.Timeout | null = null;
     private turnTimer: NodeJS.Timeout | null = null;
     private lockDurationMinutes: number = DEFAULT_LOCK_MINUTES;
+    // Pending 30-second lock-time vote, between a game-over/win being
+    // detected and the actual end-game locks going on (see applyEndGameLocks/
+    // startEndGameLockVote/finalizeEndGameLockVote). Bound players about to
+    // be locked get one chance each to nudge suggestedMinutes ±5 min before
+    // it's applied; a missing vote at finalization counts as accept.
+    private pendingLockTimeVote: {
+        winners: Player[] | undefined;
+        boundPlayers: Player[];
+        // The greater of lockDurationMinutes (host's pre-game setting, now
+        // treated as a floor) or playerCount + 5 — the number actually
+        // whispered to voters and adjusted by the vote (see
+        // startEndGameLockVote). Kept separate from lockDurationMinutes so
+        // the vote always starts from this computed baseline, not whatever
+        // lockDurationMinutes was left at by a previous round's vote.
+        suggestedMinutes: number;
+        votes: Map<number, 1 | 2 | 3>;
+        timeout: NodeJS.Timeout;
+    } | null = null;
     private roomMembers: Set<number> = new Set();
     private nameCache: Map<number, string> = new Map();
     private pronounsCache: Map<number, string> = new Map();
@@ -679,6 +713,11 @@ export class StripDiceGame {
     private characterDataCache: Map<number, any> = new Map();
     private botGameVersion: string | null = null;
     private debugNextRoll: number | null = null;
+    // Bonus flavor-commentary tracking (streak comments, 69 easter egg) —
+    // purely cosmetic, doesn't affect game state/scoring/flow.
+    private lastRollValue: number | null = null;
+    private rollStreakCount: number = 0;
+    private totalRollsThisGame: number = 0;
     private secondChanceQueue: { memberNumber: number; countdown: number }[] = [];
     private activeSecondChance: number | null = null;
     private secondChanceTimer: NodeJS.Timeout | null = null;
@@ -718,6 +757,20 @@ export class StripDiceGame {
     private readonly outfitCandidatesPath = path.join(__dirname, "..", "outfit_candidates.json");
     private itemSettings: ItemSettingsLibrary = {};
     private readonly itemSettingsPath = path.join(__dirname, "..", "item_settings.json");
+
+    // ============================================================
+    // TEAM MODE (2v2 / 3v3)
+    // ============================================================
+    private isTeamMode: boolean = false;
+    private teamSize: 2 | 3 = 2;
+    private teamRoster: { 1: number[]; 2: number[] } = { 1: [], 2: [] };
+    private awaitingTeamSizeReply: boolean = false;
+    // Parity vote ("keep ghost rolls or drop them?") fired when a safeword
+    // brings both teams' active-player counts back to equal.
+    private awaitingTeamParityVote: boolean = false;
+    private teamParityResponses: Map<number, "keep" | "drop"> = new Map();
+    private teamParityVoters: Set<number> = new Set(); // active players asked this round
+    private teamParityTimer: NodeJS.Timeout | null = null;
 
     constructor(bot: BCConnection) {
         this.bot = bot;
@@ -924,6 +977,18 @@ export class StripDiceGame {
         this.seedItemStateCacheFromCharacter(character);
         this.cacheCharacterData(character);
 
+        // Auto-detect a pending removal the instant BC confirms it, instead
+        // of relying solely on !removed or a wardrobe open/close pair —
+        // any drop below the Appearance count captured when the removal was
+        // requested (see markAwaitingRemoval) counts as done, regardless of
+        // whether it's currently this player's active turn (handleRemoved
+        // credits it immediately either way — see its isBankedEarly path).
+        const removalPlayer = this.players.get(memberNumber);
+        if (removalPlayer && removalPlayer.pendingRemovalBaselineCount !== null &&
+            character.Appearance.length < removalPlayer.pendingRemovalBaselineCount) {
+            this.handleRemoved(memberNumber, removalPlayer.name);
+        }
+
         for (const item of character.Appearance) {
             if (!item?.Group) continue;
 
@@ -975,6 +1040,8 @@ export class StripDiceGame {
     // come before broader prefixes (e.g. "!feedback ").
     private readonly commandTable: Record<string, CommandDef> = {
         "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!teamgame": { handler: (mn, name) => this.handleTeamGame(mn, name) },
+        "!teams": { handler: (mn) => this.handleTeams(mn) },
         "!join": { handler: (mn, name, _msg, message) => this.handleJoin(mn, name, message), prefix: true },
         "!start": { handler: (mn) => this.handleStart(mn) },
         "!cancel": { handler: (mn) => this.handleCancel(mn) },
@@ -1004,6 +1071,7 @@ export class StripDiceGame {
         "!no": { handler: (mn) => this.handleLockVerificationNo(mn) },
         "!help player": { handler: (mn) => this.handleHelpPlayer(mn) },
         "!help solo": { handler: (mn) => this.handleHelpSolo(mn) },
+        "!help team": { handler: (mn) => this.handleHelpTeam(mn) },
         "!help admin": { handler: (mn) => this.handleHelpAdmin(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
@@ -1074,6 +1142,11 @@ export class StripDiceGame {
         // Yes/No confirmation for a pending admin proxy-feedback submission.
         if (this.tryHandleAdminFeedbackProxyYesNo(memberNumber, msg)) return;
 
+        // Pending lock-time vote (after a win/game-over, before end-game
+        // locks go on) — only accepts 1/2/3 replies from the bound players
+        // being polled.
+        if (this.tryHandleEndGameLockVote(memberNumber, msg)) return;
+
         // Guided clothing Q&A takes priority over other commands while active
         const player = this.players.get(memberNumber);
         if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
@@ -1116,6 +1189,12 @@ export class StripDiceGame {
 
         // Yes/No confirmation for pending !join
         if (this.tryHandleYesNoJoin(memberNumber, name, msg)) return;
+
+        // Team mode: host's numeric reply to "How many players per team?"
+        if (this.tryHandleTeamSizeReply(memberNumber, msg)) return;
+
+        // Team mode: active player's keep/drop parity vote
+        if (this.tryHandleTeamParityVote(memberNumber, msg)) return;
 
         // Lock verification: accept bare "yes"/"no" too, so OOC responses
         // like "(yes)"/"(no)" (which strip down to just "yes"/"no") work
@@ -1230,6 +1309,25 @@ export class StripDiceGame {
             return;
         }
 
+        // Team mode: host's numeric reply to "How many players per team?" —
+        // public setup, so accepted from chat the same as a whisper.
+        if (this.tryHandleTeamSizeReply(memberNumber, msg)) return;
+
+        // Team mode keep/drop parity vote is whisper-only — nudge instead of
+        // silently dropping it.
+        if (this.awaitingTeamParityVote && this.teamParityVoters.has(memberNumber) &&
+            (msg === "keep" || msg === "drop")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your keep or drop vote to me!");
+            return;
+        }
+
+        // Lock-time vote is whisper-only — nudge instead of silently dropping it.
+        if (this.pendingLockTimeVote?.boundPlayers.some(p => p.memberNumber === memberNumber) &&
+            (msg === "1" || msg === "2" || msg === "3")) {
+            this.bot.whisper(memberNumber, "Psst — whisper your lock-time vote (1/2/3) to me!");
+            return;
+        }
+
         // !solo / !solo race / !solo survive are whisper-only — nudge instead
         // of silently dropping the command.
         if (msg === "!solo" || msg.startsWith("!solo ")) {
@@ -1287,6 +1385,14 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, "Please answer the toy consent question above first (yes/no).");
             return;
         }
+        if (this.state === GameState.TeamSetup) {
+            this.handleTeamJoin(memberNumber, name, rawMessage);
+            return;
+        }
+        if (this.isTeamMode && !this.players.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "A team game is in progress — you're welcome to watch! Say !help for more info.");
+            return;
+        }
         if (this.state === GameState.Idle && Date.now() < this.gameCooldownUntil) {
             const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
             this.bot.whisper(memberNumber,
@@ -1341,7 +1447,7 @@ export class StripDiceGame {
 
         this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax });
         this.bot.whisper(memberNumber,
-            `You'll be locked for ${this.lockDurationMinutes} minutes if you lose everything. Do you understand? Reply **Yes** to join or **No** to cancel.`
+            `You may be bound at the end of the game if you lose everything — ${this.lockDurationMinutes} minutes is proposed, but the time can vary a bit (everyone locked gets a vote to nudge it up or down before it's applied). Do you understand? Reply **Yes** to join or **No** to cancel.`
         );
     }
 
@@ -1391,6 +1497,9 @@ export class StripDiceGame {
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
             lastLossSeq: 0,
+            teamId: null,
+            isGhost: false,
+            pendingRemovalBaselineCount: null,
         };
         this.players.set(memberNumber, player);
 
@@ -1492,6 +1601,7 @@ export class StripDiceGame {
         this.bot.sendChat(
             `You're the only player right now! A second player needs to join before the game can start, or you can go solo with !solo.`
         );
+        this.announcePlayerUpdates();
     }
 
     // Handles !join attempts after bondage penalties have already started for this game.
@@ -1557,6 +1667,9 @@ export class StripDiceGame {
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
             lastLossSeq: 0,
+            teamId: null,
+            isGhost: false,
+            pendingRemovalBaselineCount: null,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
@@ -1602,7 +1715,156 @@ export class StripDiceGame {
         }
     }
 
+    // ============================================================
+    // TEAM MODE - lobby
+    // ============================================================
+
+    private handleTeamGame(memberNumber: number, name: string): void {
+        if (this.state !== GameState.Idle) {
+            this.bot.whisper(memberNumber, "A game is already in progress.");
+            return;
+        }
+        if (Date.now() < this.gameCooldownUntil) {
+            const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
+            this.bot.whisper(memberNumber,
+                `⏳ We just wrapped up a game — give everyone a few minutes before the next one starts. Try !teamgame again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
+            );
+            return;
+        }
+        if (this.checkPendingUpdate()) return;
+
+        this.isTeamMode = true;
+        this.teamRoster = { 1: [], 2: [] };
+        this.state = GameState.TeamSetup;
+        this.hostMemberNumber = memberNumber;
+        this.awaitingTeamSizeReply = true;
+        this.gameStartTime = new Date().toISOString();
+        this.gameEndLogged = false;
+        this.bot.sendChat(`🎲 ${name} wants to start a team game! How many players per team — 2 or 3?`);
+        this.announcePlayerUpdates();
+    }
+
+    // Intercepts the host's numeric reply to "2 or 3?" from either whisper or
+    // chat. Returns false (uninvolved) for anything that isn't a digit reply
+    // from the host during the size-selection window, so normal commands
+    // (e.g. !cancel) keep working.
+    private tryHandleTeamSizeReply(memberNumber: number, msg: string): boolean {
+        if (!this.awaitingTeamSizeReply || memberNumber !== this.hostMemberNumber) return false;
+        if (!/^\d/.test(msg)) return false;
+
+        const n = parseInt(msg.trim(), 10);
+        if (n !== 2 && n !== 3) {
+            this.bot.sendChat(`Please reply with 2 or 3.`);
+            return true;
+        }
+        this.awaitingTeamSizeReply = false;
+        this.teamSize = n;
+        this.bot.sendChat(`Starting a ${n}v${n} team game! Use !join team1 or !join team2 to pick your side.`);
+        return true;
+    }
+
+    private handleTeamJoin(memberNumber: number, name: string, rawMessage: string): void {
+        if (this.players.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You've already joined a team!");
+            return;
+        }
+        if (!this.checkPlayerPermissions(memberNumber, name)) return;
+
+        const parts = rawMessage.trim().toLowerCase().split(/\s+/);
+        const teamArg = parts[1];
+        let team: 1 | 2 | null = null;
+        if (teamArg === "team1" || teamArg === "1") team = 1;
+        else if (teamArg === "team2" || teamArg === "2") team = 2;
+
+        if (team === null) {
+            this.bot.sendChat(`${name}, use !join team1 or !join team2 to pick your side.`);
+            return;
+        }
+
+        if (this.teamRoster[team].length >= this.teamSize) {
+            const other: 1 | 2 = team === 1 ? 2 : 1;
+            this.bot.sendChat(`Team ${team} is full — join Team ${other} instead.`);
+            return;
+        }
+
+        const player: Player = {
+            memberNumber,
+            name,
+            clothing: [],
+            clothingRemoved: 0,
+            bondageApplied: 0,
+            isNaked: false,
+            isFullyBound: false,
+            missedTurnPending: false,
+            missedSecondChance: false,
+            ready: false,
+            midGameJoin: false,
+            clothingQuestionIndex: null,
+            pendingClothing: [],
+            bondageOutfit: null,
+            pendingReturn: false,
+            leaveRoundsRemaining: 0,
+            leaveTime: null,
+            freePass: false,
+            pendingPenaltySteps: 0,
+            removalWarned: false,
+            pendingRemovalKick: false,
+            toysConsent: null,
+            bondageMode: null,
+            allowedSlots: [...TIER1_SLOT_GROUPS],
+            appliedBondageItems: [],
+            lastLossSeq: 0,
+            teamId: team,
+            isGhost: false,
+            pendingRemovalBaselineCount: null,
+        };
+        this.players.set(memberNumber, player);
+        this.teamRoster[team].push(memberNumber);
+
+        this.announceTeamRosters();
+
+        if (this.teamRoster[1].length >= this.teamSize && this.teamRoster[2].length >= this.teamSize) {
+            this.lockTeamsAndBegin();
+        }
+    }
+
+    private announceTeamRosters(): void {
+        const t1 = this.teamRoster[1].map(n => this.getPlayerName(n));
+        const t2 = this.teamRoster[2].map(n => this.getPlayerName(n));
+        this.bot.sendChat(
+            `Team 1: ${t1.length ? t1.join(", ") : "(empty)"} (${t1.length}/${this.teamSize}) | ` +
+            `Team 2: ${t2.length ? t2.join(", ") : "(empty)"} (${t2.length}/${this.teamSize})`
+        );
+    }
+
+    private lockTeamsAndBegin(): void {
+        const t1 = this.teamRoster[1].map(n => this.getPlayerName(n));
+        const t2 = this.teamRoster[2].map(n => this.getPlayerName(n));
+        this.bot.sendChat(`Teams locked!\nTeam 1: ${t1.join(", ")}\nTeam 2: ${t2.join(", ")}\nGame starting!`);
+        this.beginClothingDeclaration();
+    }
+
+    private handleTeams(memberNumber: number): void {
+        if (!this.isTeamMode) {
+            this.bot.whisper(memberNumber, "No team game is active. Try !teamgame to start one!");
+            return;
+        }
+        const format = (team: 1 | 2): string => {
+            const members = [...this.players.values()].filter(p => p.teamId === team);
+            if (members.length === 0) return "(empty)";
+            const names = members.map(p => p.isGhost ? `${p.name} 👻` : p.name).join(", ");
+            return members.every(p => !p.isGhost) ? `${names} (all active)` : names;
+        };
+        this.bot.sendChat(`Team 1: ${format(1)} | Team 2: ${format(2)}`);
+    }
+
     private handleStart(memberNumber: number): void {
+        if (this.state === GameState.TeamSetup) {
+            const need1 = Math.max(0, this.teamSize - this.teamRoster[1].length);
+            const need2 = Math.max(0, this.teamSize - this.teamRoster[2].length);
+            this.bot.whisper(memberNumber, `Teams aren't full yet — Team 1 needs ${need1} more, Team 2 needs ${need2} more.`);
+            return;
+        }
         if (this.state !== GameState.Registration && this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No game is waiting to start.");
             return;
@@ -2069,9 +2331,9 @@ export class StripDiceGame {
         if (this.players.size === 1) {
             const winner = [...this.players.values()][0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Not enough players remain to continue.`);
-            this.recordGameCompletion(winner.memberNumber);
+            this.recordGameCompletion([winner.memberNumber]);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
-            this.applyEndGameLocks(winner);
+            this.applyEndGameLocks([winner]);
             return;
         }
 
@@ -2128,13 +2390,24 @@ export class StripDiceGame {
 
         // Abandon any in-flight player-pick selection involving them (as
         // target or picker) — the safeword pause takes over the game state.
+        let cancelledPick = false;
         if (this.pendingBondagePick &&
             (this.pendingBondagePick.targetNumber === memberNumber ||
              this.pendingBondagePick.pickerNumber === memberNumber)) {
             this.cancelPendingBondagePick();
+            cancelledPick = true;
         }
 
         this.clearTurnTimer();
+
+        // Team mode: safewording doesn't pause the game for a !continue vote —
+        // the player becomes a ghost (auto-rolls 1 every turn) and the game
+        // keeps going without interruption.
+        if (this.isTeamMode) {
+            this.handleTeamSafeword(player, cancelledPick);
+            return;
+        }
+
         this.safewordMember = memberNumber;
         this.state = GameState.SafewordPause;
 
@@ -2152,6 +2425,144 @@ export class StripDiceGame {
                 this.resetGame();
             }
         }, 60000);
+    }
+
+    // ============================================================
+    // TEAM MODE - safeword ghosting, parity vote, ghost drop
+    // ============================================================
+
+    // Converts a safewording team-mode player into a ghost instead of pausing
+    // the game for a !continue vote. If it was their turn (or their pending
+    // pick got cancelled mid-bondage), resumes the turn cycle immediately.
+    private handleTeamSafeword(player: Player, cancelledPick: boolean): void {
+        player.isGhost = true;
+        player.ghostReason = "safeword";
+        this.bot.sendChat(`${player.name} has used their safeword. 👻 Their turns will auto-roll 1.`);
+
+        const wasCurrentTurn = this.getCurrentPlayer()?.memberNumber === player.memberNumber;
+
+        this.checkTeamParity();
+
+        if (wasCurrentTurn || (cancelledPick && this.state === GameState.WaitingBondage)) {
+            this.currentDiceMax = STARTING_DICE_MAX;
+            this.resolveCurrentTurn();
+        }
+    }
+
+    // After a safeword ghosting, checks whether both teams' active
+    // (non-ghost, non-fully-bound) player counts are now equal. If so, and
+    // there's at least one ghost to vote about, offers every active player a
+    // whisper vote: keep the ghost rolls as-is, or drop the ghost slot(s).
+    private checkTeamParity(): void {
+        const active = (team: 1 | 2) =>
+            [...this.players.values()].filter(p => p.teamId === team && !p.isGhost && !p.isFullyBound);
+        const activeT1 = active(1);
+        const activeT2 = active(2);
+
+        if (activeT1.length === 0 || activeT2.length === 0) return; // one side already out — win check handles it
+        if (activeT1.length !== activeT2.length) return;
+        if (![...this.players.values()].some(p => p.isGhost)) return;
+
+        this.startTeamParityVote([...activeT1, ...activeT2]);
+    }
+
+    private startTeamParityVote(voters: Player[]): void {
+        if (this.awaitingTeamParityVote) return; // a vote is already in progress
+        this.awaitingTeamParityVote = true;
+        this.teamParityResponses.clear();
+        this.teamParityVoters = new Set(voters.map(p => p.memberNumber));
+
+        const n = voters.length;
+        for (const voter of voters) {
+            this.bot.whisper(voter.memberNumber,
+                `Teams are now even with ${n} active players each. Keep ghost rolls or drop them? Reply "keep" or "drop".`
+            );
+        }
+        this.teamParityTimer = setTimeout(() => this.resolveTeamParityVote(), TOYS_CONSENT_TIMEOUT_MS);
+    }
+
+    // Intercepts a bare "keep"/"drop" whisper from an active voter. Returns
+    // false for anything else so normal command dispatch keeps working.
+    private tryHandleTeamParityVote(memberNumber: number, msg: string): boolean {
+        if (!this.awaitingTeamParityVote || !this.teamParityVoters.has(memberNumber)) return false;
+        if (msg !== "keep" && msg !== "drop") return false;
+
+        this.teamParityResponses.set(memberNumber, msg);
+        this.bot.whisper(memberNumber, `Vote recorded: ${msg}.`);
+
+        if (this.teamParityResponses.size >= this.teamParityVoters.size) {
+            this.resolveTeamParityVote();
+        }
+        return true;
+    }
+
+    // Majority of responses received decides; ties (including nobody
+    // responding before the timeout) default to "keep" as the safer,
+    // less-disruptive outcome.
+    private resolveTeamParityVote(): void {
+        if (!this.awaitingTeamParityVote) return;
+        const votes = [...this.teamParityResponses.values()];
+        const keepCount = votes.filter(v => v === "keep").length;
+        const dropCount = votes.filter(v => v === "drop").length;
+        this.clearTeamParityVote();
+
+        if (dropCount > keepCount) {
+            this.dropGhostSlots();
+        } else {
+            this.bot.sendChat(`Ghost rolls stay — the game continues as-is.`);
+        }
+    }
+
+    private clearTeamParityVote(): void {
+        this.awaitingTeamParityVote = false;
+        this.teamParityResponses.clear();
+        this.teamParityVoters.clear();
+        if (this.teamParityTimer) {
+            clearTimeout(this.teamParityTimer);
+            this.teamParityTimer = null;
+        }
+    }
+
+    // Drops every current ghost from turnOrder entirely (their Player record
+    // stays in `players` for end-game display, but win-condition checks treat
+    // anyone absent from turnOrder as "out" — see checkTeamGameEndCondition).
+    // Rebuilds turnOrder maintaining team alternation from whoever's left.
+    private dropGhostSlots(): void {
+        const ghostNumbers = new Set(
+            [...this.players.values()].filter(p => p.isGhost).map(p => p.memberNumber)
+        );
+        if (ghostNumbers.size === 0) return;
+
+        const currentPlayerBefore = this.getCurrentPlayer();
+        const remaining = this.turnOrder.filter(n => !ghostNumbers.has(n));
+
+        const t1 = remaining.filter(n => this.players.get(n)?.teamId === 1);
+        const t2 = remaining.filter(n => this.players.get(n)?.teamId === 2);
+        const rebuilt: number[] = [];
+        const max = Math.max(t1.length, t2.length);
+        for (let i = 0; i < max; i++) {
+            if (t1[i] !== undefined) rebuilt.push(t1[i]);
+            if (t2[i] !== undefined) rebuilt.push(t2[i]);
+        }
+        this.turnOrder = rebuilt;
+
+        const t1Names = t1.map(n => this.getPlayerName(n));
+        const t2Names = t2.map(n => this.getPlayerName(n));
+        this.bot.sendChat(
+            `Ghost slots dropped. Continuing as ${t1.length}v${t2.length} — ` +
+            `Team 1: ${t1Names.join(", ") || "(none)"} | Team 2: ${t2Names.join(", ") || "(none)"}`
+        );
+        if (t1.length === 1 && t2.length === 1) {
+            this.bot.sendChat(`Down to 1v1 — this is now a standard duel!`);
+        }
+
+        if (currentPlayerBefore && this.turnOrder.includes(currentPlayerBefore.memberNumber)) {
+            this.currentTurnIndex = this.turnOrder.indexOf(currentPlayerBefore.memberNumber);
+        } else {
+            this.currentTurnIndex = Math.min(this.currentTurnIndex, Math.max(0, this.turnOrder.length - 1));
+        }
+
+        this.checkGameEndCondition();
     }
 
     // Handler for BC's native SafewordUsed event (ChatRoomMessage with Type "Action",
@@ -3219,11 +3630,11 @@ export class StripDiceGame {
         if (this.state === GameState.Idle) {
             if (this.soloGames.size > 0) {
                 this.bot.whisper(memberNumber,
-                    "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game."
+                    "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
             } else {
                 this.bot.whisper(memberNumber,
-                    "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others."
+                    "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
             }
             return;
@@ -3244,6 +3655,7 @@ export class StripDiceGame {
     // True if a normal !join would currently be accepted (i.e. not the
     // "naked late join" path, which !join handles separately).
     private isMultiplayerJoinable(): boolean {
+        if (this.isTeamMode) return false; // no mid-game joins into a team game — see handleJoin
         if (this.state === GameState.Registration || this.state === GameState.Countdown) return true;
         const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage;
         return midGame && this.allowMidGameJoin && !this.bondagePhaseStarted;
@@ -3313,14 +3725,14 @@ export class StripDiceGame {
         this.savePlayerRecords();
     }
 
-    // Called once a game reaches its conclusion (either a winner is found or
-    // everyone is bound), crediting every participant with a completed game.
-    private recordGameCompletion(winnerMemberNumber: number | null): void {
+    // Called once a game reaches its conclusion (either winner(s) are found
+    // or everyone is bound), crediting every participant with a completed game.
+    private recordGameCompletion(winnerMemberNumbers: number[] | null): void {
         for (const player of this.players.values()) {
             const record = this.playerRecords[String(player.memberNumber)];
             if (!record) continue;
             record.gamesPlayed++;
-            if (winnerMemberNumber !== null && player.memberNumber === winnerMemberNumber) {
+            if (winnerMemberNumbers !== null && winnerMemberNumbers.includes(player.memberNumber)) {
                 record.gamesWon++;
             } else if (player.isFullyBound) {
                 record.gamesLost++;
@@ -3353,13 +3765,29 @@ export class StripDiceGame {
         let text =
             `=== Strip Dice Help ===\n` +
             `!help player - Multiplayer game commands (join, clothing, rolling, locks)\n` +
-            `!help solo - Solo whisper game & leaderboard commands\n`;
+            `!help solo - Solo whisper game & leaderboard commands\n` +
+            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n`;
 
         if (this.isAdmin(memberNumber)) {
             text += `!help admin - Admin commands\n`;
         }
 
         text += `!about - About this bot`;
+
+        this.sendLongWhisper(memberNumber, text);
+    }
+
+    private handleHelpTeam(memberNumber: number): void {
+        const text =
+            `=== Team Mode (2v2 / 3v3) ===\n` +
+            `!teamgame - Start a team game (asks for team size, then teams sign up)\n` +
+            `!join team1 / !join team2 - Pick your side during team setup\n` +
+            `!teams - Show current team rosters (and who's a ghost)\n` +
+            `Turn order alternates between teams (Team 1, Team 2, Team 1, ...). Everything else — clothing, rolling, bondage — works exactly like a normal game.\n` +
+            `\n` +
+            `Win condition: a team is eliminated once every one of its members is fully bound. The other team wins!\n` +
+            `\n` +
+            `👻 Ghosts: if a player safewords mid-game, they become a ghost instead of leaving — their turns auto-roll a 1 (so they keep stripping/binding) but the game never pauses for them. If this brings both teams back to equal active-player counts, everyone still active gets a whisper vote to keep the ghost rolls or drop that player from the game entirely.`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -3475,9 +3903,10 @@ export class StripDiceGame {
         } else {
             roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         }
-        this.bot.sendChat(`🎲 ${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
+        this.bot.sendChat(`🎲 ${this.teamLabel(currentPlayer)}${name} rolls a D${this.currentDiceMax}... and gets ${roll}!`);
 
         const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+        this.emitBonusRollCommentary(roll, this.currentDiceMax);
 
         if (isD100 && roll === 100) {
             currentPlayer.freePass = true;
@@ -3499,6 +3928,33 @@ export class StripDiceGame {
         }
     }
 
+    // Bonus flavor commentary fired after a roll's result is known — repeated
+    // same-number streaks and a 69 easter egg. Purely cosmetic: never touches
+    // game state, scoring, or turn flow beyond this.lastRollValue/rollStreakCount
+    // (which exist only to drive this commentary).
+    private emitBonusRollCommentary(roll: number, diceMax: number): void {
+        this.totalRollsThisGame++;
+        const isFirstRoll = this.totalRollsThisGame === 1;
+
+        if (roll === 69 && !isFirstRoll) {
+            this.bot.sendChat(pickRandomMessage(SIXTY_NINE_MESSAGES));
+            this.lastRollValue = null;
+            this.rollStreakCount = 0;
+            return;
+        }
+
+        if (this.lastRollValue === roll) {
+            this.rollStreakCount++;
+        } else {
+            this.lastRollValue = roll;
+            this.rollStreakCount = 1;
+        }
+
+        if (this.rollStreakCount >= 2 && Math.pow(1 / diceMax, this.rollStreakCount - 1) < 0.01) {
+            this.bot.sendChat(formatStreakMessage(roll));
+        }
+    }
+
     public handleWardrobeOpen(memberNumber: number): void {
         if (this.state !== GameState.WaitingRemove) return;
         const currentPlayer = this.getCurrentPlayer();
@@ -3513,36 +3969,51 @@ export class StripDiceGame {
             return;
         }
 
-        if (this.state !== GameState.WaitingRemove) return;
-        const currentPlayer = this.getCurrentPlayer();
-        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) return;
+        const player = this.players.get(memberNumber);
+        if (!player) return;
+
+        const isLiveTurn = this.state === GameState.WaitingRemove && this.getCurrentPlayer()?.memberNumber === memberNumber;
+        if (!isLiveTurn && !player.pendingRemovalKick) return;
 
         this.handleRemoved(memberNumber, name);
     }
 
+    // Confirms a removal either (a) live, during this player's active
+    // WaitingRemove turn, or (b) "banked" early/out of turn — a player whose
+    // removal window was skipped (pendingRemovalKick) gets credited the
+    // moment they confirm, rather than being forced to wait for their next
+    // turn's re-prompt (see resolveCurrentTurn's pendingRemovalKick branch).
+    // That gap used to silently reject any !removed/wardrobe-close sent
+    // while it wasn't their exact current turn, with no way to recover
+    // before the kick timer ran out — see wd_todo-equivalent bug notes.
     private handleRemoved(memberNumber: number, name: string): void {
-        if (this.state !== GameState.WaitingRemove) {
-            if (this.players.has(memberNumber)) {
-                this.bot.whisper(memberNumber, "Got it — I'll be watching for your wardrobe to close, no need to send !removed right now.");
-            }
+        const player = this.players.get(memberNumber);
+        if (!player) return;
+
+        const isLiveTurn = this.state === GameState.WaitingRemove && this.getCurrentPlayer()?.memberNumber === memberNumber;
+        const isBankedEarly = !isLiveTurn && player.pendingRemovalKick;
+
+        if (!isLiveTurn && !isBankedEarly) {
+            this.bot.whisper(memberNumber, "Got it — I'll be watching for your wardrobe to close, no need to send !removed right now.");
             return;
         }
 
-        const currentPlayer = this.getCurrentPlayer();
-        if (!currentPlayer || currentPlayer.memberNumber !== memberNumber) {
-            if (this.players.has(memberNumber)) {
-                this.bot.whisper(memberNumber, "It's not your turn to confirm — hang tight.");
-            }
-            return;
-        }
-
-        this.clearTurnTimer();
-        const player = this.players.get(memberNumber)!;
+        if (isLiveTurn) this.clearTurnTimer();
         player.removalWarned = false;
         player.pendingRemovalKick = false;
+        player.pendingRemovalBaselineCount = null;
         player.clothingRemoved++;
 
         this.bot.sendChat(`✅ ${name} has removed their item.`);
+
+        if (isBankedEarly) {
+            // Not their active turn — don't touch game flow (another
+            // player's turn is in progress). Clearing pendingRemovalKick
+            // above is enough; resolveCurrentTurn will let them roll
+            // normally instead of re-prompting when it cycles back to them.
+            this.bot.whisper(memberNumber, "Got it — you're all set, no need to do anything else.");
+            return;
+        }
 
         if (player.pendingPenaltySteps > 0) {
             player.pendingPenaltySteps--;
@@ -3736,6 +4207,20 @@ export class StripDiceGame {
         this.beginBondageModeSelection();
     }
 
+    // Alternating turn order [T1P1, T2P1, T1P2, T2P2, ...], players within
+    // each team kept in join order (not shuffled).
+    private buildTeamTurnOrder(): number[] {
+        const t1 = this.teamRoster[1];
+        const t2 = this.teamRoster[2];
+        const order: number[] = [];
+        const max = Math.max(t1.length, t2.length);
+        for (let i = 0; i < max; i++) {
+            if (t1[i] !== undefined) order.push(t1[i]);
+            if (t2[i] !== undefined) order.push(t2[i]);
+        }
+        return order;
+    }
+
     private startGame(): void {
         this.state = GameState.Rolling;
         this.lobbyOpen = false;
@@ -3746,18 +4231,26 @@ export class StripDiceGame {
         this.gamePassword = TEST_MODE ? TEST_PASSWORD : generatePassword();
         log(`Game password: ${this.gamePassword} (TEST_MODE: ${TEST_MODE})`);
 
-        // Build random turn order
-        this.turnOrder = [...this.players.keys()];
-        this.shuffleArray(this.turnOrder);
+        // Build turn order: alternating team1/team2 in team mode, random otherwise.
+        this.turnOrder = this.isTeamMode ? this.buildTeamTurnOrder() : [...this.players.keys()];
+        if (!this.isTeamMode) this.shuffleArray(this.turnOrder);
         this.currentTurnIndex = 0;
         this.currentDiceMax = STARTING_DICE_MAX;
+        this.lastRollValue = null;
+        this.rollStreakCount = 0;
+        this.totalRollsThisGame = 0;
 
         this.activeMultiplayer = true;
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
         logGameEvent(`[GAME START] multiplayer | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
         this.writeBotState();
 
-        const orderNames = this.turnOrder.map(n => this.getPlayerName(n)).join(" → ");
+        const orderNames = this.turnOrder
+            .map(n => {
+                const p = this.players.get(n);
+                return p ? `${this.teamLabel(p)}${p.name}` : this.getPlayerName(n);
+            })
+            .join(" → ");
         this.bot.sendChat(`🎲 === STRIP DICE BEGINS === 🎲`);
         this.bot.sendChat(`Turn order: ${orderNames}`);
         this.bot.sendChat(`Lock duration: ${this.lockDurationMinutes} minutes`);
@@ -3817,6 +4310,11 @@ export class StripDiceGame {
             const player = this.getCurrentPlayer();
             if (!player) return true;
 
+            if (player.isGhost) {
+                this.resolveGhostTurn(player);
+                return true;
+            }
+
             if (player.pendingReturn) {
                 player.leaveRoundsRemaining--;
                 if (player.leaveRoundsRemaining <= 0) {
@@ -3863,6 +4361,52 @@ export class StripDiceGame {
             this.startTurnTimer();
             return true;
         }
+    }
+
+    // ============================================================
+    // TEAM MODE - ghost turns
+    // ============================================================
+
+    // A ghost (safeworded/disconnected team-mode player) auto-rolls a 1 every
+    // turn instead of waiting for input. Goes through the exact same
+    // handleLoss() path a real roll of 1 would. Clothing removal normally
+    // waits on a "!removed" whisper, which a ghost will never send — that
+    // one step is auto-confirmed below. Bondage application (outfit mode)
+    // is already fully automatic and needs no ghost-specific handling.
+    private resolveGhostTurn(player: Player): void {
+        this.bot.sendChat(`👻 ${player.name} (ghost) rolls... 1!`);
+        this.handleLoss(player);
+
+        if (this.state === GameState.WaitingRemove && this.getCurrentPlayer()?.memberNumber === player.memberNumber) {
+            setTimeout(() => this.autoConfirmGhostRemoval(player), 800);
+        }
+    }
+
+    // Stands in for a ghost's "!removed" confirmation. Mirrors handleRemoved()'s
+    // bookkeeping, then resumes the turn cycle — which re-enters the ghost
+    // check above if this same ghost is still up (e.g. "loser rolls first"
+    // after a clothing removal, or a queued double-penalty step).
+    private autoConfirmGhostRemoval(player: Player): void {
+        if (this.state !== GameState.WaitingRemove || this.getCurrentPlayer()?.memberNumber !== player.memberNumber) {
+            return;
+        }
+        this.clearTurnTimer();
+        player.removalWarned = false;
+        player.pendingRemovalKick = false;
+        player.clothingRemoved++;
+        this.bot.sendChat(`✅ ${player.name} (ghost) auto-removes their item.`);
+
+        if (player.pendingPenaltySteps > 0) {
+            player.pendingPenaltySteps--;
+            this.applyPendingPenaltyStep(player, player.name);
+            if (this.state === GameState.WaitingRemove && this.getCurrentPlayer()?.memberNumber === player.memberNumber) {
+                setTimeout(() => this.autoConfirmGhostRemoval(player), 800);
+            }
+            return;
+        }
+
+        this.currentDiceMax = STARTING_DICE_MAX;
+        setTimeout(() => this.resolveCurrentTurn(), 500);
     }
 
     // True if a player whose 2-round grace period just ran out hasn't yet
@@ -3951,6 +4495,17 @@ export class StripDiceGame {
         return ended;
     }
 
+    // Snapshots this player's current Appearance.length (from
+    // characterDataCache, updated on every ChatRoomSyncSingle/room sync) as
+    // the baseline onSyncSingle compares future syncs against — the moment
+    // that count drops, the removal is auto-confirmed without waiting on
+    // !removed or a wardrobe open/close pair. Null baseline (no cached data
+    // yet) just disables auto-detection for this prompt; manual !removed
+    // and wardrobe-close still work as always.
+    private markAwaitingRemoval(player: Player): void {
+        player.pendingRemovalBaselineCount = this.characterDataCache.get(player.memberNumber)?.Appearance?.length ?? null;
+    }
+
     private handleLoss(player: Player): void {
         this.clearTurnTimer();
         this.noteRoundLoser(player);
@@ -3961,7 +4516,8 @@ export class StripDiceGame {
             const nextItem = player.clothing[player.clothingRemoved];
             if (nextItem) {
                 this.state = GameState.WaitingRemove;
-                this.bot.sendChat(`😳 ${player.name} rolled a 1! Remove your ${nextItem}!`);
+                this.markAwaitingRemoval(player);
+                this.bot.sendChat(`😳 ${this.teamLabel(player)}${player.name} rolled a 1! Remove your ${nextItem}!`);
                 this.startTurnTimer(20000);
 
                 if (player.clothingRemoved + 1 >= player.clothing.length) {
@@ -3997,6 +4553,7 @@ export class StripDiceGame {
             this.bot.sendChat(`💀 ${player.name} rolled a 1 — double penalty! Remove your ${item1} and ${item2}!`);
             player.pendingPenaltySteps = 1;
             this.state = GameState.WaitingRemove;
+            this.markAwaitingRemoval(player);
             this.startTurnTimer(20000);
         } else {
             const item1 = player.clothing[player.clothingRemoved];
@@ -4004,6 +4561,7 @@ export class StripDiceGame {
             player.pendingPenaltySteps = 1;
             player.isNaked = true;
             this.state = GameState.WaitingRemove;
+            this.markAwaitingRemoval(player);
             this.startTurnTimer(20000);
         }
     }
@@ -4019,6 +4577,7 @@ export class StripDiceGame {
         const nextItem = player.clothing[player.clothingRemoved];
         if (nextItem) {
             this.state = GameState.WaitingRemove;
+            this.markAwaitingRemoval(player);
             this.bot.sendChat(`😳 ${name}, remove your ${nextItem} too!`);
             this.startTurnTimer(20000);
 
@@ -4128,7 +4687,13 @@ export class StripDiceGame {
         if (becameFullyBound) {
             player.isFullyBound = true;
             this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
-            this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
+            if (this.isTeamMode && player.teamId !== null) {
+                const remaining = [...this.players.values()]
+                    .filter(p => p.teamId === player.teamId && !p.isFullyBound && this.turnOrder.includes(p.memberNumber));
+                this.bot.sendChat(`🔒 Team ${player.teamId}'s ${player.name} is fully bound! Team ${player.teamId} has ${remaining.length} active player${remaining.length === 1 ? "" : "s"} remaining.`);
+            } else {
+                this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
+            }
         } else {
             const followUp = player.pendingPenaltySteps > 0
                 ? `Applying the second item from their double penalty...`
@@ -4460,16 +5025,25 @@ export class StripDiceGame {
     // The picker is whoever has gone longest without rolling a 1 (lowest
     // lastLossSeq; 0 = never lost, which outranks everyone). Ties — including
     // round 1, where nobody has lost yet — resolve randomly among the tied.
-    // The target never picks their own items.
+    // The target never picks their own items, and ghosts never pick (they
+    // don't respond to anything). In team mode, an opposing-team member is
+    // preferred when one's available; otherwise falls back to anyone eligible.
     private choosePickerFor(target: Player): Player {
-        let pool = [...this.players.values()].filter(p =>
-            p.memberNumber !== target.memberNumber && !p.isFullyBound && !p.pendingReturn);
+        const basePool = (includeAway: boolean) => [...this.players.values()].filter(p =>
+            p.memberNumber !== target.memberNumber && !p.isFullyBound && !p.isGhost && (includeAway || !p.pendingReturn));
+
+        let pool = basePool(false);
         if (pool.length === 0) {
             // Everyone else is away — let an away player pick; the 60s pick
             // timer auto-picks if they don't respond.
-            pool = [...this.players.values()].filter(p =>
-                p.memberNumber !== target.memberNumber && !p.isFullyBound);
+            pool = basePool(true);
         }
+
+        if (this.isTeamMode) {
+            const opposing = pool.filter(p => p.teamId !== target.teamId);
+            if (opposing.length > 0) pool = opposing;
+        }
+
         if (pool.length === 0) return target; // unreachable in practice: game would already be over
 
         const oldestLoss = Math.min(...pool.map(p => p.lastLossSeq));
@@ -5022,6 +5596,8 @@ export class StripDiceGame {
     }
 
     private checkGameEndCondition(): boolean {
+        if (this.isTeamMode) return this.checkTeamGameEndCondition();
+
         const activePlayers = [...this.players.values()].filter(p => !p.isFullyBound);
 
         if (activePlayers.length === 0) {
@@ -5038,9 +5614,47 @@ export class StripDiceGame {
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
-            this.recordGameCompletion(winner.memberNumber);
+            this.recordGameCompletion([winner.memberNumber]);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
-            this.applyEndGameLocks(winner);
+            this.applyEndGameLocks([winner]);
+            return true;
+        }
+        return false;
+    }
+
+    // Team mode win condition: a team is eliminated once every one of its
+    // members is fully bound. The other team (its still-unbound members) wins.
+    // A team member is "out" once fully bound, or once dropped from turnOrder
+    // via a parity-vote ghost drop (dropGhostSlots) — their Player record
+    // stays around for end-game display, but they no longer block their
+    // team's win/loss condition.
+    private checkTeamGameEndCondition(): boolean {
+        const team1 = [...this.players.values()].filter(p => p.teamId === 1);
+        const team2 = [...this.players.values()].filter(p => p.teamId === 2);
+        const isOut = (p: Player) => p.isFullyBound || !this.turnOrder.includes(p.memberNumber);
+        const team1AllOut = team1.length > 0 && team1.every(isOut);
+        const team2AllOut = team2.length > 0 && team2.every(isOut);
+
+        if (team1AllOut && team2AllOut) {
+            this.recordGameCompletion(null);
+            this.logMultiplayerGameEnd("all-bound");
+            this.endGame();
+            return true;
+        }
+        if (team1AllOut) {
+            const winners = team2.filter(p => !isOut(p));
+            this.bot.sendChat(`🔒 Team 1 is fully bound! Team 2 wins! 🎉`);
+            this.recordGameCompletion(winners.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 2 (${winners.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winners);
+            return true;
+        }
+        if (team2AllOut) {
+            const winners = team1.filter(p => !isOut(p));
+            this.bot.sendChat(`🔒 Team 2 is fully bound! Team 1 wins! 🎉`);
+            this.recordGameCompletion(winners.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 1 (${winners.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winners);
             return true;
         }
         return false;
@@ -5049,32 +5663,120 @@ export class StripDiceGame {
     private endGame(): void {
         this.state = GameState.GameOver;
         this.bot.sendChat(`🎲 === GAME OVER === 🎲`);
-        this.bot.sendChat(`All players are fully bound! Applying ${this.lockDurationMinutes} minute locks...`);
+        this.bot.sendChat(`All players are fully bound! Settling the final lock duration...`);
         this.applyEndGameLocks();
     }
 
-    // winner: an unbound player whose items need stripping (their slots join
-    // the same staggered burst as everyone else's lock application). Omitted
-    // when every player is fully bound (endGame()) — nothing to strip.
-    private applyEndGameLocks(winner?: Player): void {
+    // winners: unbound player(s) whose partial bondage items need stripping
+    // (their slots join the same staggered burst as everyone else's lock
+    // application). Omitted when every player is fully bound (endGame()) —
+    // nothing to strip. A single-player standard win passes a one-element
+    // array; a team-mode win passes every surviving member of the winning team.
+    // Kicks off a 30-second lock-time vote among the bound players about to
+    // be locked (see startEndGameLockVote) before actually applying anything
+    // — the vote's finalize step calls finalizeEndGameLocks with the same
+    // winners once lockDurationMinutes has (maybe) been nudged.
+    private applyEndGameLocks(winners?: Player[]): void {
+        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
+        if (boundPlayers.length === 0) {
+            this.finalizeEndGameLocks(winners);
+            return;
+        }
+        this.startEndGameLockVote(winners, boundPlayers);
+    }
+
+    // Give every bound player a 30-second window to nudge the proposed lock
+    // duration up or down in 5-minute increments before it's applied. The
+    // proposal itself is the greater of lockDurationMinutes (the host's
+    // pre-game !lock10/!lock15/!lock20/!locktime setting, now treated as a
+    // floor rather than a fixed value) or (number of players in the match)
+    // + 5 — so bigger games start the vote from a higher baseline. No reply
+    // within the window counts as "accept" (see finalizeEndGameLockVote).
+    private startEndGameLockVote(winners: Player[] | undefined, boundPlayers: Player[]): void {
+        const suggestedMinutes = Math.max(this.lockDurationMinutes, this.players.size + 5);
+        const timeout = setTimeout(() => this.finalizeEndGameLockVote(), 30 * 1000);
+        this.pendingLockTimeVote = { winners, boundPlayers, suggestedMinutes, votes: new Map(), timeout };
+
+        for (const player of boundPlayers) {
+            this.bot.whisper(player.memberNumber,
+                `⏱️ Lock time vote: ${suggestedMinutes} min proposed. Reply: 1 = less (−5 min)  2 = accept  3 = more (+5 min). You have 30 seconds.`);
+        }
+    }
+
+    // Dispatches a bound player's vote reply. Returns true if the message
+    // was consumed (whether or not it was a valid 1/2/3). Ignores anything
+    // from someone who isn't one of the polled bound players, or a second
+    // reply from someone who already voted.
+    private tryHandleEndGameLockVote(memberNumber: number, msg: string): boolean {
+        const vote = this.pendingLockTimeVote;
+        if (!vote || !vote.boundPlayers.some(p => p.memberNumber === memberNumber)) return false;
+        if (vote.votes.has(memberNumber)) return true;
+
+        if (msg !== "1" && msg !== "2" && msg !== "3") {
+            this.bot.whisper(memberNumber, `Please reply 1 (less), 2 (accept), or 3 (more).`);
+            return true;
+        }
+
+        vote.votes.set(memberNumber, Number(msg) as 1 | 2 | 3);
+
+        if (vote.votes.size === vote.boundPlayers.length) {
+            clearTimeout(vote.timeout);
+            this.finalizeEndGameLockVote();
+        }
+        return true;
+    }
+
+    // Tallies whatever votes came in — missing votes count as "accept" —
+    // adjusts lockDurationMinutes (floor of 5, no ceiling), and moves on to
+    // actually applying the locks. Guards against running twice (once from
+    // the last vote in, once from the timeout) by clearing
+    // pendingLockTimeVote first.
+    private finalizeEndGameLockVote(): void {
+        const vote = this.pendingLockTimeVote;
+        if (!vote) return;
+        clearTimeout(vote.timeout);
+        this.pendingLockTimeVote = null;
+
+        let lessCount = 0;
+        let moreCount = 0;
+        for (const player of vote.boundPlayers) {
+            const choice = vote.votes.get(player.memberNumber) ?? 2;
+            if (choice === 1) lessCount++;
+            else if (choice === 3) moreCount++;
+        }
+
+        this.lockDurationMinutes = Math.max(5, vote.suggestedMinutes + moreCount * 5 - lessCount * 5);
+        if (this.lockDurationMinutes !== vote.suggestedMinutes) {
+            this.bot.sendChat(`⏱️ Lock time vote result: ${this.lockDurationMinutes} minutes.`);
+        }
+
+        this.finalizeEndGameLocks(vote.winners);
+    }
+
+    // Actually applies the end-game locks at the current lockDurationMinutes
+    // (already settled by applyEndGameLocks/finalizeEndGameLockVote above).
+    private finalizeEndGameLocks(winners?: Player[]): void {
         const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
         const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
 
-        if (winner && this.toysAllowed) {
-            this.bot.whisper(winner.memberNumber,
-                "Reminder: you may add toys and touch the other players — but please, no locks on any toys."
-            );
+        if (winners && this.toysAllowed) {
+            for (const winner of winners) {
+                this.bot.whisper(winner.memberNumber,
+                    "Reminder: you may add toys and touch the other players — but please, no locks on any toys."
+                );
+            }
         }
 
         this.bot.sendChat(`🔒 Hold still everyone — applying everyone's end-game locks now, this'll take a few moments!`);
 
-        // Shared stagger counter: every emit in this end-game burst (winner's
+        // Shared stagger counter: every emit in this end-game burst (winners'
         // item removal + each bound player's lock application) gets its own
         // slot on one timeline, so the combined burst stays under the BC
         // server's per-second rate limit.
         let stagger = 0;
 
-        if (winner && winner.bondageApplied > 0) {
+        for (const winner of winners ?? []) {
+            if (winner.bondageApplied === 0) continue;
             REMOVAL_SLOTS.forEach((group) => {
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 setTimeout(() => {
@@ -5102,8 +5804,19 @@ export class StripDiceGame {
             }
 
             for (let i = 0; i < player.bondageApplied; i++) {
-                const item = player.bondageOutfit?.items[i];
-                if (!item) continue;
+                const storedItem = player.bondageOutfit?.items[i];
+                if (!storedItem) continue;
+
+                // Prefer whatever the player is actually currently wearing on
+                // this slot over the outfit's originally-assigned item/color —
+                // if they manually recolored it or swapped it for a different
+                // item via BC's own wardrobe UI mid-game, the end-game lock
+                // should preserve that instead of silently reverting it back
+                // to what the bot first applied.
+                const cached = this.itemStateCache.get(`${player.memberNumber}:${storedItem.group}`);
+                const item: BondageItem = (cached && cached.Name)
+                    ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
+                    : storedItem;
 
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 setTimeout(() => {
@@ -5383,9 +6096,16 @@ export class StripDiceGame {
         this.turnOrder = [];
         this.currentTurnIndex = 0;
         this.currentDiceMax = STARTING_DICE_MAX;
+        this.lastRollValue = null;
+        this.rollStreakCount = 0;
+        this.totalRollsThisGame = 0;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
+        if (this.pendingLockTimeVote) {
+            clearTimeout(this.pendingLockTimeVote.timeout);
+            this.pendingLockTimeVote = null;
+        }
         this.minPlayers = 2;
         this.maxPlayers = 6;
         this.lobbyOpen = false;
@@ -5449,12 +6169,34 @@ export class StripDiceGame {
         for (const timer of this.lateBondageModeTimers.values()) clearTimeout(timer);
         this.lateBondageModeTimers.clear();
 
+        this.isTeamMode = false;
+        this.teamSize = 2;
+        this.teamRoster = { 1: [], 2: [] };
+        this.awaitingTeamSizeReply = false;
+        this.clearTeamParityVote();
+
         this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
     }
 
     // ============================================================
     // GRACEFUL UPDATE / REBOOT
     // ============================================================
+
+    // Posts player_updates.txt to the room if it exists. Called when a lobby
+    // first opens so players see what's new before a game starts. The file is
+    // NOT consumed — it stays until an admin removes it.
+    private announcePlayerUpdates(): void {
+        const updatesPath = path.join(__dirname, "..", "player_updates.txt");
+        if (!fs.existsSync(updatesPath)) return;
+        try {
+            const content = fs.readFileSync(updatesPath, "utf8").trim();
+            if (content) {
+                this.bot.sendChat(content);
+            }
+        } catch (err) {
+            log(`Failed to read player_updates.txt: ${err}`);
+        }
+    }
 
     private checkPendingUpdate(): boolean {
         const updatePath = path.join(__dirname, "..", "pending_update.txt");
@@ -5582,7 +6324,7 @@ export class StripDiceGame {
 
         const bonus = this.pendingTurnTimerBonusMs;
         this.pendingTurnTimerBonusMs = 0;
-        const timeout = (ms ?? 30000) + bonus;
+        const timeout = (ms ?? 35000) + bonus; // Default roll-turn window, +5s over the original 30s
         this.turnTimer = setTimeout(() => {
             if (this.state === GameState.WaitingRemove) {
                 this.handleRemoveTimeout(player);
@@ -5697,9 +6439,10 @@ export class StripDiceGame {
         } else {
             roll = Math.floor(Math.random() * this.currentDiceMax) + 1;
         }
-        this.bot.sendChat(`🎲 ${name} takes their second chance — D${this.currentDiceMax}... ${roll}!`);
+        this.bot.sendChat(`🎲 ${name} catches up on their missed turn — D${this.currentDiceMax}... and gets ${roll}!`);
 
         const isD100 = this.currentDiceMax === STARTING_DICE_MAX;
+        this.emitBonusRollCommentary(roll, this.currentDiceMax);
 
         if (isD100 && roll === 100) {
             player.freePass = true;
@@ -5846,6 +6589,12 @@ export class StripDiceGame {
 
     private getPlayerName(memberNumber: number): string {
         return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
+    }
+
+    // "[Team 1] " prefix for chat announcements in team mode; empty string otherwise.
+    private teamLabel(player: Player): string {
+        if (!this.isTeamMode || player.teamId === null) return "";
+        return `[Team ${player.teamId}] `;
     }
 
     private getBondageOutfitName(outfit: BondageOutfit): string {

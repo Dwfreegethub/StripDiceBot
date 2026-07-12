@@ -1,1 +1,1 @@
-Swapped bondage mode menu order: player-pick is now option 1, predefined outfit is now option 2 (game.ts).
+end-game lock-time vote, fixed lock password/duration bugs, smarter clothing-removal detection (no more wrongful kicks), end-game locks now preserve manual recolors/item swaps, longer roll timer, returning 69/streak roll commentary
