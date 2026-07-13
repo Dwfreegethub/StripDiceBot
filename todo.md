@@ -12,6 +12,8 @@
 
 - [ ] **Lock-time vote v2** — v1 (±5 minute vote by bound players) shipped. Original design ideas not yet implemented: weight the suggested time by game length, total losses, and losing streaks.
 
+- [ ] **Standardize clothing/wardrobe-change detection between BD and WD** — BD's penalty-removal detection (`markAwaitingRemoval`/`pendingRemovalBaselineCount`, item-count baseline vs fresh ChatRoomSyncSingle, `!removed` fallback, turn-gating fix) shipped 2026-07-11 and is meaningfully more robust than WD's trade-handoff detection (`startWardrobeCheck`/`waitingForWardrobe`), which still just treats *any* sync event as proof of a change (no count check) and has no manual override or escalation beyond a single 2-minute nudge. Plan: port BD's baseline-diff pattern into WD, add a manual confirm command there, and consider extracting a shared "wardrobe watch" helper both bots import — same precedent as `bondagePicker.ts`. On hold — DW wants to field-test today's BD changes first before touching WD or extracting shared code.
+
 ## Future / Nice to Have
 
 - [ ] **69 on first roll — special event** — free request of any player, no dice. Bot announces: "The dice spoke before the game even started — [name] gets a freebie." Design still TBD. (Distinct from the shipped 69/streak roll commentary.)

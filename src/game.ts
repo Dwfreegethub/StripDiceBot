@@ -1042,6 +1042,10 @@ export class StripDiceGame {
     // come before broader prefixes (e.g. "!feedback ").
     private readonly commandTable: Record<string, CommandDef> = {
         "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!r": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!rool": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!rol": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!oll": { handler: (mn, name) => this.handleRoll(mn, name) },
         "!teamgame": { handler: (mn, name) => this.handleTeamGame(mn, name) },
         "!teams": { handler: (mn) => this.handleTeams(mn) },
         "!join": { handler: (mn, name, _msg, message) => this.handleJoin(mn, name, message), prefix: true },
@@ -1176,7 +1180,7 @@ export class StripDiceGame {
 
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so it never interferes with multiplayer turn order.
-        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.soloGames.has(memberNumber)) {
             this.handleSoloRoll(memberNumber);
             return;
         }
@@ -1289,7 +1293,7 @@ export class StripDiceGame {
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so a roll typed in room chat (instead of whispered) still counts and
         // doesn't get silently swallowed by the multiplayer roll handler.
-        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.soloGames.has(memberNumber)) {
             this.handleSoloRoll(memberNumber);
             return;
         }
@@ -1595,7 +1599,7 @@ export class StripDiceGame {
 
     private announceGameStart(hostName: string): void {
         this.bot.sendChat(
-            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers}–${this.maxPlayers} players. Type !join to join!`
+            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers === this.maxPlayers ? `exactly ${this.minPlayers}` : `${this.minPlayers}–${this.maxPlayers}`} players. Type !join to join!`
         );
         this.bot.sendChat(
             `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
