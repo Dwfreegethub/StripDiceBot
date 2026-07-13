@@ -31,6 +31,13 @@ export function logError(msg: string): void {
     console.error(`[${centralTimeString()}] ERROR: ${msg}`);
 }
 
+// Structured game-activity log line, written with a full timestamp (unlike
+// log()'s HH:MM:SS-only prefix) so game start/end events can be correlated
+// against game_log.json entries.
+export function logGameEvent(message: string): void {
+    console.log(`[${centralTimestamp()}] ${message}`);
+}
+
 export function logEvent(event: string, data?: any): void {
     console.log(`[${centralTimeString()}] EVENT: ${event}`, JSON.stringify(data, null, 2));
 }
