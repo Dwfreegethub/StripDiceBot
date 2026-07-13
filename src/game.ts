@@ -6,17 +6,12 @@ import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./m
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
-    FeedbackItemStatus, FeedbackStatusEntry, PlayerRecord,
-    SoloMode, SoloGameState, GameLogEntry, SoloRecordEntry, SoloRecordsData,
-    OutfitSuggestion, CommandDef,
+    PlayerRecord, GameLogEntry, CommandDef,
 } from "./types";
 import {
-    GAME_LOG_RETENTION_MS, TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
+    TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
     JOIN_CONFIRMATION_WINDOW_MS, STARTING_DICE_MAX, SECOND_CHANCE_TIMER_MS,
     JOIN_PAUSE_TIMEOUT_MS, MIN_RETURN_WINDOW_MS, TOYS_CONSENT_TIMEOUT_MS,
-    ADMIN_FEEDBACK_PROXY_TIMEOUT_MS,
-    SOLO_BRACKET_MIN, SOLO_BRACKET_MAX, SOLO_DEFAULT_TARGET, SOLO_BASE_PENALTY_MINUTES,
-    SOLO_DICE_MAX, SOLO_INACTIVITY_TIMEOUT_MS, SOLO_REMOVAL_REMINDER_MS, SOLO_BONDAGE_DELAY_MS,
     REMOVAL_SLOTS, REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS, REMOVAL_RETRY_DELAY_MS,
     MAX_REMOVAL_ATTEMPTS, SAFEWORD_VERIFY_DELAY_MS, SAFEWORD_RETRY_DELAYS_MS,
     LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES, END_GAME_EMIT_STAGGER_MS, GAME_COOLDOWN_MS,
@@ -25,19 +20,22 @@ import {
     CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, MIN_CONSENT_AREAS,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
     MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY,
-    FEEDBACK_STATUS_LABELS, RESOLVED_FEEDBACK_STATUSES, REVIEWING_FEEDBACK_STATUSES,
 } from "./constants";
 import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
 import {
     extractPronouns, cleanDecodedProperty, isLearnableProperty, canonicalJson,
-    deepClone, utcDateString, emptySoloRecordsData, generatePassword,
+    deepClone, generatePassword,
 } from "./util";
+import { GameHost } from "./host";
+import { BotStorage } from "./storage";
+import { SoloGameManager } from "./soloGame";
+import { FeedbackManager } from "./feedback";
 
 // ============================================================
 // GAME CLASS
 // ============================================================
-export class StripDiceGame {
-    private bot: BCConnection;
+export class StripDiceGame implements GameHost {
+    public readonly bot: BCConnection;
     private state: GameState = GameState.Idle;
     private players: Map<number, Player> = new Map();
     private turnOrder: number[] = [];
@@ -76,30 +74,13 @@ export class StripDiceGame {
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
     private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
-    // Admin proxy-feedback confirmation, keyed by admin member number. Set
-    // when an admin runs "!feedback <room member name> <text>" so a follow-up
-    // yes/no whisper can confirm logging it under the target player's name.
-    private pendingAdminFeedbackProxy: Map<number, { targetMemberNumber: number; targetName: string; text: string; timeout: NodeJS.Timeout }> = new Map();
     // Deferred removal timers for players whose 2-round grace period expired
     // before the 90s minimum return window did. Cleared on rejoin or once the
     // timer fires and actually removes them.
     private pendingLeaveRemovalTimers: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
-    private pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
-    private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
-    private feedbackNotified: Set<number> = new Set();
-    private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
+    public readonly pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
     private playerRecords: Record<string, PlayerRecord> = {};
-    private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
-    private feedbackMemberNumbers: Set<number> = new Set();
-    private pendingFeedbackRequest: Set<number> = new Set();
-    private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
-    private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
-    private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
-    private readonly gameLogPath = path.join(__dirname, "..", "game_log.json");
-    private readonly botStatePath = path.join(__dirname, "..", "bot_state.json");
-    private readonly gameCountsPath = path.join(__dirname, "..", "game_counts.json");
     private activeMultiplayer: boolean = false;
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
@@ -157,10 +138,15 @@ export class StripDiceGame {
     private pendingBondagePick: PendingBondagePick | null = null;
     private pendingSlotConsent: Set<number> = new Set(); // players yet to answer the slot-consent whisper
     private bondageUsage: Record<string, Record<string, number>> = {};
-    private readonly bondageUsagePath = path.join(__dirname, "..", "bondage_usage.json");
-    private readonly outfitCandidatesPath = path.join(__dirname, "..", "outfit_candidates.json");
     private itemSettings: ItemSettingsLibrary = {};
-    private readonly itemSettingsPath = path.join(__dirname, "..", "item_settings.json");
+
+    // ============================================================
+    // SUBSYSTEMS - each owns its own state and reaches shared
+    // machinery through the GameHost interface (see host.ts).
+    // ============================================================
+    public readonly storage: BotStorage = new BotStorage();
+    public readonly solo: SoloGameManager;
+    public readonly feedback: FeedbackManager;
 
     // ============================================================
     // TEAM MODE (2v2 / 3v3)
@@ -178,13 +164,13 @@ export class StripDiceGame {
 
     constructor(bot: BCConnection) {
         this.bot = bot;
-        this.loadBondageUsage();
-        this.loadItemSettings();
+        this.solo = new SoloGameManager(this);
+        this.feedback = new FeedbackManager(this);
+        this.bondageUsage = this.storage.loadBondageUsage();
+        this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
-        this.loadFeedbackStatus();
-        this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
         this.loadPlayerRecords();
-        this.pruneGameLog();
+        this.storage.pruneGameLog();
     }
 
     // ============================================================
@@ -225,13 +211,13 @@ export class StripDiceGame {
 
         this.recordPlayerSeen(memberNumber, name);
         this.sendWelcomeWhisper(memberNumber, name);
-        this.notifyFeedbackStatus(memberNumber, name);
+        this.feedback.notifyStatus(memberNumber, name);
     }
 
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
-        this.cleanupSoloOnLeave(memberNumber);
+        this.solo.cleanupOnLeave(memberNumber);
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const player = this.players.get(memberNumber)!;
@@ -464,11 +450,11 @@ export class StripDiceGame {
         "!lock20": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
         "!midgamejoin ": { handler: (mn, _name, _msg, message) => this.handleMidGameJoinToggle(mn, message), whisperOnly: true, prefix: true },
         "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
-        "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
+        "!setstatus ": { handler: (mn, _name, _msg, message) => this.feedback.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!kick ": { handler: (mn, _name, _msg, message) => this.handleKick(mn, message), whisperOnly: true, prefix: true },
-        "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
-        "!feedback": { handler: (mn) => this.handleFeedbackPrompt(mn), whisperOnly: true },
+        "!feedback list": { handler: (mn) => this.feedback.handleList(mn), whisperOnly: true },
+        "!feedback": { handler: (mn) => this.feedback.handlePrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name) },
@@ -483,19 +469,19 @@ export class StripDiceGame {
         "!help admin": { handler: (mn) => this.handleHelpAdmin(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
-        "!solo race": { handler: (mn, name) => this.handleSoloStart(mn, name, "race"), whisperOnly: true },
-        "!solo survive": { handler: (mn, name) => this.handleSoloStart(mn, name, "survive"), whisperOnly: true },
+        "!solo race": { handler: (mn, name) => this.solo.start(mn, name, "race"), whisperOnly: true },
+        "!solo survive": { handler: (mn, name) => this.solo.start(mn, name, "survive"), whisperOnly: true },
         "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
-        "!solo_reset ": { handler: (mn, _name, _msg, message) => this.handleSoloReset(mn, message), whisperOnly: true, prefix: true },
-        "!solo_reset": { handler: (mn) => this.handleSoloReset(mn, ""), whisperOnly: true },
+        "!solo_reset ": { handler: (mn, _name, _msg, message) => this.solo.handleReset(mn, message), whisperOnly: true, prefix: true },
+        "!solo_reset": { handler: (mn) => this.solo.handleReset(mn, ""), whisperOnly: true },
         "!gamestats": { handler: (mn) => this.handleGameStats(mn), whisperOnly: true },
-        "!scores me": { handler: (mn) => this.handleScoresMe(mn) },
-        "!scores race": { handler: (mn) => this.handleScores(mn, "race") },
-        "!scores survive": { handler: (mn) => this.handleScores(mn, "survive") },
-        "!scores": { handler: (mn) => this.handleScores(mn) },
+        "!scores me": { handler: (mn) => this.solo.handleScoresMe(mn) },
+        "!scores race": { handler: (mn) => this.solo.handleScores(mn, "race") },
+        "!scores survive": { handler: (mn) => this.solo.handleScores(mn, "survive") },
+        "!scores": { handler: (mn) => this.solo.handleScores(mn) },
         "!leaderboard": { handler: (mn) => this.handleLeaderboard(mn) },
         "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
-        "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
+        "!feedback ": { handler: (mn, name, _msg, message) => this.feedback.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
         "!removed": { handler: (mn, name) => this.handleRemoved(mn, name) },
         "!veto": { handler: (mn) => this.handleVeto(mn), whisperOnly: true },
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
@@ -539,16 +525,15 @@ export class StripDiceGame {
         // Bare "!feedback" prompts the player to whisper their feedback next.
         // Their following whisper is collected as feedback unless it's itself
         // a command (starts with "!"), in which case it's processed normally.
-        if (this.pendingFeedbackRequest.has(memberNumber)) {
-            this.pendingFeedbackRequest.delete(memberNumber);
+        if (this.feedback.consumePendingRequest(memberNumber)) {
             if (!msg.startsWith("!")) {
-                this.handleFeedback(memberNumber, name, "!feedback " + message);
+                this.feedback.handleFeedback(memberNumber, name, "!feedback " + message);
                 return;
             }
         }
 
         // Yes/No confirmation for a pending admin proxy-feedback submission.
-        if (this.tryHandleAdminFeedbackProxyYesNo(memberNumber, msg)) return;
+        if (this.feedback.tryHandleProxyYesNo(memberNumber, msg)) return;
 
         // Pending lock-time vote (after a win/game-over, before end-game
         // locks go on) — only accepts 1/2/3 replies from the bound players
@@ -575,23 +560,23 @@ export class StripDiceGame {
         }
 
         // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
-        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.handleSoloClothingAnswer(memberNumber, msg);
+        if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.solo.handleClothingAnswer(memberNumber, msg);
             return;
         }
 
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so it never interferes with multiplayer turn order.
-        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.soloGames.has(memberNumber)) {
-            this.handleSoloRoll(memberNumber);
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.solo.hasGame(memberNumber)) {
+            this.solo.handleRoll(memberNumber);
             return;
         }
 
         // Solo item-removal confirmation, while waiting on it. Only intercepts
         // when the solo game is actually pausing for it, so multiplayer's
         // !removed keeps working for players also in solo.
-        if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (msg === "!removed" && this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
         }
 
@@ -687,7 +672,7 @@ export class StripDiceGame {
         }
 
         // Solo game setup clothing Q&A is whisper-only — same nudge.
-        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+        if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (The solo game is just between us.)");
             return;
         }
@@ -695,14 +680,14 @@ export class StripDiceGame {
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so a roll typed in room chat (instead of whispered) still counts and
         // doesn't get silently swallowed by the multiplayer roll handler.
-        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.soloGames.has(memberNumber)) {
-            this.handleSoloRoll(memberNumber);
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.solo.hasGame(memberNumber)) {
+            this.solo.handleRoll(memberNumber);
             return;
         }
 
         // Solo item-removal confirmation, while waiting on it (see handleWhisper).
-        if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (msg === "!removed" && this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
         }
 
@@ -1471,7 +1456,7 @@ export class StripDiceGame {
         this.checkAllReady();
     }
 
-    private isAdmin(memberNumber: number): boolean {
+    public isAdmin(memberNumber: number): boolean {
         return memberNumber === 208543 || memberNumber === 247062 || memberNumber === this.bot.getMemberNumber();
     }
 
@@ -1488,7 +1473,7 @@ export class StripDiceGame {
 
     // Whispers the standard "admin only" message and returns false if the
     // given member is not the game admin.
-    private requireAdmin(memberNumber: number): boolean {
+    public requireAdmin(memberNumber: number): boolean {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can use this command.");
             return false;
@@ -1498,7 +1483,7 @@ export class StripDiceGame {
 
     private handleDebugRoll(memberNumber: number, message: string): void {
         if (!this.requireAdmin(memberNumber)) return;
-        const gameActive = this.state !== GameState.Idle || this.soloGames.size > 0;
+        const gameActive = this.state !== GameState.Idle || this.solo.activeCount() > 0;
         if (!gameActive) {
             this.bot.whisper(memberNumber, "No game in progress.");
             return;
@@ -1749,36 +1734,6 @@ export class StripDiceGame {
             this.currentDiceMax = STARTING_DICE_MAX;
             this.resolveCurrentTurn();
         }
-    }
-
-    private handleSetStatus(memberNumber: number, message: string): void {
-        if (!this.requireAdmin(memberNumber)) return;
-        const parts = message.trim().split(/\s+/);
-        const playerId = parts[1];
-        const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
-        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "researching", "implemented", "partly_implemented"];
-
-        if (!playerId || !/^\d+$/.test(playerId)) {
-            this.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
-            return;
-        }
-        if (!validStatuses.includes(status)) {
-            this.bot.whisper(memberNumber, `Invalid status. Valid statuses: ${validStatuses.join(", ")}`);
-            return;
-        }
-
-        const entry = this.feedbackStatus[playerId];
-        if (!entry || entry.items.length === 0) {
-            this.bot.whisper(memberNumber, `No feedback found for player #${playerId}.`);
-            return;
-        }
-
-        for (const item of entry.items) {
-            item.status = status;
-            item.statusShown = false;
-        }
-        this.saveFeedbackStatus();
-        this.bot.whisper(memberNumber, `Updated ${entry.items.length} feedback item(s) for ${entry.name} (#${playerId}) to "${status}".`);
     }
 
     private handleSafeword(memberNumber: number, name: string): void {
@@ -2051,72 +2006,9 @@ export class StripDiceGame {
         );
     }
 
-    private handleFeedbackPrompt(memberNumber: number): void {
-        this.pendingFeedbackRequest.add(memberNumber);
-        this.bot.whisper(memberNumber, "What's your feedback? Go ahead and whisper it to me and I'll pass it along! 💬");
-    }
-
-    private handleFeedback(memberNumber: number, name: string, message: string): void {
-        const text = message.trim().slice("!feedback ".length).trim();
-        if (!text) {
-            this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
-            return;
-        }
-
-        // Admin proxy: "!feedback <room member name> <text>" logs the feedback
-        // under that player's name/number instead of the admin's, after a
-        // yes/no confirmation. Falls through to normal behavior if the first
-        // word doesn't match anyone currently in the room.
-        if (this.isAdmin(memberNumber)) {
-            const spaceIdx = text.indexOf(" ");
-            if (spaceIdx !== -1) {
-                const firstWord = text.slice(0, spaceIdx);
-                const rest = text.slice(spaceIdx + 1).trim();
-                const target = rest ? this.matchRoomMemberByName(firstWord) : undefined;
-                if (target && target.memberNumber !== memberNumber) {
-                    this.startAdminFeedbackProxy(memberNumber, target, rest);
-                    return;
-                }
-            }
-        }
-
-        this.logFeedbackEntry(memberNumber, name, text);
-        this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
-    }
-
-    // Appends a feedback.log line and updates feedback-tracking state for the
-    // given member/name. Shared by normal feedback submission and the admin
-    // proxy-feedback confirmation, which logs under the target player's
-    // identity rather than the submitting admin's.
-    private logFeedbackEntry(memberNumber: number, name: string, text: string): void {
-        const timestamp = centralTimestamp();
-        const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
-        const filePath = path.join(__dirname, "..", "feedback.log");
-        try {
-            fs.appendFileSync(filePath, line, "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write feedback.log: " + err);
-        }
-        log(`Feedback from ${name}: ${text}`);
-        this.feedbackMemberNumbers.add(memberNumber);
-
-        const key = String(memberNumber);
-        const entry = this.feedbackStatus[key] ?? { name, items: [] };
-        entry.name = name;
-        entry.items.push({ timestamp, text, status: "reviewing" });
-        this.feedbackStatus[key] = entry;
-        this.saveFeedbackStatus();
-
-        const playerRecord = this.playerRecords[key];
-        if (playerRecord && !playerRecord.feedbackGiven) {
-            playerRecord.feedbackGiven = true;
-            this.savePlayerRecords();
-        }
-    }
-
     // Finds a room member whose name matches the query, preferring an exact
     // (case-insensitive) name match and falling back to a prefix match.
-    private matchRoomMemberByName(query: string): { memberNumber: number; name: string } | undefined {
+    public matchRoomMemberByName(query: string): { memberNumber: number; name: string } | undefined {
         const lowerQuery = query.toLowerCase();
         let prefixMatch: { memberNumber: number; name: string } | undefined;
         for (const roomMemberNumber of this.roomMembers) {
@@ -2133,51 +2025,6 @@ export class StripDiceGame {
         return prefixMatch;
     }
 
-    // Starts (or restarts) the yes/no confirmation window for an admin's
-    // proxied feedback submission on behalf of a room member.
-    private startAdminFeedbackProxy(adminMemberNumber: number, target: { memberNumber: number; name: string }, text: string): void {
-        const existing = this.pendingAdminFeedbackProxy.get(adminMemberNumber);
-        if (existing) clearTimeout(existing.timeout);
-
-        const timeout = setTimeout(() => {
-            this.pendingAdminFeedbackProxy.delete(adminMemberNumber);
-            this.bot.whisper(adminMemberNumber, "Feedback proxy confirmation timed out — nothing was logged.");
-        }, ADMIN_FEEDBACK_PROXY_TIMEOUT_MS);
-
-        this.pendingAdminFeedbackProxy.set(adminMemberNumber, {
-            targetMemberNumber: target.memberNumber,
-            targetName: target.name,
-            text,
-            timeout,
-        });
-
-        this.bot.whisper(
-            adminMemberNumber,
-            `Did you mean to submit this feedback on behalf of **${target.name}**? Reply **yes** to confirm or **no** to cancel.`
-        );
-    }
-
-    // Yes/No confirmation for a pending admin proxy-feedback submission.
-    // Returns true if the message was consumed as a yes/no answer.
-    private tryHandleAdminFeedbackProxyYesNo(memberNumber: number, msg: string): boolean {
-        const pending = this.pendingAdminFeedbackProxy.get(memberNumber);
-        if (!pending) return false;
-        if (msg === "yes" || msg === "y") {
-            clearTimeout(pending.timeout);
-            this.pendingAdminFeedbackProxy.delete(memberNumber);
-            this.logFeedbackEntry(pending.targetMemberNumber, pending.targetName, pending.text);
-            this.bot.whisper(memberNumber, `Feedback logged on behalf of ${pending.targetName}.`);
-            return true;
-        }
-        if (msg === "no" || msg === "n") {
-            clearTimeout(pending.timeout);
-            this.pendingAdminFeedbackProxy.delete(memberNumber);
-            this.bot.whisper(memberNumber, "Feedback cancelled.");
-            return true;
-        }
-        return false;
-    }
-
     private handleOutfitSubmission(memberNumber: number, name: string, message: string): void {
         const description = message.trim().slice("!outfit ".length).trim();
         if (!description) {
@@ -2185,37 +2032,23 @@ export class StripDiceGame {
             return;
         }
 
-        const suggestions = this.loadOutfitSuggestions();
+        const suggestions = this.storage.loadOutfitSuggestions();
         suggestions.push({
             memberNumber,
             name,
             description,
             timestamp: centralTimestamp(),
         });
-
-        try {
-            fs.writeFileSync(this.outfitSuggestionsPath, JSON.stringify(suggestions, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write outfit_suggestions.json: " + err);
-        }
+        this.storage.saveOutfitSuggestions(suggestions);
 
         log(`Outfit submission from ${name}: ${description}`);
         this.bot.whisper(memberNumber, "Outfit submitted! It may appear as a penalty in a future game.");
     }
 
-    private loadOutfitSuggestions(): OutfitSuggestion[] {
-        try {
-            const raw = fs.readFileSync(this.outfitSuggestionsPath, "utf8");
-            return JSON.parse(raw);
-        } catch {
-            return [];
-        }
-    }
-
     private handleOutfitsList(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
 
-        const suggestions = this.loadOutfitSuggestions();
+        const suggestions = this.storage.loadOutfitSuggestions();
         if (suggestions.length === 0) {
             this.bot.whisper(memberNumber, "No outfit suggestions submitted yet.");
             return;
@@ -2229,592 +2062,8 @@ export class StripDiceGame {
     }
 
     // ============================================================
-    // SOLO GAME MODE
-    // ============================================================
-
-    private handleSoloStart(memberNumber: number, name: string, mode: SoloMode): void {
-        if (this.soloGames.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You already have a solo game in progress — !roll to continue.");
-            return;
-        }
-        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingQuestionIndex: 0, pendingClothing: [] });
-        this.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
-        this.askSoloClothingQuestion(memberNumber);
-    }
-
-    private askSoloClothingQuestion(memberNumber: number): void {
-        const pending = this.pendingSoloSetup.get(memberNumber)!;
-        const idx = pending.clothingQuestionIndex;
-
-        if (idx >= CLOTHING_SLOTS.length) {
-            const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
-            if (clothing.length < SOLO_BRACKET_MIN) {
-                this.bot.whisper(memberNumber, `You need at least ${SOLO_BRACKET_MIN} items to start — let's try again.`);
-                pending.clothingQuestionIndex = 0;
-                pending.pendingClothing = [];
-                this.askSoloClothingQuestion(memberNumber);
-                return;
-            }
-            this.startSoloGame(memberNumber, pending.mode, pending.name, clothing);
-            return;
-        }
-
-        this.bot.whisper(memberNumber, `Wearing ${CLOTHING_SLOTS[idx]}? (yes/no)`);
-    }
-
-    private handleSoloClothingAnswer(memberNumber: number, msg: string): void {
-        const pending = this.pendingSoloSetup.get(memberNumber)!;
-        const idx = pending.clothingQuestionIndex;
-        const item = CLOTHING_SLOTS[idx];
-
-        if (msg === "yes" || msg === "y") {
-            pending.pendingClothing.push(item);
-        }
-
-        pending.clothingQuestionIndex = idx + 1;
-        this.askSoloClothingQuestion(memberNumber);
-    }
-
-    private startSoloGame(memberNumber: number, mode: SoloMode, name: string, clothing: string[]): void {
-        this.pendingSoloSetup.delete(memberNumber);
-
-        const bracket = clothing.length;
-        const solo: SoloGameState = {
-            memberNumber,
-            name,
-            mode,
-            bracket,
-            currentMax: SOLO_DICE_MAX,
-            totalRolls: 0,
-            rollsThisItem: 0,
-            clothingRemaining: clothing,
-            clothingLost: [],
-            startTime: new Date().toISOString(),
-            awaitingRemoval: false,
-            inactivityTimer: null,
-        };
-        this.soloGames.set(memberNumber, solo);
-        this.writeBotState();
-        logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
-
-        this.bot.sendChat(`🎲 ${name} is playing a solo game — good luck!`);
-
-        const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
-        const objective = mode === "race"
-            ? "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — fewest total rolls wins."
-            : "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — most total rolls before you're naked wins.";
-
-        this.bot.whisper(memberNumber,
-            `🎲 ${modeLabel} — starting with ${bracket} item${bracket === 1 ? "" : "s"}: ${clothing.join(", ")}.\n` +
-            `${objective}\n` +
-            `This is just between us.`
-        );
-        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    private handleSoloRoll(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-
-        this.clearSoloInactivityTimer(solo);
-
-        if (solo.awaitingRemoval) {
-            const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem}.`);
-            this.startSoloInactivityTimer(memberNumber);
-            return;
-        }
-
-        let roll: number;
-        if (this.debugNextRoll !== null) {
-            roll = this.debugNextRoll;
-            this.debugNextRoll = null;
-        } else {
-            roll = Math.floor(Math.random() * solo.currentMax) + 1;
-        }
-        solo.totalRolls++;
-        solo.rollsThisItem++;
-
-        if (roll === 1) {
-            const lostItem = solo.clothingRemaining.shift()!;
-            solo.clothingLost.push(lostItem);
-
-            this.bot.whisper(memberNumber,
-                `You rolled a 1 — lost your ${lostItem}! (${solo.rollsThisItem} roll${solo.rollsThisItem === 1 ? "" : "s"} for that item, ${solo.totalRolls} total)`
-            );
-
-            solo.awaitingRemoval = true;
-            this.bot.whisper(memberNumber, `Remove your ${lostItem}.`);
-            this.startSoloInactivityTimer(memberNumber);
-            return;
-        }
-
-        solo.currentMax = roll;
-        this.bot.whisper(memberNumber, `You are now at ${roll} — !roll again.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    // Called once the player confirms (whispered !removed, or closed their
-    // Wardrobe) that the item they just lost is off.
-    private handleSoloRemoved(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo || !solo.awaitingRemoval) return;
-
-        this.clearSoloInactivityTimer(solo);
-        solo.awaitingRemoval = false;
-
-        if (solo.clothingRemaining.length === 0) {
-            this.finishSoloGame(memberNumber);
-            return;
-        }
-
-        solo.currentMax = SOLO_DICE_MAX;
-        solo.rollsThisItem = 0;
-        this.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
-        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    // Soft nudge if the player goes quiet after a prompt. Does not end the
-    // game; resets whenever the player acts. While awaiting a clothing
-    // removal, we wait for the Wardrobe-close event (handleWardrobe) rather
-    // than rushing the player, only mentioning !removed as a fallback if
-    // SOLO_REMOVAL_REMINDER_MS passes with no Wardrobe activity — then keeps
-    // re-reminding every interval until they act.
-    private startSoloInactivityTimer(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-
-        this.clearSoloInactivityTimer(solo);
-        if (solo.awaitingRemoval) {
-            solo.inactivityTimer = setTimeout(() => {
-                solo.inactivityTimer = null;
-                const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-                this.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed if you have already removed them to continue.`);
-                this.startSoloInactivityTimer(memberNumber);
-            }, SOLO_REMOVAL_REMINDER_MS);
-        } else {
-            solo.inactivityTimer = setTimeout(() => {
-                solo.inactivityTimer = null;
-                this.bot.whisper(memberNumber, "Whenever you're ready — type !roll to continue.");
-            }, SOLO_INACTIVITY_TIMEOUT_MS);
-        }
-    }
-
-    private clearSoloInactivityTimer(solo: SoloGameState): void {
-        if (solo.inactivityTimer) {
-            clearTimeout(solo.inactivityTimer);
-            solo.inactivityTimer = null;
-        }
-    }
-
-    // Returns true if `score` beats `current` (or the hardcoded default target
-    // if no record exists yet). For "race", fewer rolls is better; for
-    // "survive", more rolls is better.
-    private isSoloRecordBeat(mode: SoloMode, score: number, current: SoloRecordEntry | undefined): boolean {
-        const target = current ? current.rolls : SOLO_DEFAULT_TARGET;
-        return mode === "race" ? score < target : score > target;
-    }
-
-    private finishSoloGame(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-        this.clearSoloInactivityTimer(solo);
-        this.soloGames.delete(memberNumber);
-        this.writeBotState();
-
-        const records = this.loadSoloRecords();
-        const bracketKey = String(solo.bracket);
-        const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
-        const dailyRecord = records.daily[solo.mode][bracketKey];
-        const allTimeRecord = records.allTime[solo.mode][bracketKey];
-        const score = solo.totalRolls;
-        const endTime = new Date().toISOString();
-        const players = [`${solo.name}(#${memberNumber})`];
-
-        this.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
-
-        const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
-
-        // No all-time record yet for this mode/bracket: this run sets it (and
-        // the daily record) penalty-free — the first player to finish in a
-        // bracket always gets a free run, since there's no record to beat.
-        if (!allTimeRecord) {
-            records.daily[solo.mode][bracketKey] = entry;
-            records.allTime[solo.mode][bracketKey] = entry;
-            this.bot.whisper(memberNumber, `🏆 You set the all-time record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls! No penalty for being first.`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        if (this.isSoloRecordBeat(solo.mode, score, allTimeRecord)) {
-            records.daily[solo.mode][bracketKey] = entry;
-            records.allTime[solo.mode][bracketKey] = entry;
-            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
-            this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        // All-time record stands, but no daily record yet today (or this run
-        // beats today's daily record): set/keep the daily record, no penalty.
-        if (!dailyRecord || this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
-            records.daily[solo.mode][bracketKey] = entry;
-            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        const recordRolls = dailyRecord.rolls;
-        this.bot.whisper(memberNumber, `You didn't beat the record (${recordRolls} rolls). Better luck next time!`);
-
-        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
-        setTimeout(() => {
-            this.applySoloPenalty(memberNumber, penaltyMinutes);
-        }, SOLO_BONDAGE_DELAY_MS);
-
-        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: loss | penalty: ${penaltyMinutes}min`);
-        this.appendGameLog({
-            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-            players, outcome: "loss", score, penaltyMin: penaltyMinutes,
-        });
-
-        this.incrementGameCount("solo_bondage");
-        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
-        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
-        this.saveSoloRecords(records);
-    }
-
-    // Applies a random eligible bondage outfit (or just its first `itemCap`
-    // items, for partial bondage when a player leaves mid-run) locked for
-    // `penaltyMinutes`.
-    private applySoloPenalty(memberNumber: number, penaltyMinutes: number, itemCap?: number): void {
-        const pool = this.getEligibleOutfits(memberNumber);
-        if (pool.length === 0) return;
-
-        const outfit = pool[Math.floor(Math.random() * pool.length)];
-        const items = itemCap !== undefined ? outfit.items.slice(0, itemCap) : outfit.items;
-        if (items.length === 0) return;
-
-        const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
-        const name = this.nameCache.get(memberNumber) ?? `#${memberNumber}`;
-
-        items.forEach((item, i) => {
-            setTimeout(() => {
-                this.bot.applyItem(memberNumber, item.group, item.name, item.color, item.property);
-
-                setTimeout(() => {
-                    this.bot.applyItem(
-                        memberNumber,
-                        item.group,
-                        item.name,
-                        item.color,
-                        this.buildLockedItemProperty(item, {
-                            hint: `Released in ${penaltyMinutes} minutes`,
-                            removeItem: true,
-                            showTimer: true,
-                            removeTimer: lockEndTime
-                        })
-                    );
-                }, REMOVAL_UNLOCK_GAP_MS);
-            }, i * REMOVAL_SLOT_DELAY_MS);
-        });
-
-        // Phase 1 (apply) finishes once the last item's lock step has fired.
-        const phase1CompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS;
-
-        // Phase 2: after everything is locked, verify each lock using the same
-        // silence=success / ChatRoomSyncSingle=rejection model as end-game locks.
-        let lastVerifyDelay = 0;
-        items.forEach((item, i) => {
-            const verifyDelay = phase1CompleteDelay + i * REMOVAL_SLOT_DELAY_MS;
-            lastVerifyDelay = verifyDelay;
-            setTimeout(() => {
-                this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, 0);
-            }, verifyDelay);
-        });
-
-        // The "penalty applied" whisper waits until the full verify pass
-        // (including any retries' own verify windows) has had time to land.
-        const allVerificationsCompleteDelay = lastVerifyDelay + LOCK_VERIFY_DELAY_MS;
-        setTimeout(() => {
-            this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
-        }, allVerificationsCompleteDelay);
-    }
-
-    // Re-applies one solo penalty lock item and starts its verification window.
-    private applySoloLockItem(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
-        this.bot.applyItem(
-            memberNumber,
-            item.group,
-            item.name,
-            item.color,
-            this.buildLockedItemProperty(item, {
-                hint: `Released in ${penaltyMinutes} minutes`,
-                removeItem: true,
-                showTimer: true,
-                removeTimer: lockEndTime
-            })
-        );
-        this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt);
-    }
-
-    // Same silence=success / ChatRoomSyncSingle=rejection model as
-    // verifyEndGameLockApplied(), applied to solo penalty locks.
-    private verifySoloLockApplied(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
-        const key = `${memberNumber}:${item.group}`;
-
-        const existing = this.pendingLockApplyChecks.get(key);
-        if (existing) this.pendingLockApplyChecks.delete(key);
-
-        const finish = (rejected: boolean) => {
-            if (!this.pendingLockApplyChecks.has(key)) return;
-            this.pendingLockApplyChecks.delete(key);
-
-            if (!rejected) {
-                log(`Solo lock verification: ${name} (#${memberNumber}) ${item.group}/${item.name} confirmed (no rejection received).`);
-                return;
-            }
-
-            log(`Solo lock verification: BC rejected lock for ${name} (#${memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
-
-            if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
-                log(`SOLO LOCK VERIFY FAILED: giving up on ${name} (#${memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
-                this.bot.whisper(memberNumber, "⚠️ One or more locks may not have applied correctly — please check your items.");
-                return;
-            }
-
-            const retry = () => this.applySoloLockItem(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt + 1);
-            if (this.bot.isReconnecting()) {
-                log(`Reconnect in progress — delaying solo lock retry for ${name} (#${memberNumber}) ${item.group}/${item.name} until reconnected.`);
-                this.bot.onceConnected(retry);
-            } else {
-                retry();
-            }
-        };
-
-        this.pendingLockApplyChecks.set(key, { itemName: item.name, onResult: finish });
-        setTimeout(() => finish(false), LOCK_VERIFY_DELAY_MS);
-    }
-
-    // Called when a player leaves the room mid-run. Discards their solo game
-    // state, applying partial bondage (one item per clothing item already
-    // lost) if they'd made any progress.
-    private cleanupSoloOnLeave(memberNumber: number): void {
-        this.pendingSoloSetup.delete(memberNumber);
-
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-        this.clearSoloInactivityTimer(solo);
-        this.soloGames.delete(memberNumber);
-        this.writeBotState();
-
-        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | outcome: abandoned`);
-        this.appendGameLog({
-            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
-            players: [`${solo.name}(#${memberNumber})`], outcome: "abandoned",
-        });
-
-        const clothingRemoved = solo.clothingLost.length;
-        if (clothingRemoved <= 0) return;
-
-        const records = this.loadSoloRecords();
-        const bracketKey = String(solo.bracket);
-        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
-
-        this.applySoloPenalty(memberNumber, penaltyMinutes, clothingRemoved);
-
-        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
-        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
-        this.saveSoloRecords(records);
-    }
-
-    // Admin command: !solo_reset [player name]. With no name, lists all
-    // active solo games. With a name, discards that player's solo game with
-    // no penalty (e.g. to clear a stuck/buggy run).
-    private handleSoloReset(memberNumber: number, message: string): void {
-        if (!this.requireAdmin(memberNumber)) return;
-
-        const requested = message.trim().slice("!solo_reset".length).trim();
-
-        if (!requested) {
-            if (this.soloGames.size === 0) {
-                this.bot.whisper(memberNumber, "No solo games are currently active.");
-                return;
-            }
-            const lines = [...this.soloGames.values()].map(solo => {
-                const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
-                return `${solo.name} (#${solo.memberNumber}) - ${modeLabel}, ${solo.bracket}-item bracket, ${solo.clothingLost.length}/${solo.bracket} lost, ${solo.totalRolls} rolls so far`;
-            });
-            this.sendLongWhisper(memberNumber, `=== Active Solo Games ===\n${lines.join("\n")}\nUsage: !solo_reset [player name] to reset one.`);
-            return;
-        }
-
-        const target = [...this.soloGames.values()].find(s => s.name.toLowerCase().includes(requested.toLowerCase()));
-        if (!target) {
-            this.bot.whisper(memberNumber, `No active solo game found matching "${requested}".`);
-            return;
-        }
-
-        this.clearSoloInactivityTimer(target);
-        this.soloGames.delete(target.memberNumber);
-        this.pendingSoloSetup.delete(target.memberNumber);
-        this.writeBotState();
-
-        logGameEvent(`[SOLO END] mode: ${target.mode} | bracket: ${target.bracket} | player: ${target.name} | outcome: admin-reset`);
-        this.appendGameLog({
-            type: "solo", mode: target.mode, startTime: target.startTime, endTime: new Date().toISOString(),
-            players: [`${target.name}(#${target.memberNumber})`], outcome: "admin-reset",
-        });
-
-        this.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
-        this.bot.whisper(target.memberNumber, "An admin reset your solo game — !solo race or !solo survive to start a new one.");
-    }
-
-    private loadSoloRecords(): SoloRecordsData {
-        let data: SoloRecordsData;
-        try {
-            const raw = fs.readFileSync(this.soloRecordsPath, "utf8");
-            data = JSON.parse(raw);
-        } catch {
-            data = emptySoloRecordsData();
-        }
-
-        const today = utcDateString();
-        if (data.date !== today) {
-            data.date = today;
-            data.daily = { race: {}, survive: {} };
-            data.attempts = { race: {}, survive: {} };
-        }
-
-        return data;
-    }
-
-    private saveSoloRecords(data: SoloRecordsData): void {
-        try {
-            fs.writeFileSync(this.soloRecordsPath, JSON.stringify(data, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write solo_records.json: " + err);
-        }
-    }
-
-    // ============================================================
     // GAME ACTIVITY LOGGING
     // ============================================================
-
-    // Appends one NDJSON line to game_log.json for a completed game (multiplayer or solo).
-    private appendGameLog(entry: GameLogEntry): void {
-        try {
-            fs.appendFileSync(this.gameLogPath, JSON.stringify(entry) + "\n", "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write game_log.json: " + err);
-        }
-    }
-
-    // Drops game_log.json entries older than 30 days. Called once on startup.
-    private pruneGameLog(): void {
-        try {
-            if (!fs.existsSync(this.gameLogPath)) return;
-            const raw = fs.readFileSync(this.gameLogPath, "utf8");
-            const cutoff = Date.now() - GAME_LOG_RETENTION_MS;
-
-            const kept = raw.split("\n")
-                .filter(line => line.trim().length > 0)
-                .filter(line => {
-                    try {
-                        const entry: GameLogEntry = JSON.parse(line);
-                        return new Date(entry.endTime).getTime() >= cutoff;
-                    } catch {
-                        return false;
-                    }
-                });
-
-            fs.writeFileSync(this.gameLogPath, kept.map(line => line + "\n").join(""), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to prune game_log.json: " + err);
-        }
-    }
-
-    // Writes a small status snapshot read by external monitoring tools.
-    private writeBotState(): void {
-        const state = {
-            activeMultiplayer: this.activeMultiplayer,
-            activeSoloCount: this.soloGames.size,
-            lastUpdated: new Date().toISOString(),
-        };
-        try {
-            fs.writeFileSync(this.botStatePath, JSON.stringify(state, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write bot_state.json: " + err);
-        }
-    }
-
-    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; team_2v2: number; team_3v3: number; toysDeclineCount: number; lastUpdated: string } {
-        try {
-            const raw = fs.readFileSync(this.gameCountsPath, "utf8");
-            const parsed = JSON.parse(raw);
-            parsed.team_2v2 ??= 0;
-            parsed.team_3v3 ??= 0;
-            return parsed;
-        } catch {
-            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, team_2v2: 0, team_3v3: 0, toysDeclineCount: 0, lastUpdated: new Date().toISOString() };
-        }
-    }
-
-    private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted" | "team_2v2" | "team_3v3"): void {
-        const counts = this.loadGameCounts();
-        counts[type]++;
-        counts.lastUpdated = new Date().toISOString();
-        try {
-            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write game_counts.json: ${err}`);
-        }
-    }
-
-    // Running total across all games of explicit "no" answers to the toys
-    // consent question (late-join timeouts/declines are NOT counted here —
-    // only players who actually answered "no").
-    private incrementToysDeclineCount(): void {
-        const counts = this.loadGameCounts();
-        counts.toysDeclineCount = (counts.toysDeclineCount ?? 0) + 1;
-        counts.lastUpdated = new Date().toISOString();
-        try {
-            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write game_counts.json: ${err}`);
-        }
-    }
 
     // Logs a "[GAME END] multiplayer" line plus a game_log.json entry, and
     // marks this game's end as logged so resetGame() doesn't log it again
@@ -2839,7 +2088,7 @@ export class StripDiceGame {
             entry.isTeamMode = true;
             entry.teamSize = this.teamSize;
         }
-        this.appendGameLog(entry);
+        this.storage.appendGameLog(entry);
         this.gameEndLogged = true;
 
         if (outcome === "win" || outcome === "all-bound") {
@@ -2848,82 +2097,18 @@ export class StripDiceGame {
 
         if (outcome === "win" || outcome === "all-bound") {
             if (this.isTeamMode) {
-                this.incrementGameCount(this.teamSize === 3 ? "team_3v3" : "team_2v2");
+                this.storage.incrementGameCount(this.teamSize === 3 ? "team_3v3" : "team_2v2");
             } else {
-                this.incrementGameCount("multiplayer");
+                this.storage.incrementGameCount("multiplayer");
             }
         } else {
-            this.incrementGameCount("aborted");
+            this.storage.incrementGameCount("aborted");
         }
     }
 
     // ============================================================
     // SCORES & LEADERBOARDS
     // ============================================================
-
-    private formatSoloScoreLine(records: SoloRecordsData, mode: SoloMode, bracket: number): string {
-        const bracketKey = String(bracket);
-        const daily = records.daily[mode][bracketKey];
-        const allTime = records.allTime[mode][bracketKey];
-        const dailyStr = daily ? `${daily.name} ${daily.rolls} rolls` : "—";
-        const allTimeStr = allTime ? `${allTime.name} ${allTime.rolls} rolls` : "—";
-        return `${bracket} items: ${dailyStr} | ${allTimeStr}`;
-    }
-
-    private handleScores(memberNumber: number, filter?: SoloMode): void {
-        const records = this.loadSoloRecords();
-        const lines: string[] = [];
-
-        if (!filter || filter === "race") {
-            lines.push("🎲 Race to Naked (daily | all-time)");
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                lines.push(this.formatSoloScoreLine(records, "race", b));
-            }
-        }
-        if (!filter || filter === "survive") {
-            lines.push("🧦 Survive (daily | all-time)");
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                lines.push(this.formatSoloScoreLine(records, "survive", b));
-            }
-        }
-        lines.push("Type !scores me for your personal stats.");
-
-        this.sendLongWhisper(memberNumber, lines.join("\n"));
-    }
-
-    private handleScoresMe(memberNumber: number): void {
-        const records = this.loadSoloRecords();
-        const name = this.getPlayerName(memberNumber);
-        const lines: string[] = [`=== Your Solo Stats, ${name} ===`];
-
-        for (const mode of ["race", "survive"] as SoloMode[]) {
-            const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                const bracketKey = String(b);
-                const daily = records.daily[mode][bracketKey];
-                const allTime = records.allTime[mode][bracketKey];
-                const isDailyMe = daily?.memberNumber === memberNumber;
-                const isAllTimeMe = allTime?.memberNumber === memberNumber;
-                const attempts = records.attempts[mode][bracketKey]?.[String(memberNumber)] ?? 0;
-
-                if (!isDailyMe && !isAllTimeMe && attempts === 0) continue;
-
-                const parts: string[] = [];
-                if (isAllTimeMe) parts.push(`all-time best ${allTime!.rolls} rolls`);
-                if (isDailyMe && !(isAllTimeMe && daily!.rolls === allTime!.rolls)) parts.push(`today's best ${daily!.rolls} rolls`);
-                if (parts.length > 0) lines.push(`${modeLabel} (${b} items): ${parts.join(", ")}`);
-
-                if (attempts > 0) {
-                    const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attempts;
-                    lines.push(`  Attempts today: ${attempts} (next penalty if you don't beat the record: ${penaltyMinutes} min)`);
-                }
-            }
-        }
-
-        if (lines.length === 1) lines.push("No personal records yet — try !solo race or !solo survive!");
-
-        this.sendLongWhisper(memberNumber, lines.join("\n"));
-    }
 
     private handleLeaderboard(memberNumber: number): void {
         const records = Object.values(this.playerRecords);
@@ -2953,72 +2138,9 @@ export class StripDiceGame {
         this.sendLongWhisper(memberNumber, lines.join("\n"));
     }
 
-    // ============================================================
-    // FEEDBACK STATUS NOTIFICATIONS
-    // ============================================================
-
-    private loadFeedbackStatus(): void {
-        try {
-            const raw = fs.readFileSync(this.feedbackStatusPath, "utf8");
-            this.feedbackStatus = JSON.parse(raw);
-        } catch {
-            this.feedbackStatus = {};
-        }
-    }
-
-    private saveFeedbackStatus(): void {
-        try {
-            fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write feedback_status.json: " + err);
-        }
-    }
-
-    private notifyFeedbackStatus(memberNumber: number, name: string): void {
-        if (this.feedbackNotified.has(memberNumber)) return;
-        const entry = this.feedbackStatus[String(memberNumber)];
-        if (!entry || entry.items.length === 0) return;
-        this.feedbackNotified.add(memberNumber);
-
-        let changed = false;
-
-        const resolvedToShow = entry.items.filter(item =>
-            RESOLVED_FEEDBACK_STATUSES.has(item.status) && !item.statusShown
-        );
-        if (resolvedToShow.length > 0) {
-            const lines = resolvedToShow.map((item, i) =>
-                `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
-            );
-            this.sendLongWhisper(memberNumber,
-                `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
-                lines.join("\n") +
-                `\n\nThanks for helping us improve the game! 💕`
-            );
-            for (const item of resolvedToShow) {
-                item.statusShown = true;
-            }
-            changed = true;
-        }
-
-        const reviewingItems = entry.items.filter(item => REVIEWING_FEEDBACK_STATUSES.has(item.status));
-        if (reviewingItems.length > 0) {
-            const ackDate = entry.reviewingAckDate ? new Date(entry.reviewingAckDate) : null;
-            const hasNewSinceAck = reviewingItems.some(item => !ackDate || new Date(item.timestamp) > ackDate);
-            if (hasNewSinceAck) {
-                this.sendLongWhisper(memberNumber,
-                    `Hi ${name}! We've received your feedback and are reviewing it. We'll let you know when there's an update!`
-                );
-                entry.reviewingAckDate = new Date().toISOString();
-                changed = true;
-            }
-        }
-
-        if (changed) this.saveFeedbackStatus();
-    }
-
     // Whispers tend to get silently dropped by the BC server if they exceed
     // its max chat message length, so split long messages on line boundaries.
-    private sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
+    public sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
         if (text.length <= maxLen) {
             this.bot.whisper(memberNumber, text);
             return;
@@ -3040,6 +2162,18 @@ export class StripDiceGame {
         });
     }
 
+    // Writes bot_state.json with the current multiplayer + solo activity (GameHost).
+    public saveBotState(): void {
+        this.storage.writeBotState(this.activeMultiplayer, this.solo.activeCount());
+    }
+
+    // Returns the admin-forced next roll (!debugroll) and clears it, or null (GameHost).
+    public consumeDebugRoll(): number | null {
+        const roll = this.debugNextRoll;
+        this.debugNextRoll = null;
+        return roll;
+    }
+
     // ============================================================
     // PLAYER TRACKING
     // ============================================================
@@ -3048,7 +2182,7 @@ export class StripDiceGame {
     // running, whether it's still joinable, and whether solo games are active.
     private sendWelcomeWhisper(memberNumber: number, name: string): void {
         if (this.state === GameState.Idle) {
-            if (this.soloGames.size > 0) {
+            if (this.solo.activeCount() > 0) {
                 this.bot.whisper(memberNumber,
                     "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
@@ -3082,16 +2216,10 @@ export class StripDiceGame {
     }
 
     private loadPlayerRecords(): void {
-        try {
-            const raw = fs.readFileSync(this.playerRecordsPath, "utf8");
-            this.playerRecords = JSON.parse(raw);
-        } catch {
-            this.playerRecords = {};
-        }
+        this.playerRecords = this.storage.loadPlayerRecords();
 
-        for (const memberNumber of this.feedbackMemberNumbers) {
-            const record = this.playerRecords[String(memberNumber)];
-            if (record) record.feedbackGiven = true;
+        for (const record of Object.values(this.playerRecords)) {
+            if (this.feedback.hasGivenFeedback(record.memberNumber)) record.feedbackGiven = true;
         }
 
         // Backfill gamesLost for records saved before the field existed.
@@ -3101,26 +2229,16 @@ export class StripDiceGame {
     }
 
     private savePlayerRecords(): void {
-        try {
-            fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write players.json: " + err);
-        }
+        this.storage.savePlayerRecords(this.playerRecords);
     }
 
-    // Reads feedback.log and returns the set of member numbers that have
-    // submitted feedback, e.g. lines like "... Missy (#208543): ...".
-    private loadFeedbackMemberNumbers(): Set<number> {
-        const memberNumbers = new Set<number>();
-        try {
-            const raw = fs.readFileSync(path.join(__dirname, "..", "feedback.log"), "utf8");
-            for (const match of raw.matchAll(/\(#(\d+)\)/g)) {
-                memberNumbers.add(Number(match[1]));
-            }
-        } catch {
-            // No feedback log yet
+    // Sets the feedbackGiven flag on a player's persistent record (GameHost).
+    public markFeedbackGiven(memberNumber: number): void {
+        const record = this.playerRecords[String(memberNumber)];
+        if (record && !record.feedbackGiven) {
+            record.feedbackGiven = true;
+            this.savePlayerRecords();
         }
-        return memberNumbers;
     }
 
     private recordPlayerSeen(memberNumber: number, name: string): void {
@@ -3139,7 +2257,7 @@ export class StripDiceGame {
                 gamesPlayed: 0,
                 gamesWon: 0,
                 gamesLost: 0,
-                feedbackGiven: this.feedbackMemberNumbers.has(memberNumber),
+                feedbackGiven: this.feedback.hasGivenFeedback(memberNumber),
             };
         }
         this.savePlayerRecords();
@@ -3159,26 +2277,6 @@ export class StripDiceGame {
             }
         }
         this.savePlayerRecords();
-    }
-
-    private handleFeedbackList(memberNumber: number): void {
-        if (!this.requireAdmin(memberNumber)) return;
-
-        const entries = Object.entries(this.feedbackStatus).filter(([k]) => !k.startsWith("_"));
-        if (entries.length === 0) {
-            this.bot.whisper(memberNumber, "No feedback recorded yet.");
-            return;
-        }
-
-        const lines: string[] = [];
-        for (const [playerId, entry] of entries) {
-            lines.push(`${entry.name} (#${playerId}):`);
-            entry.items.forEach((item, i) => {
-                lines.push(`  ${i + 1}. [${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}] ${item.text}`);
-            });
-        }
-
-        this.sendLongWhisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
     }
 
     private handleHelp(memberNumber: number): void {
@@ -3273,7 +2371,7 @@ export class StripDiceGame {
 
     private handleGameStats(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
-        const counts = this.loadGameCounts();
+        const counts = this.storage.loadGameCounts();
         const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted + counts.team_2v2 + counts.team_3v3;
         this.bot.whisper(memberNumber,
             `=== Game Stats ===\n` +
@@ -3386,8 +2484,8 @@ export class StripDiceGame {
     }
 
     public handleWardrobe(memberNumber: number, name: string): void {
-        if (this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
         }
 
@@ -3585,7 +2683,7 @@ export class StripDiceGame {
         if (!player || player.toysConsent !== null) return;
         player.toysConsent = accepted;
         logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) answered: ${accepted ? "yes" : "no"}`);
-        if (!accepted) this.incrementToysDeclineCount();
+        if (!accepted) this.storage.incrementToysDeclineCount();
 
         if ([...this.players.values()].every(p => p.toysConsent !== null)) {
             this.resolveToysConsent();
@@ -3666,7 +2764,7 @@ export class StripDiceGame {
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
         const teamTag = this.isTeamMode ? ` | team: ${this.teamSize}v${this.teamSize}` : "";
         logGameEvent(`[GAME START] multiplayer${teamTag} | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
-        this.writeBotState();
+        this.saveBotState();
 
         const orderNames = this.turnOrder
             .map(n => {
@@ -4017,7 +3115,7 @@ export class StripDiceGame {
     // Builds the Property object for a padlocked bondage item, used both
     // when applying a fresh bondage item mid-game and when locking everyone
     // up at the end of the game.
-    private buildLockedItemProperty(
+    public buildLockedItemProperty(
         item: BondageItem,
         options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
     ): any {
@@ -4874,23 +3972,8 @@ export class StripDiceGame {
 
     // --- item settings library ---------------------------------
 
-    private loadItemSettings(): void {
-        try {
-            if (fs.existsSync(this.itemSettingsPath)) {
-                this.itemSettings = JSON.parse(fs.readFileSync(this.itemSettingsPath, "utf8"));
-            }
-        } catch (err) {
-            log(`WARNING: Could not load item_settings.json — starting with empty settings library: ${err}`);
-            this.itemSettings = {};
-        }
-    }
-
     private saveItemSettings(): void {
-        try {
-            fs.writeFileSync(this.itemSettingsPath, JSON.stringify(this.itemSettings, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write item_settings.json: ${err}`);
-        }
+        this.storage.saveItemSettings(this.itemSettings);
     }
 
     // Preloads configurations from the preset outfits so common items have a
@@ -4965,23 +4048,8 @@ export class StripDiceGame {
 
     // --- popularity tracking & candidate logging ---------------
 
-    private loadBondageUsage(): void {
-        try {
-            if (fs.existsSync(this.bondageUsagePath)) {
-                this.bondageUsage = JSON.parse(fs.readFileSync(this.bondageUsagePath, "utf8"));
-            }
-        } catch (err) {
-            log(`WARNING: Could not load bondage_usage.json — starting with empty usage data: ${err}`);
-            this.bondageUsage = {};
-        }
-    }
-
     private saveBondageUsage(): void {
-        try {
-            fs.writeFileSync(this.bondageUsagePath, JSON.stringify(this.bondageUsage, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write bondage_usage.json: ${err}`);
-        }
+        this.storage.saveBondageUsage(this.bondageUsage);
     }
 
     private incrementBondageUsage(group: string, itemName: string): void {
@@ -5004,17 +4072,8 @@ export class StripDiceGame {
                 p.appliedBondageItems.map(e => ({ slot: e.slot, item: e.item, appliedTo: p.name }))),
         };
 
-        try {
-            let existing: any[] = [];
-            if (fs.existsSync(this.outfitCandidatesPath)) {
-                const parsed = JSON.parse(fs.readFileSync(this.outfitCandidatesPath, "utf8"));
-                if (Array.isArray(parsed)) existing = parsed;
-            }
-            existing.push(entry);
-            fs.writeFileSync(this.outfitCandidatesPath, JSON.stringify(existing, null, 2), "utf8");
+        if (this.storage.appendOutfitCandidate(entry) >= 0) {
             log(`Logged ${entry.selections.length} player-pick selection(s) to outfit_candidates.json`);
-        } catch (err) {
-            log(`ERROR: Failed to write outfit_candidates.json: ${err}`);
         }
     }
 
@@ -5509,7 +4568,7 @@ export class StripDiceGame {
         }
         this.gameEndLogged = false;
         this.activeMultiplayer = false;
-        this.writeBotState();
+        this.saveBotState();
 
         this.state = GameState.Idle;
         for (const player of this.players.values()) {
@@ -5654,7 +4713,7 @@ export class StripDiceGame {
 
     // startDelay lets callers stagger removal across multiple players so their
     // slot-removal emits don't all flood the server at once.
-    private removeAllItems(memberNumber: number, startDelay: number = 0): void {
+    public removeAllItems(memberNumber: number, startDelay: number = 0): void {
         REMOVAL_SLOTS.forEach((group, index) => {
             setTimeout(() => {
                 this.removeSlotVerified(memberNumber, group);
@@ -6010,7 +5069,7 @@ export class StripDiceGame {
         return this.players.get(memberNumber)?.name ?? this.nameCache.get(memberNumber);
     }
 
-    private getPlayerName(memberNumber: number): string {
+    public getPlayerName(memberNumber: number): string {
         return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
     }
 
@@ -6031,7 +5090,7 @@ export class StripDiceGame {
     // Players who have set their pronouns to HeHim get outfits without
     // breast-targeted items (e.g. a chastity bra), falling back to the full
     // pool if no such outfit is defined.
-    private getEligibleOutfits(memberNumber: number): BondageOutfit[] {
+    public getEligibleOutfits(memberNumber: number): BondageOutfit[] {
         if (this.pronounsCache.get(memberNumber) === "HeHim") {
             const maleFriendly = BONDAGE_OUTFITS.filter(o => !o.items.some(i => i.group === "ItemBreast"));
             if (maleFriendly.length > 0) return maleFriendly;

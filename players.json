@@ -23,7 +23,7 @@
     "memberNumber": 96,
     "name": "Kitten",
     "firstSeen": "2026-07-03T21:02:00.224-05:00",
-    "lastSeen": "2026-07-12T08:13:03.502-05:00",
+    "lastSeen": "2026-07-12T21:34:39.616-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -4899,6 +4899,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "108547": {
+    "memberNumber": 108547,
+    "name": "Candy",
+    "firstSeen": "2026-07-12T21:45:40.330-05:00",
+    "lastSeen": "2026-07-12T21:45:40.330-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "109088": {
     "memberNumber": 109088,
     "name": "Chris",
@@ -5893,7 +5903,7 @@
     "memberNumber": 124281,
     "name": "Hana",
     "firstSeen": "2026-06-22T23:08:16.088-05:00",
-    "lastSeen": "2026-07-12T20:20:20.881-05:00",
+    "lastSeen": "2026-07-12T21:33:11.153-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6834,6 +6844,16 @@
     "name": "𝕷𝖆𝒚𝖑𝖆𝖙𝖊𝖝",
     "firstSeen": "2026-07-11T19:31:33.003-05:00",
     "lastSeen": "2026-07-11T19:31:33.003-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "143829": {
+    "memberNumber": 143829,
+    "name": "Mia",
+    "firstSeen": "2026-07-12T21:07:30.474-05:00",
+    "lastSeen": "2026-07-12T21:07:30.474-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11844,10 +11864,10 @@
     "name": "Missy",
     "firstSeen": "2026-06-11T15:52:53.587-05:00",
     "lastSeen": "2026-07-12T20:40:34.734-05:00",
-    "gamesPlayed": 22,
+    "gamesPlayed": 23,
     "gamesWon": 7,
     "feedbackGiven": true,
-    "gamesLost": 15
+    "gamesLost": 16
   },
   "208697": {
     "memberNumber": 208697,
@@ -17593,9 +17613,9 @@
     "memberNumber": 247062,
     "name": "MissyMissy",
     "firstSeen": "2026-06-20T12:45:31.116-05:00",
-    "lastSeen": "2026-07-03T13:18:57.179-05:00",
-    "gamesPlayed": 2,
-    "gamesWon": 1,
+    "lastSeen": "2026-07-12T22:06:19.721-05:00",
+    "gamesPlayed": 3,
+    "gamesWon": 2,
     "gamesLost": 1,
     "feedbackGiven": false
   },
