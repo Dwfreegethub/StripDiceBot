@@ -135,6 +135,13 @@ export class StripDiceGame implements GameHost {
     private lateBondageModeTimers: Map<number, NodeJS.Timeout> = new Map();
     private awaitingSlotConsent: boolean = false;
     private slotConsentTimer: NodeJS.Timeout | null = null;
+    // True once the original roster's toys/bondage-mode Q&A has started this
+    // game (set in beginToysConsent). Anyone who !joins afterward — still
+    // possible since state stays Registration through this whole sequence —
+    // is flagged joinedAfterPregameStart and skipped by the group asks below,
+    // then given their own individual toys/bondage-mode questions in
+    // handleReady once they're ready, instead of restarting the group's Q&A.
+    private pregameFlowStarted: boolean = false;
     private pendingBondagePick: PendingBondagePick | null = null;
     private pendingSlotConsent: Set<number> = new Set(); // players yet to answer the slot-consent whisper
     private bondageUsage: Record<string, Record<string, number>> = {};
@@ -875,6 +882,7 @@ export class StripDiceGame implements GameHost {
             missedSecondChance: false,
             ready: false,
             midGameJoin: midGame,
+            joinedAfterPregameStart: !midGame && this.pregameFlowStarted,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1045,6 +1053,7 @@ export class StripDiceGame implements GameHost {
             missedSecondChance: false,
             ready: true,
             midGameJoin: false,
+            joinedAfterPregameStart: false,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1071,11 +1080,15 @@ export class StripDiceGame implements GameHost {
         this.askLateBondageMode(player);
     }
 
-    // Gate shared by both mid-game join paths (clothed mid-game join and the
-    // naked late join). If toys are allowed for the current game, asks the
-    // joiner to opt in before letting them in; otherwise lets them straight
-    // through. onDecline is only invoked for an explicit "no" or a timeout —
-    // the "removed from queue" whisper is sent here either way.
+    // Gate shared by both true mid-game join paths (clothed mid-game join and
+    // the naked late join) and by Registration-phase joiners who arrive after
+    // the original roster's own toys vote already resolved. If toys are
+    // allowed for the current game, asks the joiner to verify they're OK
+    // with it before letting them in; otherwise lets them straight through —
+    // this never re-opens the toys vote itself, just checks this one player
+    // against whatever the roster already decided. onDecline is only invoked
+    // for an explicit "no" or a timeout — the "removed from queue" whisper is
+    // sent here either way.
     private gateLateJoinOnToysConsent(memberNumber: number, onAccept: () => void, onDecline: () => void): void {
         if (!this.toysAllowed) {
             onAccept();
@@ -1192,6 +1205,7 @@ export class StripDiceGame implements GameHost {
             missedSecondChance: false,
             ready: false,
             midGameJoin: false,
+            joinedAfterPregameStart: false,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1432,6 +1446,25 @@ export class StripDiceGame implements GameHost {
             } else {
                 this.bot.sendChat(`${player.name} has joined the game and entered the turn rotation!`);
             }
+            return;
+        }
+
+        if (player.joinedAfterPregameStart) {
+            // Joined during Registration after the original roster's own
+            // toys/bondage-mode Q&A already began (or resolved) — give them
+            // their own individual versions instead of folding them into a
+            // group question that's already moved on. Toys is a verify
+            // against the already-decided answer (or skipped outright if
+            // toys aren't part of this game); bondage mode always asks.
+            player.joinedAfterPregameStart = false;
+            this.bot.sendChat(`${player.name} is ready!`);
+            this.gateLateJoinOnToysConsent(memberNumber,
+                () => this.askLateBondageMode(player),
+                () => {
+                    this.players.delete(memberNumber);
+                    this.bot.sendChat(`${player.name} declined the toy consent question and has been removed from the game.`);
+                }
+            );
             return;
         }
 
@@ -2663,10 +2696,17 @@ export class StripDiceGame implements GameHost {
     // The game doesn't actually start until everyone has answered or the
     // window times out (unanswered players are then treated as "no").
     private beginToysConsent(): void {
+        this.pregameFlowStarted = true;
         clearTimeout(this.toysConsentTimer);
         this.toysConsentTimer = null;
         this.awaitingToysConsent = true;
         for (const player of this.players.values()) {
+            // Anyone who joined after this Q&A already started for the rest
+            // of the roster gets their own individual gate later (in
+            // handleReady), not this group vote — skip them here so a
+            // re-trigger of this function doesn't re-ask (or silently
+            // reset) players already handled.
+            if (player.joinedAfterPregameStart) continue;
             player.toysConsent = null;
             this.bot.whisper(player.memberNumber,
                 "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no)"
@@ -2685,7 +2725,7 @@ export class StripDiceGame implements GameHost {
         logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) answered: ${accepted ? "yes" : "no"}`);
         if (!accepted) this.storage.incrementToysDeclineCount();
 
-        if ([...this.players.values()].every(p => p.toysConsent !== null)) {
+        if ([...this.players.values()].filter(p => !p.joinedAfterPregameStart).every(p => p.toysConsent !== null)) {
             this.resolveToysConsent();
         }
     }
@@ -2695,7 +2735,8 @@ export class StripDiceGame implements GameHost {
     // "no") and starts the game.
     private resolveToysConsent(): void {
         if (!this.awaitingToysConsent) return;
-        for (const player of this.players.values()) {
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
             logGameEvent(`[ToysConsent] Resolving — ${player.name}: ${player.toysConsent}`);
         }
         this.awaitingToysConsent = false;
@@ -2704,10 +2745,12 @@ export class StripDiceGame implements GameHost {
             this.toysConsentTimer = null;
         }
 
-        for (const player of this.players.values()) {
+        for (const player of roster) {
             if (player.toysConsent === null) player.toysConsent = false;
         }
-        this.toysAllowed = [...this.players.values()].every(p => p.toysConsent === true);
+        // Decided by the original roster only — late joiners aren't asked to
+        // vote, only to verify (see gateLateJoinOnToysConsent in handleReady).
+        this.toysAllowed = roster.every(p => p.toysConsent === true);
         logGameEvent(`[ToysConsent] Result: toysAllowed=${this.toysAllowed}`);
 
         if (this.toysAllowed) {
@@ -3266,7 +3309,7 @@ export class StripDiceGame implements GameHost {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             for (const player of this.players.values()) player.bondageMode = "outfit";
             this.gameBondageMode = "outfit";
-            this.startGame();
+            this.tryStartIfEveryoneReady();
             return;
         }
 
@@ -3276,6 +3319,9 @@ export class StripDiceGame implements GameHost {
         }
         this.awaitingBondageMode = true;
         for (const player of this.players.values()) {
+            // Late-registration joiners get their own individual question
+            // once they're ready (handleReady) — see beginToysConsent.
+            if (player.joinedAfterPregameStart) continue;
             player.bondageMode = null;
             this.sendBondageModeQuestion(player.memberNumber);
             logGameEvent(`[BondageMode] Sent question to ${player.name} (#${player.memberNumber})`);
@@ -3288,18 +3334,20 @@ export class StripDiceGame implements GameHost {
             "How should your bondage penalties be chosen?\n" +
             "pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
             "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
-            "Reply \"pick\" or \"outfit\". (60s — no answer counts as outfit)"
+            "Reply \"pick\" or \"outfit\". (60s — no answer counts as pick)"
         );
     }
 
     // Asks a single late joiner (mid-game joiner once clothing is confirmed,
-    // or a naked late joiner right after registering) the same mode question,
-    // scoped to just this player since the group question already resolved
-    // for the rest of the game.
+    // a naked late joiner right after registering, or a Registration-phase
+    // joiner who arrived after the original roster's own Q&A already began)
+    // the same mode question, scoped to just this player since the group
+    // question has already gone out to (or resolved for) everyone else.
     private askLateBondageMode(player: Player): void {
         if (BC_ITEM_CATALOG.size === 0) {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             player.bondageMode = "outfit";
+            this.tryStartIfEveryoneReady();
             return;
         }
 
@@ -3324,7 +3372,11 @@ export class StripDiceGame implements GameHost {
             this.lateBondageModeTimers.delete(memberNumber);
         }
         const player = this.players.get(memberNumber);
-        if (player && player.bondageMode === null) player.bondageMode = "outfit";
+        if (player && player.bondageMode === null) player.bondageMode = "player-pick";
+        // A late-registration joiner may have been the last thing blocking
+        // game start (the original roster's Q&A already resolved without
+        // waiting on them) — check now that their own answer is in.
+        this.tryStartIfEveryoneReady();
     }
 
     private tryHandleBondageModeAnswer(memberNumber: number, msg: string): boolean {
@@ -3343,7 +3395,7 @@ export class StripDiceGame implements GameHost {
 
         if (this.awaitingLateBondageMode.has(memberNumber)) {
             this.resolveLateBondageMode(memberNumber);
-        } else if ([...this.players.values()].every(p => p.bondageMode !== null)) {
+        } else if ([...this.players.values()].filter(p => !p.joinedAfterPregameStart).every(p => p.bondageMode !== null)) {
             this.resolveBondageModeSelection();
         }
         return true;
@@ -3357,14 +3409,15 @@ export class StripDiceGame implements GameHost {
             this.bondageModeTimer = null;
         }
 
-        for (const player of this.players.values()) {
-            if (player.bondageMode === null) player.bondageMode = "outfit";
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
+            if (player.bondageMode === null) player.bondageMode = "player-pick";
         }
 
-        const pickers = [...this.players.values()].filter(p => p.bondageMode === "player-pick");
+        const pickers = roster.filter(p => p.bondageMode === "player-pick");
         this.gameBondageMode = pickers.length === 0
             ? "outfit"
-            : (pickers.length === this.players.size ? "player-pick" : "mixed");
+            : (pickers.length === roster.length ? "player-pick" : "mixed");
         logGameEvent(`[BondageMode] Result: ${this.gameBondageMode}`);
 
         if (this.gameBondageMode === "player-pick") {
@@ -3373,9 +3426,11 @@ export class StripDiceGame implements GameHost {
             this.bot.sendChat(`${pickers.map(p => p.name).join(", ")} chose player-pick restraints; everyone else gets preset outfits.`);
         }
 
-        // Same guard as resolveToysConsent: the question window gives time for
-        // the lobby to change — if it did, the next !ready re-evaluates.
-        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+        // Same guard as resolveToysConsent, scoped to the original roster —
+        // late-registration joiners are handled individually (handleReady)
+        // and don't block this stage; tryStartIfEveryoneReady is the final
+        // gate that waits on them before the game actually starts.
+        if (this.players.size < this.minPlayers || roster.some(p => !p.ready)) {
             return;
         }
 
@@ -3384,7 +3439,7 @@ export class StripDiceGame implements GameHost {
         if (pickers.length > 0) {
             this.beginSlotConsentPhase(pickers);
         } else {
-            this.startGame();
+            this.tryStartIfEveryoneReady();
         }
     }
 
@@ -3417,9 +3472,27 @@ export class StripDiceGame implements GameHost {
         }
         this.pendingSlotConsent.clear();
 
-        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+        if (this.players.size < this.minPlayers || [...this.players.values()].filter(p => !p.joinedAfterPregameStart).some(p => !p.ready)) {
             return;
         }
+
+        this.tryStartIfEveryoneReady();
+    }
+
+    // Final gate before startGame(): confirms every current player — the
+    // original roster plus any late-registration joiners — is ready and has
+    // answered their bondage-mode question (and, if a late joiner, isn't
+    // still mid toys-verify). Called both when the original roster's own
+    // Q&A chain finishes, and again whenever a late joiner's individual
+    // answer comes in, so a slow latecomer can't be left behind or force a
+    // re-ask of everyone who already answered.
+    private tryStartIfEveryoneReady(): void {
+        if (this.state !== GameState.Registration) return;
+        if (this.awaitingToysConsent || this.awaitingBondageMode || this.awaitingSlotConsent) return;
+        if (this.awaitingLateBondageMode.size > 0) return;
+        if (this.pendingLateJoinToysConsent.size > 0) return;
+        if (this.players.size < this.minPlayers) return;
+        if ([...this.players.values()].some(p => !p.ready || p.bondageMode === null)) return;
 
         this.startGame();
     }
@@ -4583,6 +4656,7 @@ export class StripDiceGame implements GameHost {
         this.totalRollsThisGame = 0;
         this.safewordMember = null;
         this.bondagePhaseStarted = false;
+        this.pregameFlowStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
         if (this.pendingLockTimeVote) {
             clearTimeout(this.pendingLockTimeVote.timeout);

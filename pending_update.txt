@@ -1,1 +1,1 @@
-more internal code reorganization, no gameplay changes
+Bondage-mode question now defaults to player-pick (not outfit) on no answer, and every player joining during the pre-game Q&A window gets their own individual pick/outfit question plus a toys-verify (not a re-vote) instead of being silently defaulted.

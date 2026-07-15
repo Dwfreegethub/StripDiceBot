@@ -88,6 +88,7 @@ export interface Player {
     missedSecondChance: boolean; // Missed second chance too; penalty fires on next regular turn
     ready: boolean;             // Has declared clothing and said !ready
     midGameJoin: boolean;       // Joined while a game was already in progress
+    joinedAfterPregameStart: boolean; // Joined during Registration after the original roster's toys/bondage-mode Q&A already began; handled via individual late gates instead of the group flow
     clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
     pendingClothing: string[];  // Items collected so far during guided Q&A
     bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
@@ -99,7 +100,7 @@ export interface Player {
     removalWarned: boolean;      // First 15s expired without response — second 10s window now active
     pendingRemovalKick: boolean; // Both windows missed — next turn gives 15s before removal from game
     toysConsent: boolean | null; // null = unanswered, true/false = answered the pre-game toys question
-    bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "outfit" on timeout
+    bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "player-pick" on timeout
     allowedSlots: string[];      // BC group names this player consented to for player-pick mode
     appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
     lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1; 0 = never lost this game
