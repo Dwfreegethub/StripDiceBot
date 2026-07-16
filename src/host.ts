@@ -56,6 +56,6 @@ export interface GameHost {
     getEligibleOutfits(memberNumber: number): BondageOutfit[];
     buildLockedItemProperty(
         item: BondageItem,
-        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
+        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number; password?: string }
     ): any;
 }

@@ -3420,7 +3420,7 @@ export class StripDiceGame implements GameHost {
     // up at the end of the game.
     public buildLockedItemProperty(
         item: BondageItem,
-        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
+        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number; password?: string }
     ): any {
         return {
             ...item.property,
@@ -3429,7 +3429,7 @@ export class StripDiceGame implements GameHost {
             LockedBy: "TimerPasswordPadlock",
             LockMemberNumber: this.bot.getMemberNumber(),
             LockMemberName: "GameBot",
-            Password: this.gamePassword,
+            Password: options.password ?? this.gamePassword,
             Hint: options.hint,
             LockSet: true,
             RemoveItem: options.removeItem,
@@ -4774,6 +4774,39 @@ export class StripDiceGame implements GameHost {
                 this.prizeWillingPlayers.add(prizePlayer.memberNumber);
                 const password = generatePassword();
                 this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password });
+
+                // Re-lock this player's existing bondage outfit with their own
+                // prize password instead of the shared game password, so the
+                // one password !claim reveals unlocks everything on them —
+                // the whole outfit, not just the leash.
+                if (prizePlayer.bondageOutfit) {
+                    for (let i = 0; i < prizePlayer.bondageApplied; i++) {
+                        const storedItem = prizePlayer.bondageOutfit.items[i];
+                        if (!storedItem) continue;
+                        const cached = this.itemStateCache.get(`${prizePlayer.memberNumber}:${storedItem.group}`);
+                        const item: BondageItem = (cached && cached.Name)
+                            ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
+                            : storedItem;
+
+                        const relockDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                        setTimeout(() => {
+                            this.bot.applyItem(
+                                prizePlayer.memberNumber,
+                                item.group,
+                                item.name,
+                                item.color,
+                                this.buildLockedItemProperty(item, {
+                                    hint: `Prize for ${winner.name} — released in ${this.lockDurationMinutes} min`,
+                                    removeItem: true,
+                                    showTimer: true,
+                                    removeTimer: lockEndTime,
+                                    password,
+                                })
+                            );
+                        }, relockDelay);
+                        stagger++;
+                    }
+                }
 
                 // The leash attaches to a collar — if this player isn't already
                 // wearing one in ItemNeck, give them the most popular one first
