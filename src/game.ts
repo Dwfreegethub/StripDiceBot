@@ -550,8 +550,23 @@ export class StripDiceGame implements GameHost {
         return false;
     }
 
+    // Strips one layer of enclosing parens so BC's out-of-character
+    // convention — e.g. "(!claim)" or "(help)" — parses the same as the
+    // bare command. Only affects what the bot reads internally; the
+    // player's own message still displays with the parens intact to
+    // everyone else in the room. Ported from WD, which already had this —
+    // BD never did, and it silently ate commands wrapped in parens (found
+    // via a real !claim failure: a winner's "(!claim)" whisper never
+    // matched the command table at all).
+    private stripOocParens(text: string): string {
+        const trimmed = text.trim();
+        const match = trimmed.match(/^\(([\s\S]*)\)$/);
+        return match ? match[1].trim() : trimmed;
+    }
+
     public handleWhisper(memberNumber: number, name: string, message: string): void {
-        const msg = message.trim().toLowerCase();
+        message = this.stripOocParens(message);
+        const msg = message.toLowerCase();
 
         // Bare "!feedback" prompts the player to whisper their feedback next.
         // Their following whisper is collected as feedback unless it's itself
@@ -692,7 +707,8 @@ export class StripDiceGame implements GameHost {
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
-        const msg = message.trim().toLowerCase();
+        message = this.stripOocParens(message);
+        const msg = message.toLowerCase();
 
         // Guided clothing Q&A (!wearing) is whisper-only — nudge the player
         // to whisper instead of silently dropping their yes/no.
@@ -1355,8 +1371,7 @@ export class StripDiceGame implements GameHost {
     // player wants.
     private detectClothingPath(memberNumber: number): ClothingPath {
         const char = this.characterDataCache.get(memberNumber);
-        const pronoun = char?.Appearance?.find((item: any) => item?.Group === "Pronouns")?.Name;
-        return pronoun === "HeHim" ? "male" : "female";
+        return extractPronouns(char) === "HeHim" ? "male" : "female";
     }
 
     // Resolves (and caches in clothingPathOverrides on first use) which
@@ -3079,7 +3094,7 @@ export class StripDiceGame implements GameHost {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll`);
+        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll or !r`);
     }
 
     private advanceTurn(): void {
@@ -4607,6 +4622,28 @@ export class StripDiceGame implements GameHost {
         this.finalizeEndGameLocks(vote.winners);
     }
 
+    // Picks the most popular ItemNeck (collar) item from learned usage data
+    // (the same popularity tracking the player-pick bondage picker uses),
+    // falling back to a preset outfit's collar, then any catalog entry.
+    // Used to give a prize player a collar before leashing them if they
+    // aren't already wearing one — a leash has nothing to attach to
+    // otherwise.
+    private pickTopCollarName(): string {
+        const usage = this.bondageUsage["ItemNeck"] ?? {};
+        const catalogItems = BC_ITEM_CATALOG.get("ItemNeck") ?? [];
+        const ranked = Object.entries(usage)
+            .filter(([name, count]) => count > 0 && catalogItems.includes(name))
+            .sort((a, b) => b[1] - a[1]);
+        if (ranked.length > 0) return ranked[0][0];
+
+        for (const outfit of BONDAGE_OUTFITS) {
+            const collar = outfit.items.find(item => item.group === "ItemNeck");
+            if (collar) return collar.name;
+        }
+
+        return catalogItems[0] ?? "LeatherCollar";
+    }
+
     // Actually applies the end-game locks at the current lockDurationMinutes
     // (already settled by applyEndGameLocks/finalizeEndGameLockVote above).
     private finalizeEndGameLocks(winners?: Player[]): void {
@@ -4737,6 +4774,19 @@ export class StripDiceGame implements GameHost {
                 this.prizeWillingPlayers.add(prizePlayer.memberNumber);
                 const password = generatePassword();
                 this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password });
+
+                // The leash attaches to a collar — if this player isn't already
+                // wearing one in ItemNeck, give them the most popular one first
+                // so the leash isn't left with nothing to attach to.
+                const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
+                    ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+                if (!hasCollar) {
+                    const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                    setTimeout(() => {
+                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", {});
+                    }, collarDelay);
+                    stagger++;
+                }
 
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 setTimeout(() => {

@@ -69,16 +69,23 @@ export function emptySoloRecordsData(): SoloRecordsData {
 // ============================================================
 // PASSWORD GENERATOR
 // ============================================================
-// Letters-only (no digits) — BC's TimerPasswordPadlock appears to
-// reject/silently fail to save a password that starts with a digit,
-// confirmed via live testing. Nobody's ever shown this password (it's
-// never whispered to a player, only logged), so it doesn't need to be
-// memorable — just needs to actually save.
+// Word bank, same approach as WD's END_GAME_LOCK_PASSWORD_WORDS (tested
+// working there) — letters-only, capped at 8 characters. BC's
+// TimerPasswordPadlock appears to reject/silently fail to save a password
+// that starts with (or is composed of) digits, or that's longer than 8
+// characters, confirmed via live testing. Passwords ARE shown to players
+// (the prize winner via !claim), so a real word reads better than a random
+// letter string too.
+const PASSWORD_WORDS = [
+    "OBEDIENT", "NAUGHTY", "COLLARED", "BONDAGE", "SUBSPACE",
+    "KITTEN", "BRATTY", "DEVIOUS", "BOUND", "TEASED",
+    "PET", "MISTRESS", "HELPLESS", "SQUIRM", "BLINDED",
+    "SHACKLED", "WHIMPER", "CAPTIVE", "LEASHED", "EDGED",
+    "RESTRAIN", "TETHERED", "DOMINANT", "YEARNING", "KNEELING",
+    "CAPTURED", "CUFFED", "GAGGED", "MUZZLED", "SUBMIT",
+    "CRAVING", "AROUSED", "TEASING", "OBEYING", "PLAYFUL",
+];
+
 export function generatePassword(): string {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-    let result = "";
-    for (let i = 0; i < 8; i++) {
-        result += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return result;
+    return PASSWORD_WORDS[Math.floor(Math.random() * PASSWORD_WORDS.length)];
 }
