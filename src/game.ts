@@ -15,7 +15,7 @@ import {
     REMOVAL_SLOTS, REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS, REMOVAL_RETRY_DELAY_MS,
     MAX_REMOVAL_ATTEMPTS, SAFEWORD_VERIFY_DELAY_MS, SAFEWORD_RETRY_DELAYS_MS,
     LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES, END_GAME_EMIT_STAGGER_MS, GAME_COOLDOWN_MS,
-    CLOTHING_SLOTS, CLOTHING_ALIASES,
+    ClothingPath, clothingSlotsFor, clothingAliasesFor,
     PICK_SLOTS, TIER1_SLOT_GROUPS, TIER2_SLOT_GROUPS, MOUTH_OVERFLOW_GROUPS,
     CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, MIN_CONSENT_AREAS,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
@@ -97,6 +97,12 @@ export class StripDiceGame implements GameHost {
     private joinPauseTimer: NodeJS.Timeout | null = null;
     private pendingTurnResume: (() => void) | null = null;
     private characterDataCache: Map<number, any> = new Map();
+    // Which clothing slot list (male/female) each member is using — set on
+    // first resolution (auto-detected or explicit !clothes) and then sticky
+    // for the rest of the session, so it doesn't flip mid-declaration if BC
+    // sync data changes. Keyed by memberNumber (not Player) so it works for
+    // solo-only players too, who never join the multiplayer roster.
+    private clothingPathOverrides: Map<number, ClothingPath> = new Map();
     private botGameVersion: string | null = null;
     private debugNextRoll: number | null = null;
     // Bonus flavor-commentary tracking (streak comments, 69 easter egg) —
@@ -124,6 +130,12 @@ export class StripDiceGame implements GameHost {
     private prizeWillingPlayers: Set<number> = new Set(); // member numbers who opted in as prizes (non-winners)
     private lastWinnerNumber: number | null = null;       // set at game end, gates !claim
     private prizePasswords: Map<number, { name: string; password: string }> = new Map(); // memberNumber → {name, password}
+    // Late joiners (mid-game join, or Registration-phase join after the
+    // original roster's own prize question already resolved) get their own
+    // individual prize question — it's a personal opt-in, not a
+    // group-decided policy, so unlike toys there's nothing to just verify.
+    private awaitingLatePrizeConsent: Set<number> = new Set();
+    private latePrizeConsentTimers: Map<number, NodeJS.Timeout> = new Map();
     // Mid-game joiners being asked the toys consent question before their join
     // completes (only used when toysAllowed is true for the current game).
     private pendingLateJoinToysConsent: Map<number, { onAccept: () => void; onDecline: () => void; timeout: NodeJS.Timeout }> = new Map();
@@ -456,6 +468,8 @@ export class StripDiceGame implements GameHost {
         "!cancel": { handler: (mn) => this.handleCancel(mn) },
         "!wearing": { handler: (mn) => this.startGuidedClothing(mn) },
         "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), prefix: true },
+        "!clothes": { handler: (mn) => this.handleClothes(mn, "") },
+        "!clothes ": { handler: (mn, _name, _msg, message) => this.handleClothes(mn, message), prefix: true },
         "!naked": { handler: (mn) => this.handleNoWearing(mn) },
         "!same": { handler: (mn) => this.handleSame(mn) },
         "!ready": { handler: (mn) => this.handleReady(mn) },
@@ -573,6 +587,12 @@ export class StripDiceGame implements GameHost {
         // Pre-game prize opt-in question, while this player hasn't answered yet.
         if (this.awaitingPrizeConsent && player?.prizeConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.recordPrizeConsentAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
+        // Individual prize opt-in question for a late joiner, while pending.
+        if (this.awaitingLatePrizeConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.handleLatePrizeConsentAnswer(memberNumber, msg === "yes" || msg === "y");
             return;
         }
 
@@ -994,6 +1014,7 @@ export class StripDiceGame implements GameHost {
                 `  !wearing shoes top bottom (no socks, no underwear)\n` +
                 `  !wearing shoes socks top bottom bra panties\n` +
                 `Or whisper !naked if you have nothing on.\n` +
+                `(Wrong clothing list? Whisper !clothes male or !clothes female to switch.)\n` +
                 `Whisper !ready when done.`
             );
         }
@@ -1095,6 +1116,7 @@ export class StripDiceGame implements GameHost {
         this.turnOrder.push(memberNumber);
 
         this.bot.sendChat(`${name} has joined the game naked — brave!`);
+        this.askLatePrizeConsent(player);
         this.askLateBondageMode(player);
     }
 
@@ -1324,27 +1346,85 @@ export class StripDiceGame implements GameHost {
         this.bot.sendChat(`Countdown cancelled by ${this.getPlayerName(memberNumber)}. Waiting for more players. Whisper !start when ready.`);
     }
 
+    // Auto-detects a member's clothing-question path from BC's Pronouns
+    // appearance item — HeHim -> male, everything else (SheHer, TheyThem,
+    // missing data) -> female, the pre-existing default. Deliberately does
+    // NOT look at body/genital appearance items (e.g. the Pussy group's
+    // Name, which can be "Penis") since this game supports hermaphrodite
+    // characters — body data can't reliably imply which clothing list a
+    // player wants.
+    private detectClothingPath(memberNumber: number): ClothingPath {
+        const char = this.characterDataCache.get(memberNumber);
+        const pronoun = char?.Appearance?.find((item: any) => item?.Group === "Pronouns")?.Name;
+        return pronoun === "HeHim" ? "male" : "female";
+    }
+
+    // Resolves (and caches in clothingPathOverrides on first use) which
+    // clothing list/aliases a member's !wearing/!clothes/!solo flow uses.
+    // Keyed by memberNumber rather than Player so solo-only players (never
+    // in the multiplayer roster) get the same resolution/override behavior.
+    // Part of the GameHost contract so soloGame.ts can call it too.
+    public resolveClothingPath(memberNumber: number): ClothingPath {
+        let path = this.clothingPathOverrides.get(memberNumber);
+        if (!path) {
+            path = this.detectClothingPath(memberNumber);
+            this.clothingPathOverrides.set(memberNumber, path);
+        }
+        return path;
+    }
+
+    private handleClothes(memberNumber: number, message: string): void {
+        const arg = message.trim().toLowerCase().split(/\s+/)[1] ?? "";
+        if (arg !== "male" && arg !== "female") {
+            const current = this.resolveClothingPath(memberNumber);
+            this.bot.whisper(memberNumber,
+                `You're currently on the ${current} clothing list. Whisper !clothes male or !clothes female to switch.`
+            );
+            return;
+        }
+
+        this.clothingPathOverrides.set(memberNumber, arg);
+
+        // Lists differ in length/items between paths, so any in-progress
+        // multiplayer declaration is no longer valid — clear it and have
+        // them redeclare. Solo mode always starts fresh via !solo, so there's
+        // nothing to clear there.
+        const player = this.players.get(memberNumber);
+        if (player) {
+            player.clothing = [];
+            player.pendingClothing = [];
+            player.clothingQuestionIndex = null;
+            player.isNaked = false;
+            player.ready = false;
+        }
+
+        this.bot.whisper(memberNumber, `Switched to the ${arg} clothing list. Whisper !wearing to declare your outfit.`);
+    }
+
     private handleWearing(memberNumber: number, message: string): void {
         const player = this.requirePlayer(memberNumber);
         if (!player) return;
 
+        const path = this.resolveClothingPath(memberNumber);
+        const slots = clothingSlotsFor(path);
+        const aliases = clothingAliasesFor(path);
         const parts = message.trim().toLowerCase().split(/\s+/).slice(1);
         const declared: string[] = [];
 
         for (const part of parts) {
-            const normalized = CLOTHING_ALIASES[part] ?? part;
-            if (CLOTHING_SLOTS.includes(normalized) && !declared.includes(normalized)) {
+            const normalized = aliases[part] ?? part;
+            if (slots.includes(normalized) && !declared.includes(normalized)) {
                 declared.push(normalized);
             }
         }
 
         if (declared.length === 0) {
-            this.bot.whisper(memberNumber, `No valid items found. Valid items are: ${CLOTHING_SLOTS.join(", ")}`);
+            this.bot.whisper(memberNumber, `No valid items found. Valid items are: ${slots.join(", ")}`);
             return;
         }
 
         // Sort by game order
-        player.clothing = CLOTHING_SLOTS.filter(slot => declared.includes(slot));
+        player.clothing = slots.filter(slot => declared.includes(slot));
         player.isNaked = false;
         player.ready = false;
         player.clothingQuestionIndex = null;
@@ -1366,10 +1446,12 @@ export class StripDiceGame implements GameHost {
 
     private askClothingQuestion(memberNumber: number): void {
         const player = this.players.get(memberNumber)!;
+        const path = this.resolveClothingPath(memberNumber);
+        const slots = clothingSlotsFor(path);
         const idx = player.clothingQuestionIndex!;
 
-        if (idx >= CLOTHING_SLOTS.length) {
-            player.clothing = CLOTHING_SLOTS.filter(slot => player.pendingClothing.includes(slot));
+        if (idx >= slots.length) {
+            player.clothing = slots.filter(slot => player.pendingClothing.includes(slot));
             player.isNaked = player.clothing.length === 0;
             player.clothingQuestionIndex = null;
             if (player.clothing.length > 0) {
@@ -1383,13 +1465,19 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        this.bot.whisper(memberNumber, `Do you have ${CLOTHING_SLOTS[idx]} on? (yes/no)`);
+        // Note which list we're on only for the first question — no need to
+        // repeat it every time.
+        const prefix = idx === 0
+            ? `You're on the ${path} clothing list (whisper !clothes male or !clothes female to switch). `
+            : "";
+        this.bot.whisper(memberNumber, `${prefix}Do you have ${slots[idx]} on? (yes/no)`);
     }
 
     private handleGuidedAnswer(memberNumber: number, msg: string): void {
         const player = this.players.get(memberNumber)!;
+        const slots = clothingSlotsFor(this.resolveClothingPath(memberNumber));
         const idx = player.clothingQuestionIndex!;
-        const item = CLOTHING_SLOTS[idx];
+        const item = slots[idx];
 
         if (msg === "yes" || msg === "y") {
             player.pendingClothing.push(item);
@@ -1454,6 +1542,7 @@ export class StripDiceGame implements GameHost {
             player.midGameJoin = false;
             this.turnOrder.push(memberNumber);
             this.bot.whisper(memberNumber, "You're ready! You've been added to the turn rotation.");
+            this.askLatePrizeConsent(player);
             this.askLateBondageMode(player);
 
             if (this.joinPauseActive.has(memberNumber)) {
@@ -1470,15 +1559,19 @@ export class StripDiceGame implements GameHost {
 
         if (player.joinedAfterPregameStart) {
             // Joined during Registration after the original roster's own
-            // toys/bondage-mode Q&A already began (or resolved) — give them
-            // their own individual versions instead of folding them into a
-            // group question that's already moved on. Toys is a verify
-            // against the already-decided answer (or skipped outright if
-            // toys aren't part of this game); bondage mode always asks.
+            // toys/prize/bondage-mode Q&A already began (or resolved) — give
+            // them their own individual versions instead of folding them
+            // into a group question that's already moved on. Toys is a
+            // verify against the already-decided answer (or skipped
+            // outright if toys aren't part of this game); prize and
+            // bondage mode always ask.
             player.joinedAfterPregameStart = false;
             this.bot.sendChat(`${player.name} is ready!`);
             this.gateLateJoinOnToysConsent(memberNumber,
-                () => this.askLateBondageMode(player),
+                () => {
+                    this.askLatePrizeConsent(player);
+                    this.askLateBondageMode(player);
+                },
                 () => {
                     this.players.delete(memberNumber);
                     this.bot.sendChat(`${player.name} declined the toy consent question and has been removed from the game.`);
@@ -2431,7 +2524,9 @@ export class StripDiceGame implements GameHost {
             `!join - Join the game\n` +
             `!wearing - Go through your outfit one item at a time (yes/no)\n` +
             `!wearing [items] - Declare your clothing all at once\n` +
-            `  Valid items: shoes socks top bottom bra panties\n` +
+            `  Valid items (female list): shoes socks top bottom bra panties\n` +
+            `  Valid items (male list): shoes socks jacket shirt pants underwear\n` +
+            `!clothes male / !clothes female - Switch which clothing list !wearing uses\n` +
             `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
             `!ready - Confirm you are ready to play\n` +
@@ -3486,6 +3581,60 @@ export class StripDiceGame implements GameHost {
             "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
             "Reply \"pick\" or \"outfit\". (60s — no answer counts as pick)"
         );
+    }
+
+    // Individual version of beginPrizeConsent() for a late joiner (mid-game
+    // join, or Registration-phase join after the original roster's own
+    // prize question already resolved). Prize consent is a personal opt-in,
+    // not a group-decided policy — unlike toys, there's no "verify against
+    // what was already decided" here, every late joiner just gets asked.
+    // Team mode skips it entirely, same as the original roster's version.
+    private askLatePrizeConsent(player: Player): void {
+        if (this.isTeamMode) return;
+
+        const existingTimer = this.latePrizeConsentTimers.get(player.memberNumber);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        player.prizeConsent = null;
+        this.awaitingLatePrizeConsent.add(player.memberNumber);
+        this.bot.whisper(player.memberNumber,
+            "🏆 Prize opt-in: Would you like to be a potential prize for the winner if you lose? If you say yes, you agree to be the winner's prize to do with as they choose — they'll receive your lock password and a leash to take you wherever they like. (yes/no)"
+        );
+        logGameEvent(`[PrizeConsent] Sent question to ${player.name} (#${player.memberNumber}) [late join]`);
+
+        const timer = setTimeout(() => this.resolveLatePrizeConsent(player.memberNumber), TOYS_CONSENT_TIMEOUT_MS);
+        this.latePrizeConsentTimers.set(player.memberNumber, timer);
+    }
+
+    // Timeout fallback for askLatePrizeConsent — no answer defaults to false,
+    // same as the original roster's resolvePrizeConsent.
+    private resolveLatePrizeConsent(memberNumber: number): void {
+        if (!this.awaitingLatePrizeConsent.has(memberNumber)) return;
+        this.awaitingLatePrizeConsent.delete(memberNumber);
+        const timer = this.latePrizeConsentTimers.get(memberNumber);
+        if (timer) {
+            clearTimeout(timer);
+            this.latePrizeConsentTimers.delete(memberNumber);
+        }
+        const player = this.players.get(memberNumber);
+        if (player && player.prizeConsent === null) player.prizeConsent = false;
+        logGameEvent(`[PrizeConsent] Timed out [late join] — ${player?.name ?? memberNumber}: defaulted to false`);
+    }
+
+    private handleLatePrizeConsentAnswer(memberNumber: number, agreed: boolean): void {
+        if (!this.awaitingLatePrizeConsent.has(memberNumber)) return;
+        this.awaitingLatePrizeConsent.delete(memberNumber);
+        const timer = this.latePrizeConsentTimers.get(memberNumber);
+        if (timer) {
+            clearTimeout(timer);
+            this.latePrizeConsentTimers.delete(memberNumber);
+        }
+
+        const player = this.players.get(memberNumber);
+        if (player) player.prizeConsent = agreed;
+        logGameEvent(`[PrizeConsent] ${player?.name ?? memberNumber} (#${memberNumber}) answered [late join]: ${agreed ? "yes" : "no"}`);
+
+        this.bot.whisper(memberNumber, agreed ? "Got it — you're a potential prize if you lose!" : "Got it — you won't be offered as a prize.");
     }
 
     // Asks a single late joiner (mid-game joiner once clothing is confirmed,
@@ -4934,6 +5083,9 @@ export class StripDiceGame implements GameHost {
         this.awaitingLateBondageMode.clear();
         for (const timer of this.lateBondageModeTimers.values()) clearTimeout(timer);
         this.lateBondageModeTimers.clear();
+        this.awaitingLatePrizeConsent.clear();
+        for (const timer of this.latePrizeConsentTimers.values()) clearTimeout(timer);
+        this.latePrizeConsentTimers.clear();
 
         this.isTeamMode = false;
         this.teamSize = 2;

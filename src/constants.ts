@@ -39,7 +39,7 @@ export const ADMIN_FEEDBACK_PROXY_TIMEOUT_MS = 60 * 1000;
 // SOLO GAME MODE
 // ============================================================
 export const SOLO_BRACKET_MIN = 3;
-export const SOLO_BRACKET_MAX = 7; // 7 = CLOTHING_SLOTS.length (shoes, socks, jacket, top, bottom, bra, panties)
+export const SOLO_BRACKET_MAX = 7; // 7 = FEMALE_CLOTHING_SLOTS.length (the longer of the two clothing paths — see below); male path (6 items) just never fills bracket 7
 export const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
 export const SOLO_BASE_PENALTY_MINUTES = 5;
 export const SOLO_DICE_MAX = 100;
@@ -104,10 +104,26 @@ export const GAME_COOLDOWN_MS = 5 * 60 * 1000;
 
 // ============================================================
 // CLOTHING SLOTS - ordered loss sequence
+//
+// Two parallel slot lists, chosen per-player via ClothingPath (see
+// detectClothingPath() in game.ts, driven by the BC Pronouns appearance
+// item — HeHim -> male, everything else -> female, the existing default).
+// The removal/scoring logic (player.clothing, clothingRemoved, etc.) is
+// already fully generic over whatever list a player ends up with, so
+// adding the male list required no changes there — only the declaration
+// flow (handleWearing/askClothingQuestion in game.ts, and soloGame.ts's
+// parallel copy) needed to become path-aware.
 // ============================================================
-export const CLOTHING_SLOTS = ["shoes", "socks", "jacket", "top", "bottom", "bra", "panties"];
+export type ClothingPath = "male" | "female";
 
-export const CLOTHING_ALIASES: Record<string, string> = {
+export const FEMALE_CLOTHING_SLOTS = ["shoes", "socks", "jacket", "top", "bottom", "bra", "panties"];
+export const MALE_CLOTHING_SLOTS = ["shoes", "socks", "jacket", "shirt", "pants", "underwear"];
+
+export function clothingSlotsFor(path: ClothingPath): string[] {
+    return path === "male" ? MALE_CLOTHING_SLOTS : FEMALE_CLOTHING_SLOTS;
+}
+
+export const FEMALE_CLOTHING_ALIASES: Record<string, string> = {
     // jacket
     "coat": "jacket", "cardigan": "jacket", "blazer": "jacket",
     // top
@@ -128,6 +144,29 @@ export const CLOTHING_ALIASES: Record<string, string> = {
     "underwear": "panties", "thong": "panties", "panty": "panties",
     "knickers": "panties", "briefs": "panties",
 };
+
+export const MALE_CLOTHING_ALIASES: Record<string, string> = {
+    // jacket
+    "coat": "jacket", "cardigan": "jacket", "blazer": "jacket",
+    // shirt
+    "top": "shirt", "tshirt": "shirt", "t-shirt": "shirt", "tee": "shirt",
+    "tank": "shirt", "tanktop": "shirt", "tank-top": "shirt", "sweater": "shirt",
+    "hoodie": "shirt", "polo": "shirt",
+    // pants
+    "bottom": "pants", "shorts": "pants", "jeans": "pants", "trousers": "pants",
+    // shoes
+    "shoe": "shoes", "boots": "shoes", "sneakers": "shoes", "sandals": "shoes",
+    // socks
+    "sock": "socks", "stockings": "socks", "tights": "socks",
+    // underwear (bra/panties fold into the single male "underwear" slot too,
+    // so declaring either still works rather than being silently rejected)
+    "boxers": "underwear", "briefs": "underwear", "boxer-briefs": "underwear",
+    "trunks": "underwear", "bra": "underwear", "panties": "underwear",
+};
+
+export function clothingAliasesFor(path: ClothingPath): Record<string, string> {
+    return path === "male" ? MALE_CLOTHING_ALIASES : FEMALE_CLOTHING_ALIASES;
+}
 
 // ============================================================
 // PLAYER-PICK BONDAGE MODE - a designated picker chooses items

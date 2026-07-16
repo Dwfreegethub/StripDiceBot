@@ -35,6 +35,12 @@ export interface GameHost {
     // Like isAdmin, but whispers a rejection to non-admins.
     requireAdmin(memberNumber: number): boolean;
 
+    // Resolves (auto-detecting from BC's Pronouns appearance item on first
+    // use, sticky afterward, overridable via !clothes) which clothing list
+    // a member's !wearing/!solo flow uses. See game.ts's implementation for
+    // the full rationale (deliberately ignores body/genital data).
+    resolveClothingPath(memberNumber: number): "male" | "female";
+
     // Cached room-member name, if seen.
     getNameFor(memberNumber: number): string | undefined;
     // Cached name with a "Player #N" fallback.

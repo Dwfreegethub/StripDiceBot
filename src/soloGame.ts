@@ -8,7 +8,7 @@ import { log, logGameEvent } from "./logger";
 import { GameHost } from "./host";
 import { BondageItem, SoloGameState, SoloMode, SoloRecordEntry, SoloRecordsData } from "./types";
 import {
-    CLOTHING_SLOTS, LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES,
+    ClothingPath, clothingSlotsFor, LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES,
     REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS,
     SOLO_BASE_PENALTY_MINUTES, SOLO_BONDAGE_DELAY_MS, SOLO_BRACKET_MAX, SOLO_BRACKET_MIN,
     SOLO_DEFAULT_TARGET, SOLO_DICE_MAX, SOLO_INACTIVITY_TIMEOUT_MS, SOLO_REMOVAL_REMINDER_MS,
@@ -16,7 +16,7 @@ import {
 
 export class SoloGameManager {
     private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
+    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
 
     constructor(private readonly host: GameHost) {}
 
@@ -45,17 +45,19 @@ export class SoloGameManager {
             this.host.bot.whisper(memberNumber, "You already have a solo game in progress — !roll to continue.");
             return;
         }
-        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingQuestionIndex: 0, pendingClothing: [] });
+        const clothingPath = this.host.resolveClothingPath(memberNumber);
+        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [] });
         this.host.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
         this.askClothingQuestion(memberNumber);
     }
 
     private askClothingQuestion(memberNumber: number): void {
         const pending = this.pendingSoloSetup.get(memberNumber)!;
+        const slots = clothingSlotsFor(pending.clothingPath);
         const idx = pending.clothingQuestionIndex;
 
-        if (idx >= CLOTHING_SLOTS.length) {
-            const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
+        if (idx >= slots.length) {
+            const clothing = slots.filter(slot => pending.pendingClothing.includes(slot));
             if (clothing.length < SOLO_BRACKET_MIN) {
                 this.host.bot.whisper(memberNumber, `You need at least ${SOLO_BRACKET_MIN} items to start — let's try again.`);
                 pending.clothingQuestionIndex = 0;
@@ -67,13 +69,17 @@ export class SoloGameManager {
             return;
         }
 
-        this.host.bot.whisper(memberNumber, `Wearing ${CLOTHING_SLOTS[idx]}? (yes/no)`);
+        const prefix = idx === 0
+            ? `You're on the ${pending.clothingPath} clothing list (whisper !clothes male or !clothes female, then !solo again, to switch). `
+            : "";
+        this.host.bot.whisper(memberNumber, `${prefix}Wearing ${slots[idx]}? (yes/no)`);
     }
 
     public handleClothingAnswer(memberNumber: number, msg: string): void {
         const pending = this.pendingSoloSetup.get(memberNumber)!;
+        const slots = clothingSlotsFor(pending.clothingPath);
         const idx = pending.clothingQuestionIndex;
-        const item = CLOTHING_SLOTS[idx];
+        const item = slots[idx];
 
         if (msg === "yes" || msg === "y") {
             pending.pendingClothing.push(item);
