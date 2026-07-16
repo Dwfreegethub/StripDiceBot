@@ -12,7 +12,9 @@
 
 - [ ] **Lock-time vote v2** — v1 (±5 minute vote by bound players) shipped. Original design ideas not yet implemented: weight the suggested time by game length, total losses, and losing streaks.
 
-- [ ] **Standardize clothing/wardrobe-change detection between BD and WD** — BD's penalty-removal detection (`markAwaitingRemoval`/`pendingRemovalBaselineCount`, item-count baseline vs fresh ChatRoomSyncSingle, `!removed` fallback, turn-gating fix) shipped 2026-07-11 and is meaningfully more robust than WD's trade-handoff detection (`startWardrobeCheck`/`waitingForWardrobe`), which still just treats *any* sync event as proof of a change (no count check) and has no manual override or escalation beyond a single 2-minute nudge. Plan: port BD's baseline-diff pattern into WD, add a manual confirm command there, and consider extracting a shared "wardrobe watch" helper both bots import — same precedent as `bondagePicker.ts`. On hold — DW wants to field-test today's BD changes first before touching WD or extracting shared code.
+- [x] ~~Port BD's wardrobe/clothing-removal detection pattern into WD~~ — Done 2026-07-15. WD's `game.ts` now verifies a real per-item appearance-count drop (with a manual `!removed` fallback), matching BD's baseline-diff pattern instead of trusting any resync.
+
+- [ ] **Extract a shared "wardrobe watch" helper** — Both bots now independently implement the same baseline-diff detection pattern (item-count baseline vs. fresh appearance sync, `!removed` manual fallback) — BD original since 2026-07-11, ported into WD 2026-07-15 (see above). Worth extracting into one shared module both import, same precedent as `bondagePicker.ts`. Not started.
 
 ## Future / Nice to Have
 
