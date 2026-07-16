@@ -22,6 +22,7 @@ import {
     MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY,
 } from "./constants";
 import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
+import { secrets } from "./secrets";
 import {
     extractPronouns, cleanDecodedProperty, isLearnableProperty, canonicalJson,
     deepClone, generatePassword,
@@ -116,6 +117,13 @@ export class StripDiceGame implements GameHost {
     private toysAllowed: boolean = false;
     private awaitingToysConsent: boolean = false;
     private toysConsentTimer: NodeJS.Timeout | null = null;
+    // Prize consent: willing non-winners get a timed leash lock at game end;
+    // winner can request lock passwords via !claim.
+    private awaitingPrizeConsent: boolean = false;
+    private prizeConsentTimer: NodeJS.Timeout | null = null;
+    private prizeWillingPlayers: Set<number> = new Set(); // member numbers who opted in as prizes (non-winners)
+    private lastWinnerNumber: number | null = null;       // set at game end, gates !claim
+    private prizePasswords: Map<number, { name: string; password: string }> = new Map(); // memberNumber → {name, password}
     // Mid-game joiners being asked the toys consent question before their join
     // completes (only used when toysAllowed is true for the current game).
     private pendingLateJoinToysConsent: Map<number, { onAccept: () => void; onDecline: () => void; timeout: NodeJS.Timeout }> = new Map();
@@ -464,6 +472,8 @@ export class StripDiceGame implements GameHost {
         "!feedback": { handler: (mn) => this.feedback.handlePrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
+        "!claim ": { handler: (mn, _name, _msg, message) => this.handleClaim(mn, message), whisperOnly: true, prefix: true },
+        "!claim": { handler: (mn) => this.handleClaim(mn, ""), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name) },
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
         "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
@@ -557,6 +567,12 @@ export class StripDiceGame implements GameHost {
         // Pre-game toys consent question, while this player hasn't answered yet.
         if (this.awaitingToysConsent && player?.toysConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.recordToysConsentAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
+        // Pre-game prize opt-in question, while this player hasn't answered yet.
+        if (this.awaitingPrizeConsent && player?.prizeConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.recordPrizeConsentAnswer(memberNumber, msg === "yes" || msg === "y");
             return;
         }
 
@@ -894,6 +910,7 @@ export class StripDiceGame implements GameHost {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            prizeConsent: null,
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
@@ -1065,6 +1082,7 @@ export class StripDiceGame implements GameHost {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            prizeConsent: null,
             bondageMode: null, // resolved right after registering, via askLateBondageMode below
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
@@ -1217,6 +1235,7 @@ export class StripDiceGame implements GameHost {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            prizeConsent: null,
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
@@ -1490,7 +1509,7 @@ export class StripDiceGame implements GameHost {
     }
 
     public isAdmin(memberNumber: number): boolean {
-        return memberNumber === 208543 || memberNumber === 247062 || memberNumber === this.bot.getMemberNumber();
+        return secrets.adminMemberNumbers.includes(memberNumber) || memberNumber === this.bot.getMemberNumber();
     }
 
     // Looks up a player, whispering the standard "not joined" message and
@@ -1590,8 +1609,62 @@ export class StripDiceGame implements GameHost {
             removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
         }
 
+        // Clear prize state immediately on admin reset (don't wait for resetGame)
+        this.awaitingPrizeConsent = false;
+        if (this.prizeConsentTimer) { clearTimeout(this.prizeConsentTimer); this.prizeConsentTimer = null; }
+        this.prizeWillingPlayers.clear();
+        this.prizePasswords.clear();
+        this.lastWinnerNumber = null;
+
         this.bot.sendChat(`🛑 The game has been reset by an admin.`);
         this.resetGame();
+    }
+
+    // Lets the winner see and retrieve lock passwords for willing prize players.
+    // !claim alone lists prizes; !claim 1 2 delivers passwords by index.
+    private handleClaim(memberNumber: number, message: string): void {
+        if (this.lastWinnerNumber !== memberNumber) {
+            this.bot.whisper(memberNumber, "Only the most recent winner can use !claim.");
+            return;
+        }
+        if (this.prizePasswords.size === 0) {
+            this.bot.whisper(memberNumber, "No willing prizes this game.");
+            return;
+        }
+
+        const args = message.trim().replace(/^!claim\s*/i, "").trim();
+        const entries = [...this.prizePasswords.entries()]; // [memberNumber, {name, password}]
+
+        if (!args) {
+            // List mode
+            const lines = entries.map(([, { name }], i) => `${i + 1}. ${name}`).join("\n");
+            this.bot.whisper(memberNumber, `🏆 Willing prizes:\n${lines}\nUse !claim 1, !claim 1 2, etc. to receive their passwords.`);
+            return;
+        }
+
+        // Delivery mode — parse space-separated 1-based indices
+        const indices = args.split(/\s+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+        if (indices.length === 0) {
+            this.bot.whisper(memberNumber, "Usage: !claim (list) or !claim 1 2 (get passwords by number).");
+            return;
+        }
+
+        const winnerName = this.nameCache.get(memberNumber) ?? "the winner";
+        let anyInvalid = false;
+        for (const idx of indices) {
+            if (idx < 1 || idx > entries.length) {
+                anyInvalid = true;
+                continue;
+            }
+            const [prizeMemberNumber, { name, password }] = entries[idx - 1];
+            this.bot.whisper(memberNumber, `🔑 ${name}'s lock password: ${password}`);
+            this.bot.whisper(prizeMemberNumber, `🔑 ${winnerName} has been given your lock password.`);
+            this.prizePasswords.delete(prizeMemberNumber);
+        }
+
+        if (anyInvalid) {
+            this.bot.whisper(memberNumber, `Invalid selection. There are ${entries.length} prize player(s).`);
+        }
     }
 
     private handleTestOutfit(memberNumber: number, message: string): void {
@@ -1979,7 +2052,9 @@ export class StripDiceGame implements GameHost {
         }
 
         this.bot.sendChat(`⚠️ ${name} has used their safeword. The game has been stopped. All bondage items will be removed.`);
-        this.bot.whisper(208543, `⚠️ SAFEWORD: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}. Game stopped, all bondage removal initiated.`);
+        for (const adminNum of secrets.adminMemberNumbers) {
+            this.bot.whisper(adminNum, `⚠️ SAFEWORD: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}. Game stopped, all bondage removal initiated.`);
+        }
 
         this.clearCountdown();
         this.clearTurnTimer();
@@ -1993,6 +2068,13 @@ export class StripDiceGame implements GameHost {
             this.removeAllItems(player.memberNumber, removalDelay);
             removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
         }
+
+        // Clear prize state immediately on safeword abort
+        this.awaitingPrizeConsent = false;
+        if (this.prizeConsentTimer) { clearTimeout(this.prizeConsentTimer); this.prizeConsentTimer = null; }
+        this.prizeWillingPlayers.clear();
+        this.prizePasswords.clear();
+        this.lastWinnerNumber = null;
 
         this.resetGame();
     }
@@ -2682,6 +2764,7 @@ export class StripDiceGame implements GameHost {
         if (this.players.size === 0) return;
         if (this.players.size < this.minPlayers) return;
         if (this.awaitingToysConsent) return;
+        if (this.awaitingPrizeConsent) return;
         if (this.awaitingBondageMode) return;
         if (this.awaitingSlotConsent) return;
         for (const [, player] of this.players) {
@@ -2765,6 +2848,73 @@ export class StripDiceGame implements GameHost {
         // checkAllReady() and we'll re-evaluate from there.
         if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
             return;
+        }
+
+        this.beginPrizeConsent();
+    }
+
+    // Asks each original-roster player (non-team mode only) whether they want
+    // to be a potential prize for the winner. Slots in between toys consent and
+    // bondage-mode selection so it runs once per pre-game Q&A sequence.
+    private beginPrizeConsent(): void {
+        // Clear any leftover prize state from the previous game
+        this.prizePasswords.clear();
+        this.lastWinnerNumber = null;
+        this.prizeWillingPlayers.clear();
+
+        // Team mode skips prize consent — it will be added later
+        if (this.isTeamMode) {
+            this.beginBondageModeSelection();
+            return;
+        }
+
+        this.awaitingPrizeConsent = true;
+        for (const player of this.players.values()) {
+            if (player.joinedAfterPregameStart) continue;
+            player.prizeConsent = null;
+            this.bot.whisper(player.memberNumber,
+                "🏆 Prize opt-in: Would you like to be a potential prize for the winner if you lose? If you say yes, you agree to be the winner's prize to do with as they choose — they'll receive your lock password and a leash to take you wherever they like. (yes/no)"
+            );
+            logGameEvent(`[PrizeConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        this.prizeConsentTimer = setTimeout(() => this.resolvePrizeConsent(), TOYS_CONSENT_TIMEOUT_MS);
+    }
+
+    // Records one player's answer to the prize opt-in question and resolves
+    // early once everyone on the original roster has answered.
+    private recordPrizeConsentAnswer(memberNumber: number, agreed: boolean): void {
+        const player = this.players.get(memberNumber);
+        if (!player || player.prizeConsent !== null) return;
+        player.prizeConsent = agreed;
+        logGameEvent(`[PrizeConsent] ${player.name} (#${player.memberNumber}) answered: ${agreed ? "yes" : "no"}`);
+
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        if (roster.every(p => p.prizeConsent !== null)) {
+            this.resolvePrizeConsent();
+        }
+    }
+
+    // Finalizes prize consent (unanswered players default to false) and
+    // announces the result before proceeding to bondage-mode selection.
+    private resolvePrizeConsent(): void {
+        if (!this.awaitingPrizeConsent) return;
+        if (this.prizeConsentTimer) {
+            clearTimeout(this.prizeConsentTimer);
+            this.prizeConsentTimer = null;
+        }
+        this.awaitingPrizeConsent = false;
+
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
+            if (player.prizeConsent === null) player.prizeConsent = false;
+        }
+        for (const player of roster) {
+            logGameEvent(`[PrizeConsent] Resolving — ${player.name}: ${player.prizeConsent}`);
+        }
+
+        const optedIn = roster.filter(p => p.prizeConsent === true);
+        if (optedIn.length > 0) {
+            this.bot.sendChat("Some players have opted in as potential prizes — the winner will be notified at game end! 🏆");
         }
 
         this.beginBondageModeSelection();
@@ -4424,6 +4574,58 @@ export class StripDiceGame implements GameHost {
             this.sendLockVerificationWhisper(player, lockEndTime, allVerificationsCompleteDelay);
         }
 
+        // Phase 3: prize leash — apply a timed leash to willing non-winner players.
+        // Only in regular (non-team) multiplayer with exactly one winner.
+        if (!this.isTeamMode && winners && winners.length === 1) {
+            const winner = winners[0];
+            this.lastWinnerNumber = winner.memberNumber;
+            const prizeLeashEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
+            const prizeLeashPlayers = [...this.players.values()].filter(
+                p => p.prizeConsent === true && p.memberNumber !== winner.memberNumber
+            );
+            this.prizeWillingPlayers.clear();
+            for (const prizePlayer of prizeLeashPlayers) {
+                this.prizeWillingPlayers.add(prizePlayer.memberNumber);
+                const password = generatePassword();
+                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password });
+
+                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+                setTimeout(() => {
+                    this.bot.applyItem(
+                        prizePlayer.memberNumber,
+                        "ItemNeckRestraints",
+                        "CollarLeash",
+                        "#808080",
+                        {
+                            Difficulty: 20,
+                            Effect: ["Lock"],
+                            LockedBy: "TimerPasswordPadlock",
+                            LockMemberNumber: this.bot.getMemberNumber(),
+                            LockMemberName: "GameBot",
+                            Password: password,
+                            Hint: `Prize for ${winner.name} — released in ${this.lockDurationMinutes} min`,
+                            LockSet: true,
+                            RemoveItem: true,
+                            ShowTimer: true,
+                            EnableRandomInput: false,
+                            MemberNumberList: [],
+                            RemoveTimer: prizeLeashEndTime,
+                        }
+                    );
+                }, delay);
+                stagger++;
+
+                this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for ${winner.name}.`);
+            }
+
+            if (prizeLeashPlayers.length > 0) {
+                const prizeNames = prizeLeashPlayers.map(p => p.name).join(", ");
+                this.bot.whisper(winner.memberNumber,
+                    `🏆 The following players are willing prizes: ${prizeNames}. Use !claim to see the list and request their lock passwords.`
+                );
+            }
+        }
+
         // Pause before the next game starts, so players have time to confirm
         // their end-game locks released/applied correctly.
         this.gameCooldownUntil = Date.now() + GAME_COOLDOWN_MS;
@@ -4673,6 +4875,14 @@ export class StripDiceGame implements GameHost {
             clearTimeout(this.toysConsentTimer);
             this.toysConsentTimer = null;
         }
+        // Prize consent phase cleanup (prizePasswords/lastWinnerNumber intentionally
+        // survive the reset so the winner can still use !claim in the new lobby)
+        this.awaitingPrizeConsent = false;
+        if (this.prizeConsentTimer) {
+            clearTimeout(this.prizeConsentTimer);
+            this.prizeConsentTimer = null;
+        }
+        this.prizeWillingPlayers.clear();
         for (const pending of this.pendingLateJoinToysConsent.values()) {
             clearTimeout(pending.timeout);
         }

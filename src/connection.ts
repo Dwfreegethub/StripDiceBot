@@ -151,7 +151,7 @@ export class BCConnection {
             Background: "NightClub",
             Space: "X",
             Game: "",
-            Admin: [this.playerNumber, 208543, 247062],
+            Admin: [this.playerNumber, ...secrets.adminMemberNumbers],
             Ban: [],
             Limit: 10,
             BlockCategory: [],

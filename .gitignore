@@ -1,6 +1,8 @@
 node_modules/
 build/
 src/secrets.ts
+.claude/
+game_counts.json
 *.log
 wrapper.output
 decoded*.json

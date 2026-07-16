@@ -100,6 +100,7 @@ export interface Player {
     removalWarned: boolean;      // First 15s expired without response — second 10s window now active
     pendingRemovalKick: boolean; // Both windows missed — next turn gives 15s before removal from game
     toysConsent: boolean | null; // null = unanswered, true/false = answered the pre-game toys question
+    prizeConsent: boolean | null; // null = unanswered, true = opted in as a potential prize for the winner
     bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "player-pick" on timeout
     allowedSlots: string[];      // BC group names this player consented to for player-pick mode
     appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
