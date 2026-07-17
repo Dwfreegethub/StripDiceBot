@@ -69,6 +69,7 @@ export enum GameState {
     WaitingRemove,  // Player lost, waiting for !removed
     WaitingBondage, // Player naked, bot applying bondage
     SafewordPause,  // A player called safeword, waiting for !continue or timeout
+    Paused,         // Player-requested pause, waiting for anyone to !resume
     PausedForJoin,  // Briefly paused so a mid-game joiner can get into rotation
     GameOver        // All players bound, applying locks
 }

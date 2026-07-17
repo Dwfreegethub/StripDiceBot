@@ -17,6 +17,10 @@ import {
 export class SoloGameManager {
     private soloGames: Map<number, SoloGameState> = new Map();
     private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
+    // Players who finished a solo game and are awaiting a yes/no to the prize question.
+    private pendingSoloPrizeQuestion: Map<number, string> = new Map(); // memberNumber → name
+    // Players who said yes to the prize question and are now describing what it means to them.
+    private pendingSoloPrizeDescription: Map<number, string> = new Map(); // memberNumber → name
 
     constructor(private readonly host: GameHost) {}
 
@@ -36,6 +40,44 @@ export class SoloGameManager {
 
     public isAwaitingRemoval(memberNumber: number): boolean {
         return this.soloGames.get(memberNumber)?.awaitingRemoval ?? false;
+    }
+
+    public isAwaitingPrizeQuestion(memberNumber: number): boolean {
+        return this.pendingSoloPrizeQuestion.has(memberNumber);
+    }
+
+    public isAwaitingPrizeDescription(memberNumber: number): boolean {
+        return this.pendingSoloPrizeDescription.has(memberNumber);
+    }
+
+    // Player responded yes/no to the post-game prize question.
+    public handlePrizeQuestion(memberNumber: number, agreed: boolean): void {
+        const name = this.pendingSoloPrizeQuestion.get(memberNumber);
+        if (name === undefined) return;
+        this.pendingSoloPrizeQuestion.delete(memberNumber);
+
+        if (!agreed) {
+            this.host.bot.whisper(memberNumber, "No problem! The solo prize system is something we're still designing.");
+            return;
+        }
+
+        // Solo prize not yet implemented — ask them to describe their vision.
+        this.pendingSoloPrizeDescription.set(memberNumber, name);
+        this.host.bot.whisper(memberNumber,
+            "🏆 Love the enthusiasm! The solo prize feature isn't fully built yet — but your idea will help shape it. " +
+            "What would being a prize look like to you? Just whisper me a description and I'll pass it along!"
+        );
+    }
+
+    // Player sent their prize description — log it as feedback.
+    public handlePrizeDescription(memberNumber: number, text: string): void {
+        const name = this.pendingSoloPrizeDescription.get(memberNumber);
+        if (name === undefined) return;
+        this.pendingSoloPrizeDescription.delete(memberNumber);
+
+        const feedbackText = `[Solo Prize Vision] ${text}`;
+        this.host.feedback.submitDirect(memberNumber, name, feedbackText);
+        log(`[SOLO PRIZE VISION] ${name} (#${memberNumber}): ${text}`);
     }
 
     // ---- game flow --------------------------------------------------------
@@ -248,6 +290,7 @@ export class SoloGameManager {
         const players = [`${solo.name}(#${memberNumber})`];
 
         this.host.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
+        this.askSoloPrizeQuestion(memberNumber, solo.name);
 
         const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
 
@@ -445,6 +488,8 @@ export class SoloGameManager {
     // lost) if they'd made any progress.
     public cleanupOnLeave(memberNumber: number): void {
         this.pendingSoloSetup.delete(memberNumber);
+        this.pendingSoloPrizeQuestion.delete(memberNumber);
+        this.pendingSoloPrizeDescription.delete(memberNumber);
 
         const solo = this.soloGames.get(memberNumber);
         if (!solo) return;
@@ -513,6 +558,16 @@ export class SoloGameManager {
 
         this.host.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
         this.host.bot.whisper(target.memberNumber, "An admin reset your solo game — !solo race or !solo survive to start a new one.");
+    }
+
+    // Asks the player if they'd like to be a prize — solo prize system design
+    // is not yet decided, so we collect their vision as feedback.
+    private askSoloPrizeQuestion(memberNumber: number, name: string): void {
+        this.pendingSoloPrizeQuestion.set(memberNumber, name);
+        this.host.bot.whisper(memberNumber,
+            "🏆 Quick question: would you be interested in being a \"prize\" after your solo game — " +
+            "available for anyone in the room to claim? (yes/no)"
+        );
     }
 
     // ---- scores & leaderboards ---------------------------------------------

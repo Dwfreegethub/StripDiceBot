@@ -11,11 +11,13 @@
 // ============================================================
 import { BCConnection } from "./connection";
 import { BotStorage } from "./storage";
+import { FeedbackManager } from "./feedback";
 import { BondageItem, BondageOutfit, PendingLockApplyCheck } from "./types";
 
 export interface GameHost {
     readonly bot: BCConnection;
     readonly storage: BotStorage;
+    readonly feedback: FeedbackManager;
 
     // Lock-apply verification registry shared by end-game and solo penalty
     // locks: onSyncSingle() resolves entries when BC rejects an item update

@@ -79,6 +79,14 @@ export class FeedbackManager {
         this.host.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
     }
 
+    // Public entry point for code that wants to log feedback on behalf of a
+    // player without going through the "!feedback <text>" command. Used by the
+    // solo prize question flow to capture inline descriptions.
+    public submitDirect(memberNumber: number, name: string, text: string): void {
+        this.logEntry(memberNumber, name, text);
+        this.host.bot.whisper(memberNumber, "Got it — saved your idea! 💬 We really appreciate it.");
+    }
+
     // Appends a feedback.log line and updates feedback-tracking state for the
     // given member/name. Shared by normal feedback submission and the admin
     // proxy-feedback confirmation, which logs under the target player's

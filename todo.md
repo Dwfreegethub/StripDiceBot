@@ -10,18 +10,24 @@
 
 - [ ] **Juggernaut mode** — Add a Juggernaut game variant. One player is the Juggernaut and faces all other players simultaneously. Design TBD — no coding yet.
 
-- [ ] **Lock-time vote v2** — v1 (±5 minute vote by bound players) shipped. Original design ideas not yet implemented: weight the suggested time by game length, total losses, and losing streaks.
+- [x] ~~**Lock-time vote v2**~~ — Done 2026-07-16. New formula: `max(setting, players+5) + (finishers×2) + per-player 69 bonuses ± 5 from majority vote`. 69 on D100 = +10 min double bonus; any other 69 = +5 min. Winner can distribute their 69 bonus to losers. !lock10/15/20 are now admin-only. All components logged with `[LOCK TIME]` prefix. Original "weight by streaks/losses" idea still pending.
+
+- [ ] **Lock-time v3** — Weight suggested time by game length, total losses, and losing streaks (original v2 ideas, still not implemented).
+
+- [ ] **Team game lock time** — Team mode is in testing. Lock duration design still TBD — leaning toward a pre-game fixed setting. No code changes yet.
 
 - [x] ~~Port BD's wardrobe/clothing-removal detection pattern into WD~~ — Done 2026-07-15. WD's `game.ts` now verifies a real per-item appearance-count drop (with a manual `!removed` fallback), matching BD's baseline-diff pattern instead of trusting any resync.
 
-- [ ] **Extract a shared "wardrobe watch" helper** — Both bots now independently implement the same baseline-diff detection pattern (item-count baseline vs. fresh appearance sync, `!removed` manual fallback) — BD original since 2026-07-11, ported into WD 2026-07-15 (see above). Worth extracting into one shared module both import, same precedent as `bondagePicker.ts`. Not started.
+- [ ] **Extract a shared "wardrobe watch" helper** — BD and WD each have their own copy of the same clothing-removal detection logic: take a baseline item count before asking a player to strip, then compare after their wardrobe closes to confirm something actually came off (`!removed` is the manual fallback). The code is identical in both bots. Worth pulling into a shared module (same pattern as `bondagePicker.ts` in `D:\Games\BC-Bot\shared\`), so future fixes only need to happen once. Not started — no urgency, both copies work fine.
 
 ## Future / Nice to Have
 
-- [ ] **69 on first roll — special event** — free request of any player, no dice. Bot announces: "The dice spoke before the game even started — [name] gets a freebie." Design still TBD. (Distinct from the shipped 69/streak roll commentary.)
+- [ ] **Solo prize system design** — When a solo player finishes their game, they're asked if they'd want to be a "prize" (available for anyone in the room to claim). If yes, they're currently told it's not implemented yet and prompted to describe their vision (stored as feedback). Design TBD: likely a timed bondage lock + prevented room exit, with any room member able to claim. See feedback log for collected player visions. No code changes needed until design is finalized.
 
-- [ ] **Test player bondage selection system** — The bondagePicker (player-choice bondage item selection flow) is now option 1 in the bondage menu. Needs live testing. Note: this is NOT a bondage purchase/payment mechanic — BD is not getting WD's purchase system — it's the flow where the player picks their own bondage item.
+- [x] ~~**69 on first roll — special event**~~ — Removed; handled another way.
 
-- [ ] **Review safeword behavior — stop vs. pause game** — Currently, when a player uses the BC safeword outside team mode, the bot stops the game entirely. This may not be ideal since some players use safeword frequently (e.g. as a habit or for non-game reasons). Review options: pause the game instead of stopping it, prompt to confirm they actually want to end the game, or make the behavior configurable. (Team mode now handles safeword via ghost turns.)
+- [x] ~~**Test player bondage selection system**~~ — Bondage picker live and working. Slot selection updated to numbered list (2026-07-16).
+
+- [x] ~~**Review safeword behavior**~~ — Done 2026-07-16. BC native safeword now uses the same behavior as `!safeword` (removes only that player's bondage, asks others to !continue, ghost in team mode). Admin whisper + log entry still fire on BC native safeword so it's distinguishable.
 
 - [x] ~~Electron GUI front-end~~ — Superseded by the web panel at `D:\Games\BC-Bot\panel` (plain Node, no build step) — per-bot start/stop/restart, branch switching, live log streaming. See `panel/README.md`.
