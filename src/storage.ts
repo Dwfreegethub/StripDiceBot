@@ -10,10 +10,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { log } from "./logger";
 import {
-    FeedbackStatusEntry, GameLogEntry, ItemSettingsLibrary, OutfitSuggestion,
+    ChangelogEntry, FeedbackStatusEntry, GameLogEntry, ItemSettingsLibrary, OutfitSuggestion,
     PlayerRecord, SoloRecordsData,
 } from "./types";
-import { GAME_LOG_RETENTION_MS } from "./constants";
+import { CHANGELOG_MAX_ENTRIES, GAME_LOG_RETENTION_MS } from "./constants";
 import { emptySoloRecordsData, utcDateString } from "./util";
 
 export interface GameCounts {
@@ -40,6 +40,34 @@ export class BotStorage {
     private readonly itemSettingsPath = path.join(this.baseDir, "item_settings.json");
     private readonly bondageUsagePath = path.join(this.baseDir, "bondage_usage.json");
     private readonly outfitCandidatesPath = path.join(this.baseDir, "outfit_candidates.json");
+    private readonly changelogPath = path.join(this.baseDir, "changelog.json");
+
+    // ---- changelog ---------------------------------------------------
+
+    // Shipped updates, oldest first. Grown by one entry each time the bot
+    // restarts onto a pending_update.txt version it hasn't recorded yet.
+    loadChangelog(): ChangelogEntry[] {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(this.changelogPath, "utf8"));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    // No-op if this version is already recorded, so a restart that doesn't
+    // bring a new update can't duplicate the last entry.
+    appendChangelogEntry(entry: ChangelogEntry): void {
+        const entries = this.loadChangelog();
+        if (entries.some(e => e.version === entry.version)) return;
+        entries.push(entry);
+        try {
+            const trimmed = entries.slice(-CHANGELOG_MAX_ENTRIES);
+            fs.writeFileSync(this.changelogPath, JSON.stringify(trimmed, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write changelog.json: " + err);
+        }
+    }
 
     // ---- solo records ------------------------------------------------
 

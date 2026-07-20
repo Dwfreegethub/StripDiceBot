@@ -105,7 +105,7 @@ export interface Player {
     bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "player-pick" on timeout
     allowedSlots: string[];      // BC group names this player consented to for player-pick mode
     appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
-    lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1; 0 = never lost this game
+    lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1 (or when they entered the game — a mid-game joiner is stamped as if they just lost, so they don't instantly outrank everyone as the picker); 0 = present from the start and never lost this game
     teamId: 1 | 2 | null;        // which team in team mode; null outside team mode
     isGhost: boolean;            // true = auto-rolls 1 every turn (safeworded out but still counted for team win condition)
     ghostReason?: "safeword" | "disconnect";
@@ -115,6 +115,10 @@ export interface Player {
     // onSyncSingle to auto-detect the removal the instant BC confirms it,
     // instead of waiting on !removed or a wardrobe close/open pair.
     pendingRemovalBaselineCount: number | null;
+    // True while we're waiting for a returning player to reply "1/same" or
+    // "2/new" to the "same outfit as last time?" join whisper. Cleared once
+    // they answer (or type any outfit command directly).
+    awaitingOutfitChoice: boolean;
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock
@@ -177,6 +181,17 @@ export interface PlayerRecord {
     gamesWon: number;
     gamesLost: number;
     feedbackGiven: boolean;
+    /** Newest changelog version this player has read via !changelog. */
+    lastChangelogVersion?: string;
+}
+
+// One shipped update, appended to changelog.json when the bot restarts and
+// picks up a pending_update.txt version it hasn't seen before. Oldest first.
+export interface ChangelogEntry {
+    version: string;
+    headline: string;
+    detail: string;
+    major: boolean;
 }
 
 // ============================================================

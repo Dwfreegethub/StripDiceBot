@@ -1,0 +1,26 @@
+[
+  {
+    "version": "2026-07-14T12:00:00-05:00",
+    "headline": "Bondage mode defaults to player-pick, and late joiners get asked their own questions.",
+    "detail": "If nobody answers the bondage-mode question, the game now defaults to player-pick instead of a predefined outfit.\nAnyone joining during the pre-game question window gets their own individual pick/outfit question and a toys check, rather than being silently defaulted into whatever the room had already chosen.",
+    "major": true
+  },
+  {
+    "version": "2026-07-19T12:00:00-05:00",
+    "headline": "Lock-time voting reworked, plus !pause / !resume, prize swapping and safeword changes.",
+    "detail": "The end-game lock-time vote was rebuilt, and the safeword flow was reworked alongside it.\nAnyone can now call !pause for a quick break; anyone can type !resume to pick the game back up.\nTeam games can swap prizes between winners, and solo games can capture a prize of their own.",
+    "major": true
+  },
+  {
+    "version": "2026-07-19T21:10:23-05:00",
+    "headline": "Walking into a game in progress no longer makes you the bondage picker.",
+    "detail": "A player who joined a game already underway was being recorded as \"never lost\" — the same standing as a veteran who had survived the whole game without rolling a 1. Since that is the top-priority signal for being chosen as the picker, someone could walk in and immediately start picking other players' restraints.\nAnyone entering mid-game is now stamped as if they had just lost, putting them at the back of the picker order until they have actually played. Nothing changes at game start: the starting roster all begin equal exactly as before, and the \"longest without losing gets to pick\" rule is otherwise untouched.",
+    "major": true
+  },
+  {
+    "version": "2026-07-20T12:00:00-05:00",
+    "headline": "You can now friend the bot to see when the room is up, and !changelog shows what's new.",
+    "detail": "Friending: BC only shows two people to each other on their friend lists when both have added the other, so adding the bot on its own never did anything. Now, if you use BC's \"Add friend with notification\" option on the bot, it adds you back automatically — after that the bot appears in your friend list whenever it's online, along with the room name and how many players are in it. The \"add without notifying\" option sends the bot no signal at all, so if you used that one (or added the bot a while ago), whisper !friend and it'll add you back. !unfriend removes you again at any time. No beeps are sent — this is display only.\nChangelog: room chat no longer gets a wall of text after every update. Restarts announce a single headline for the big changes only, and if something shipped while you were away you'll get a one-line nudge on your way in. Whisper !changelog any time for the last few updates in full.",
+    "major": true
+  }
+]

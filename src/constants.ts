@@ -6,6 +6,12 @@ import { FeedbackItemStatus } from "./types";
 
 export const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+// How many past updates changelog.json keeps, and how many of those !changelog
+// whispers back. Showing fewer than we keep means a player returning after a
+// long absence gets the recent highlights rather than a wall of history.
+export const CHANGELOG_MAX_ENTRIES = 40;
+export const CHANGELOG_ENTRIES_SHOWN = 5;
+
 // ============================================================
 // TEST MODE - set to false for production
 // ============================================================
@@ -228,6 +234,15 @@ export const CONSENT_TOKEN_GROUPS: Record<string, string[]> = {
 export const DEFAULT_BONDAGE_ITEM_LIMIT = 7;
 // How many popular items to list per slot (plus one random wildcard).
 export const PICK_LIST_TOP_N = 9;
+// Recently-added BC items (by asset codename) to spotlight: they're pinned to
+// the top of their slot's pick list with a 🆕 marker regardless of usage, since
+// players like trying new gear and a zero-usage item would otherwise never
+// rank. Remove a codename here once it's no longer "new". Only affects display
+// ordering — real usage stats are untouched.
+export const NEW_ITEMS: ReadonlySet<string> = new Set<string>([
+    "CybertechMask", // R130 — ItemHood/ItemHead
+    "ModularVulvaPiercings", // R130 "Chastity Tunnel Piercings" — ItemVulvaPiercings (verified in-game 2026-07-19)
+]);
 // Minimum distinct areas a player-pick player must consent to (Mouth counts
 // as one area even though it holds up to 3 gag layers).
 export const MIN_CONSENT_AREAS = 6;

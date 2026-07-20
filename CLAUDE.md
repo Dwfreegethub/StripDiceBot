@@ -46,10 +46,20 @@ Managers must NEVER import `game.ts`.
   touching `build/`. No test suite — the compiler and a live game are the safety net.
 - The bot process runs from `build/` and is supervised by the panel; rebuilding on disk
   does not affect the running process until restart.
-- **pending_update.txt convention**: when deploying a player-visible change, write a
-  one-line description to `pending_update.txt` (committed). On restart the bot announces
-  it in-room and deletes the file — so a deleted pending_update.txt in the working tree
-  after a restart is normal; just commit the deletion with the next change.
+- **pending_update.txt convention**: when deploying a player-visible change, overwrite
+  `pending_update.txt` (committed). The file is never deleted — a per-role
+  `pending_update_seen_*.txt` marker records which version each process has already
+  restarted onto. Format:
+
+  ```
+  <timestamp>[ | minor]     version stamp; " | minor" suppresses the room announcement
+  <headline>                the ONLY line posted to room chat
+  <detail...>               optional; whispered by !changelog, never posted in room
+  ```
+
+  Keep the headline genuinely short — room chat shows nothing else. Put the reasoning
+  in the detail lines. On restart the bot appends the entry to `changelog.json`, and
+  players who were away get a one-line nudge to whisper `!changelog`.
 - Branches: `dev` is the working branch; merge to `master` when field-tested stable.
 - Runtime data files (`players.json`, `game_counts.json`, `game_log.json`, ...) are
   tracked and churn constantly — commit them along with code changes, don't fret them.

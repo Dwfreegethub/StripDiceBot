@@ -3,10 +3,11 @@ import { log, centralTimestamp, logGameEvent } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
 import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./messages";
+import { readPendingUpdate, getSeenVersion, markVersionSeen } from "./pendingUpdate";
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
-    PlayerRecord, GameLogEntry, CommandDef,
+    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry,
 } from "./types";
 import {
     TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
@@ -17,9 +18,9 @@ import {
     LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES, END_GAME_EMIT_STAGGER_MS, GAME_COOLDOWN_MS,
     ClothingPath, clothingSlotsFor, clothingAliasesFor,
     PICK_SLOTS, TIER1_SLOT_GROUPS, TIER2_SLOT_GROUPS, MOUTH_OVERFLOW_GROUPS,
-    CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, MIN_CONSENT_AREAS,
+    CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, NEW_ITEMS, MIN_CONSENT_AREAS,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
-    MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY,
+    MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY, CHANGELOG_ENTRIES_SHOWN,
 } from "./constants";
 import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
 import { secrets } from "./secrets";
@@ -92,7 +93,7 @@ export class StripDiceGame implements GameHost {
     // Used to block pending_update.txt restarts while players are still locked.
     private activeLockEndTimes: Map<number, number> = new Map();
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
-    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
+    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null; toysConsent: boolean }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     // Deferred removal timers for players whose 2-round grace period expired
     // before the 90s minimum return window did. Cleared on rejoin or once the
@@ -122,7 +123,6 @@ export class StripDiceGame implements GameHost {
     // sync data changes. Keyed by memberNumber (not Player) so it works for
     // solo-only players too, who never join the multiplayer roster.
     private clothingPathOverrides: Map<number, ClothingPath> = new Map();
-    private botGameVersion: string | null = null;
     private debugNextRoll: number | null = null;
     // Bonus flavor-commentary tracking (streak comments, 69 easter egg) —
     // purely cosmetic, doesn't affect game state/scoring/flow.
@@ -142,10 +142,16 @@ export class StripDiceGame implements GameHost {
     private toysAllowed: boolean = false;
     private awaitingToysConsent: boolean = false;
     private toysConsentTimer: NodeJS.Timeout | null = null;
+    // Set once resolveToysConsent() has run for this game — lets checkAllReady()
+    // resume the pregame pipeline from the next unresolved stage instead of
+    // restarting from toys consent every time a player un-readies and re-readies.
+    private toysConsentResolved: boolean = false;
     // Prize consent: willing non-winners get a timed leash lock at game end;
     // winner can request lock passwords via !claim.
     private awaitingPrizeConsent: boolean = false;
     private prizeConsentTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the prize-consent stage.
+    private prizeConsentResolved: boolean = false;
     private prizeWillingPlayers: Set<number> = new Set(); // member numbers who opted in as prizes (non-winners)
     private lastWinners: Set<number> = new Set();         // set at game end, gates !claim (all winners in team mode)
     private prizePasswords: Map<number, { name: string; password: string }> = new Map(); // memberNumber → {name, password}
@@ -177,6 +183,8 @@ export class StripDiceGame implements GameHost {
     private gameBondageMode: "outfit" | "player-pick" | "mixed" = "outfit";
     private awaitingBondageMode: boolean = false;
     private bondageModeTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the bondage-mode stage.
+    private bondageModeResolved: boolean = false;
     // Late joiners (mid-game join once clothing is confirmed, or naked join
     // after bondage phase started) are asked the same mode question
     // individually, since the group question has already resolved.
@@ -184,6 +192,10 @@ export class StripDiceGame implements GameHost {
     private lateBondageModeTimers: Map<number, NodeJS.Timeout> = new Map();
     private awaitingSlotConsent: boolean = false;
     private slotConsentTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the slot-consent stage. Also set true
+    // when the stage isn't applicable (no player-pick players, or catalog
+    // unavailable) so checkAllReady's resume chain can't re-enter it.
+    private slotConsentResolved: boolean = false;
     // True once the original roster's toys/bondage-mode Q&A has started this
     // game (set in beginToysConsent). Anyone who !joins afterward — still
     // possible since state stays Registration through this whole sequence —
@@ -233,16 +245,11 @@ export class StripDiceGame implements GameHost {
     // PUBLIC - room events
     // ============================================================
 
-    // Caches character data for permission pre-flight checks. Also captures
-    // the bot's own GameVersion the first time it appears in a sync.
+    // Caches character data for permission pre-flight checks.
     private cacheCharacterData(character: any): void {
         const memberNumber = character?.MemberNumber;
         if (typeof memberNumber !== "number") return;
         this.characterDataCache.set(memberNumber, character);
-        if (memberNumber === this.bot.getMemberNumber() && !this.botGameVersion) {
-            const v = character?.OnlineSharedSettings?.GameVersion;
-            if (v) this.botGameVersion = v;
-        }
     }
 
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
@@ -265,8 +272,10 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        const isNewPlayer = !this.playerRecords[String(memberNumber)];
         this.recordPlayerSeen(memberNumber, name);
         this.sendWelcomeWhisper(memberNumber, name);
+        this.nudgeChangelogIfBehind(memberNumber, isNewPlayer);
         this.feedback.notifyStatus(memberNumber, name);
     }
 
@@ -497,6 +506,7 @@ export class StripDiceGame implements GameHost {
         "!join": { handler: (mn, name, _msg, message) => this.handleJoin(mn, name, message), prefix: true },
         "!start": { handler: (mn) => this.handleStart(mn) },
         "!cancel": { handler: (mn) => this.handleCancel(mn) },
+        "!players ": { handler: (mn, _name, _msg, message) => this.handlePlayersCommand(mn, message), prefix: true },
         "!wearing": { handler: (mn) => this.startGuidedClothing(mn) },
         "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), prefix: true },
         "!clothes": { handler: (mn) => this.handleClothes(mn, "") },
@@ -548,6 +558,9 @@ export class StripDiceGame implements GameHost {
         "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
         "!feedback ": { handler: (mn, name, _msg, message) => this.feedback.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
         "!removed": { handler: (mn, name) => this.handleRemoved(mn, name) },
+        "!changelog": { handler: (mn) => this.handleChangelog(mn) },
+        "!friend": { handler: (mn, name) => this.handleFriendRequest(mn, name) },
+        "!unfriend": { handler: (mn) => this.handleUnfriend(mn) },
         "!veto": { handler: (mn) => this.handleVeto(mn), whisperOnly: true },
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
@@ -565,18 +578,60 @@ export class StripDiceGame implements GameHost {
         }
     }
 
+    // Reciprocate a friending so the player can see the room on their friend
+    // list. BC has no friend-request event: picking "Add friend with
+    // notification" makes their client send a Hidden ChatRoomFriendRequestAdd
+    // chat message, which index.ts routes here. The silent option sends
+    // nothing at all, so !friend exists as the manual path to the same place.
+    public handleFriendRequest(memberNumber: number, name: string): void {
+        if (this.bot.isFriend(memberNumber)) {
+            this.bot.whisper(memberNumber,
+                `You're already on my friend list! If you can't see me, add me from your own ` +
+                `friend list too — BC only shows us to each other when we've both added.`
+            );
+            return;
+        }
+
+        this.bot.addFriend(memberNumber);
+        logGameEvent(`Friend request from ${name} (#${memberNumber}) — added back.`);
+        this.bot.whisper(memberNumber,
+            `Added you back! 🎲 I'll now show up on your friend list whenever I'm online, ` +
+            `with the room name and how many players are in it — so you can tell at a glance ` +
+            `when a game is running. If you haven't added me on your side yet, do that and ` +
+            `I'll appear. Whisper !unfriend any time to undo this.`
+        );
+    }
+
+    private handleUnfriend(memberNumber: number): void {
+        if (!this.bot.removeFriend(memberNumber)) {
+            this.bot.whisper(memberNumber, "You weren't on my friend list to begin with.");
+            return;
+        }
+        this.bot.whisper(memberNumber,
+            `Removed you from my friend list — I won't show up there any more. ` +
+            `Whisper !friend if you ever want me back.`
+        );
+    }
+
     // Yes/No confirmation for a pending !join. Shared by handleWhisper and
     // handleChat so a player can confirm from either channel. Returns true
     // if the message was consumed as a yes/no answer.
     private tryHandleYesNoJoin(memberNumber: number, name: string, msg: string): boolean {
         if (!this.pendingYesNoJoin.has(memberNumber)) return false;
+        const pending = this.pendingYesNoJoin.get(memberNumber)!;
+
         if (msg === "yes" || msg === "y") {
-            const pending = this.pendingYesNoJoin.get(memberNumber)!;
             this.pendingYesNoJoin.delete(memberNumber);
-            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax);
+            pending.toysConsent = true;
+            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, pending.toysConsent);
             return true;
         }
-        if (msg === "no" || msg === "n") {
+        if (msg === "no toys" || msg === "notoys" || msg === "no toy") {
+            this.pendingYesNoJoin.delete(memberNumber);
+            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, false);
+            return true;
+        }
+        if (msg === "no" || msg === "n" || msg === "cancel") {
             this.pendingYesNoJoin.delete(memberNumber);
             this.bot.whisper(memberNumber, "No problem! Come back anytime.");
             return true;
@@ -685,6 +740,32 @@ export class StripDiceGame implements GameHost {
         if (this.solo.isAwaitingPrizeDescription(memberNumber)) {
             this.solo.handlePrizeDescription(memberNumber, message);
             return;
+        }
+
+        // Returning player outfit choice: "same/1" or "new/2" reply to the
+        // "same outfit this time?" whisper sent at join. Cleared once answered,
+        // or implicitly bypassed if they use !wearing/!naked/!same directly.
+        if (player?.awaitingOutfitChoice) {
+            if (msg === "1" || msg === "same") {
+                player.awaitingOutfitChoice = false;
+                this.handleSame(memberNumber);
+                return;
+            }
+            if (msg === "2" || msg === "new") {
+                player.awaitingOutfitChoice = false;
+                this.bot.whisper(memberNumber,
+                    `Declare your outfit:\n` +
+                    `!wearing - go through it one item at a time (yes/no)\n` +
+                    `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
+                    `!naked - if you have nothing on\n` +
+                    `Whisper !ready when done.`
+                );
+                return;
+            }
+            // Any outfit command clears the flag and falls through normally.
+            if (msg === "!wearing" || msg.startsWith("!wearing ") || msg === "!naked" || msg === "!same") {
+                player.awaitingOutfitChoice = false;
+            }
         }
 
         // Yes/No confirmation for pending !join
@@ -849,12 +930,6 @@ export class StripDiceGame implements GameHost {
     // COMMAND HANDLERS
     // ============================================================
 
-    // Extracts the major release number from a BC version string like "R108" or "R108Beta1".
-    private parseBCVersion(v: string): number {
-        const m = v.match(/R(\d+)/i);
-        return m ? parseInt(m[1], 10) : 0;
-    }
-
     // Returns true if the player's permissions allow the bot to apply items.
     // On any failure, whispers the player a specific remediation message and
     // returns false so the caller can abort the join.
@@ -946,13 +1021,14 @@ export class StripDiceGame implements GameHost {
             if (!isNaN(n2)) { inlineMax = n2; }
         }
 
-        this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax });
+        this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax, toysConsent: true });
         this.bot.whisper(memberNumber,
-            `You may be bound at the end of the game if you lose everything — ${this.lockDurationMinutes} minutes is proposed, but the time can vary a bit (everyone locked gets a vote to nudge it up or down before it's applied). Do you understand? Reply **Yes** to join or **No** to cancel.`
+            `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end (everyone locked gets a small vote on the time). The winner may also add toys as a prize. ` +
+            `Reply **yes** to join with the full experience, **no toys** to join but skip the toys option, or **cancel** to pass.`
         );
     }
 
-    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null): void {
+    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, toysConsent: boolean = true): void {
         if (!this.checkPlayerPermissions(memberNumber, name)) {
             return;
         }
@@ -961,16 +1037,16 @@ export class StripDiceGame implements GameHost {
 
         if (midGame && this.toysAllowed) {
             this.gateLateJoinOnToysConsent(memberNumber,
-                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame),
+                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent),
                 () => {} // declined — cancellation whisper already sent, don't add them as a player
             );
             return;
         }
 
-        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame);
+        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent);
     }
 
-    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean): void {
+    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean, toysConsent: boolean = true): void {
         const player: Player = {
             memberNumber,
             name,
@@ -994,15 +1070,16 @@ export class StripDiceGame implements GameHost {
             pendingPenaltySteps: 0,
             removalWarned: false,
             pendingRemovalKick: false,
-            toysConsent: null,
+            toysConsent: toysConsent,
             prizeConsent: null,
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: null,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
 
@@ -1036,19 +1113,13 @@ export class StripDiceGame implements GameHost {
                     }
                     this.minPlayers = inlineMin;
                     this.maxPlayers = inlineMax;
-                    this.announceGameStart(name);
-                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
-                    if (onlyOneInRoom) {
-                        this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
-                    }
-                } else {
-                    this.awaitingMinMaxReply = true;
-                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
-                    let prompt = "How many players? Reply with min and max (e.g. '2 6') or just a number for both.";
-                    if (onlyOneInRoom) {
-                        prompt += "\n\nYou're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.";
-                    }
-                    this.bot.whisper(memberNumber, prompt);
+                }
+                // Always announce immediately — defaults are 2 min / 6 max.
+                // Use !players [min] [max] to adjust before the game starts.
+                this.announceGameStart(name);
+                const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
+                if (onlyOneInRoom) {
+                    this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
                 }
             } else {
                 this.bot.sendChat(`${name} has joined the game! (${this.players.size}/${this.maxPlayers})`);
@@ -1058,26 +1129,16 @@ export class StripDiceGame implements GameHost {
 
         const last = this.lastClothing.get(memberNumber);
         if (last && last.length > 0) {
+            player.awaitingOutfitChoice = true;
             this.bot.whisper(memberNumber,
-                `Welcome back to Strip Dice! 🎲\n` +
-                `Last time you wore: ${last.join(", ")}\n` +
-                `Whisper !same to use the same outfit, or:\n` +
-                `!wearing - go through your outfit one item at a time (yes/no)\n` +
-                `!wearing [items] to declare a new outfit directly\n` +
-                `!naked if you have nothing on\n` +
-                `Then whisper !ready when done.`
+                `Welcome back! 🎲 Last game you wore: ${last.join(", ")}.\n` +
+                `Same outfit this time? Reply **1** or **same** — or **2** or **new** to declare a different one.`
             );
         } else {
             this.bot.whisper(memberNumber,
                 `Welcome to Strip Dice! 🎲\n` +
                 `Whisper !wearing and I'll ask about your outfit one item at a time (yes/no).\n` +
-                `Or declare it all at once:\n` +
-                `!wearing shoes socks top bottom bra panties\n` +
-                `(only include items you actually have on)\n` +
-                `Examples:\n` +
-                `  !wearing shoes socks top bottom panties\n` +
-                `  !wearing shoes top bottom (no socks, no underwear)\n` +
-                `  !wearing shoes socks top bottom bra panties\n` +
+                `Or declare it all at once: !wearing shoes socks top bottom bra panties\n` +
                 `Or whisper !naked if you have nothing on.\n` +
                 `(Wrong clothing list? Whisper !clothes male or !clothes female to switch.)\n` +
                 `Whisper !ready when done.`
@@ -1085,6 +1146,35 @@ export class StripDiceGame implements GameHost {
         }
 
         if (!midGame) this.checkAllJoined();
+    }
+
+    // Pre-game host command: !players [min] [max] or !players [exact]
+    // Adjusts the player count for the current lobby without restarting it.
+    private handlePlayersCommand(memberNumber: number, message: string): void {
+        if (memberNumber !== this.hostMemberNumber) {
+            this.bot.whisper(memberNumber, "Only the game host can adjust the player count.");
+            return;
+        }
+        if (this.state !== GameState.Registration && this.state !== GameState.Countdown) {
+            this.bot.whisper(memberNumber, "Player count can only be adjusted before the game starts.");
+            return;
+        }
+        const parts = message.trim().replace(/^!players\s*/i, "").split(/\s+/);
+        const n1 = parseInt(parts[0], 10);
+        const n2 = parts.length >= 2 ? parseInt(parts[1], 10) : n1;
+        if (isNaN(n1)) {
+            this.bot.whisper(memberNumber, "Usage: !players [min] [max] — e.g. !players 2 6 or !players 4");
+            return;
+        }
+        const error = this.validateMinMax(n1, n2);
+        if (error) {
+            this.bot.whisper(memberNumber, `${error} Try again — e.g. !players 2 6`);
+            return;
+        }
+        this.minPlayers = n1;
+        this.maxPlayers = n2;
+        this.bot.sendChat(`Player count updated: ${n1 === n2 ? `exactly ${n1}` : `${n1}–${n2}`} players.`);
+        this.checkAllJoined();
     }
 
     private validateMinMax(min: number, max: number): string | null {
@@ -1172,10 +1262,11 @@ export class StripDiceGame implements GameHost {
             bondageMode: null, // resolved right after registering, via askLateBondageMode below
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: null,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
@@ -1326,10 +1417,11 @@ export class StripDiceGame implements GameHost {
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: team,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
         this.teamRoster[team].push(memberNumber);
@@ -1378,7 +1470,25 @@ export class StripDiceGame implements GameHost {
             this.bot.whisper(memberNumber, `Teams aren't full yet — Team 1 needs ${need1} more, Team 2 needs ${need2} more.`);
             return;
         }
-        if (this.state !== GameState.Registration && this.state !== GameState.Countdown) {
+        if (this.state === GameState.Registration) {
+            // Tailored to the sender — telling an already-ready player to
+            // "whisper your clothing declaration" made them think their
+            // declaration hadn't registered (found live 2026-07-18).
+            const sender = this.players.get(memberNumber);
+            const others = [...this.players.values()]
+                .filter(p => !p.ready && p.memberNumber !== memberNumber)
+                .map(p => p.name);
+            if (sender && !sender.ready) {
+                const also = others.length > 0 ? ` (Also waiting on: ${others.join(", ")}.)` : "";
+                this.bot.whisper(memberNumber, `The game has already started — finish declaring your outfit and whisper !ready to join in!${also}`);
+            } else if (others.length > 0) {
+                this.bot.whisper(memberNumber, `The game has already started — waiting on ${others.join(", ")} to finish declaring.`);
+            } else {
+                this.bot.whisper(memberNumber, `Everyone's declared — the game should be starting shortly.`);
+            }
+            return;
+        }
+        if (this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No game is waiting to start.");
             return;
         }
@@ -1475,10 +1585,13 @@ export class StripDiceGame implements GameHost {
         const parts = message.trim().toLowerCase().split(/\s+/).slice(1);
         const declared: string[] = [];
 
+        const unrecognized: string[] = [];
         for (const part of parts) {
             const normalized = aliases[part] ?? part;
-            if (slots.includes(normalized) && !declared.includes(normalized)) {
-                declared.push(normalized);
+            if (slots.includes(normalized)) {
+                if (!declared.includes(normalized)) declared.push(normalized);
+            } else {
+                unrecognized.push(part);
             }
         }
 
@@ -1492,8 +1605,11 @@ export class StripDiceGame implements GameHost {
         player.isNaked = false;
         player.ready = false;
         player.clothingQuestionIndex = null;
+        const unknownNote = unrecognized.length > 0
+            ? `\n⚠️ Didn't recognize: ${unrecognized.join(", ")} — whisper !wearing to go through it one item at a time.`
+            : "";
         this.bot.whisper(memberNumber,
-            `Got it! Your clothing list in order: ${player.clothing.join(", ")}.\n` +
+            `Got it! Your clothing list in order: ${player.clothing.join(", ")}.${unknownNote}\n` +
             `Whisper !ready when done, or !wearing again to change.`
         );
     }
@@ -1584,6 +1700,18 @@ export class StripDiceGame implements GameHost {
         if (!player) return;
 
         if (player.clothing.length === 0 && !player.isNaked) {
+            if (player.clothingQuestionIndex !== null) {
+                // Mid-guided-flow, not just unstarted — "declare first" reads
+                // as "you haven't done anything yet" and pushes people to
+                // restart via !wearing, throwing away answers they already
+                // gave (found live 2026-07-18: this is exactly what happened
+                // — a player one question short of finishing had to redeclare
+                // their whole outfit from scratch). Re-ask the pending
+                // question instead so they know they're almost done.
+                this.bot.whisper(memberNumber, "You're still declaring your outfit — I still need your answer to this one:");
+                this.askClothingQuestion(memberNumber);
+                return;
+            }
             this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
             return;
         }
@@ -1644,19 +1772,15 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        if (this.lobbyOpen && this.hostMemberNumber !== null) {
-            if (memberNumber === this.hostMemberNumber) {
-                this.bot.whisper(memberNumber, "You're set! You can type !start whenever the others are ready.");
-            } else {
-                const readyCount = [...this.players.values()].filter(p => p.ready).length;
-                const totalCount = this.players.size;
-                this.bot.whisper(this.hostMemberNumber, `${player.name} is ready. (${readyCount}/${totalCount} ready)`);
-                this.bot.whisper(memberNumber, "You're ready! Waiting for others...");
-            }
-        } else {
-            this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
-        }
-        this.bot.sendChat(`${player.name} is ready!`);
+        // One public line covers everyone: it confirms to the player, shows
+        // the host the count, and tells the room who's still pending. (This
+        // used to also send a personal whisper and a separate host whisper
+        // with the same info — three messages for one event. The old host tip
+        // "type !start whenever the others are ready" is gone on purpose:
+        // !start no longer does anything during Registration, the game
+        // proceeds automatically once everyone is ready.)
+        const readyCount = [...this.players.values()].filter(p => p.ready).length;
+        this.bot.sendChat(`${player.name} is ready! (${readyCount}/${this.players.size})`);
         if (this.players.size === 1) {
             this.bot.sendChat(
                 `Waiting for a second player to join — the game will start automatically when they do! Or type !solo to play solo right now.`
@@ -2546,6 +2670,64 @@ export class StripDiceGame implements GameHost {
         }
     }
 
+    // Records a shipped update so !changelog can report it later. Called from
+    // index.ts on startup, once, for a pending_update.txt version this bot
+    // hasn't recorded before.
+    public recordUpdate(entry: ChangelogEntry): void {
+        this.storage.appendChangelogEntry(entry);
+    }
+
+    // The version a returning player is compared against — null when nothing
+    // has shipped yet, which suppresses the nudge entirely.
+    private latestChangelogVersion(): string | null {
+        const entries = this.storage.loadChangelog();
+        return entries.length ? entries[entries.length - 1].version : null;
+    }
+
+    // One short line on join for players who were away when something shipped,
+    // replacing the old habit of posting the whole update into room chat.
+    // Skipped for first-time visitors, who have no absence to catch up on.
+    private nudgeChangelogIfBehind(memberNumber: number, isNewPlayer: boolean): void {
+        if (isNewPlayer) return;
+        const latest = this.latestChangelogVersion();
+        if (!latest) return;
+        const record = this.playerRecords[String(memberNumber)];
+        if (record?.lastChangelogVersion === latest) return;
+
+        this.bot.whisper(memberNumber,
+            `📋 I've been updated since your last visit — whisper !changelog to see what changed.`
+        );
+    }
+
+    private handleChangelog(memberNumber: number): void {
+        const entries = this.storage.loadChangelog();
+        if (!entries.length) {
+            this.bot.whisper(memberNumber, "No changes recorded yet — you're up to date!");
+            return;
+        }
+
+        const shown = entries.slice(-CHANGELOG_ENTRIES_SHOWN).reverse();
+        const lines = shown.map(entry => {
+            const date = entry.version.split("T")[0] || entry.version;
+            const detail = entry.detail ? `\n${entry.detail}` : "";
+            return `— ${date} —\n${entry.headline}${detail}`;
+        });
+
+        const older = entries.length - shown.length;
+        const footer = older > 0 ? `\n\n(${older} older ${older === 1 ? "change" : "changes"} not shown.)` : "";
+
+        this.sendLongWhisper(memberNumber,
+            `=== What's New in Strip Dice ===\n\n${lines.join("\n\n")}${footer}`
+        );
+
+        // Mark caught up so the join nudge stops until the next update ships.
+        const record = this.playerRecords[String(memberNumber)];
+        if (record) {
+            record.lastChangelogVersion = entries[entries.length - 1].version;
+            this.savePlayerRecords();
+        }
+    }
+
     private recordPlayerSeen(memberNumber: number, name: string): void {
         const key = String(memberNumber);
         const now = centralTimestamp();
@@ -2595,7 +2777,9 @@ export class StripDiceGame implements GameHost {
             text += `!help admin - Admin commands\n`;
         }
 
-        text += `!about - About this bot`;
+        text +=
+            `!changelog - What's changed recently\n` +
+            `!about - About this bot`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -2638,6 +2822,8 @@ export class StripDiceGame implements GameHost {
             `!feedback [text] - Send feedback to the developers\n` +
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
+            `!friend - Add me to your friend list so you can see when the room is up (!unfriend to undo)\n` +
+            `!changelog - See what's changed recently\n` +
             `!about - About this bot\n` +
             `!help - Show the help menu`;
 
@@ -2888,8 +3074,6 @@ export class StripDiceGame implements GameHost {
     // ============================================================
 
     private checkAllJoined(): void {
-        if (this.awaitingMinMaxReply) return;
-
         const nonBotMembers = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
         const joinedCount = this.players.size;
 
@@ -2905,7 +3089,12 @@ export class StripDiceGame implements GameHost {
 
     private startCountdown(): void {
         this.state = GameState.Countdown;
-        this.bot.sendChat(`All players have joined! 🎲 Game starts in 30 seconds... Whisper !start to begin early or !cancel to wait for more players.`);
+        // "All players" was misleading when only the minimum had joined
+        // (e.g. 2 of 6) — players read it as "no one else can join".
+        const headline = this.players.size >= this.maxPlayers
+            ? "All player slots are filled"
+            : `Enough players to start (${this.players.size}/${this.maxPlayers} joined)`;
+        this.bot.sendChat(`${headline}! 🎲 Game starts in 30 seconds... Whisper !start to begin early or !cancel to wait for more players.`);
 
         let seconds = 30;
         this.countdownTimer = setInterval(() => {
@@ -2944,26 +3133,23 @@ export class StripDiceGame implements GameHost {
                     "⚠️ Heads up: your item permission is currently blocking interactions. " +
                     "Enable \"Allow others to add items\" in Online Settings → Items or bondage penalties won't apply."
                 );
-            } else if (oss?.GameVersion && this.botGameVersion &&
-                       this.parseBCVersion(oss.GameVersion) > this.parseBCVersion(this.botGameVersion)) {
-                this.bot.whisper(player.memberNumber,
-                    "⚠️ Heads up: your BC version may not be compatible with this bot. " +
-                    "Item interactions may not work correctly."
-                );
             }
         }
 
         for (const [, player] of this.players) {
-            if (!player.ready) {
+            if (player.ready) continue;
+            // Mid-guided-declaration players already have a pending yes/no
+            // question on their screen — a generic "finish declaring" nag on
+            // top of it reads like the bot lost their progress (found live
+            // 2026-07-18, made a player restart from scratch). Stay quiet.
+            if (player.clothingQuestionIndex !== null) continue;
+            if (player.clothing.length > 0 || player.isNaked) {
                 this.bot.whisper(player.memberNumber,
-                    `Game is starting soon! Please whisper:\n` +
-                    (this.lastClothing.has(player.memberNumber)
-                        ? `!same - use your last outfit (${this.lastClothing.get(player.memberNumber)!.join(", ")})\n`
-                        : ``) +
-                    `!wearing - go through your outfit one item at a time (yes/no)\n` +
-                    `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
-                    `!naked - if you have nothing on\n` +
-                    `Then whisper !ready`
+                    `Game is starting soon — your outfit is declared, just whisper !ready to join in!`
+                );
+            } else {
+                this.bot.whisper(player.memberNumber,
+                    `Game is starting soon — declare your outfit (!wearing or !naked) and whisper !ready to join in!`
                 );
             }
         }
@@ -2980,7 +3166,38 @@ export class StripDiceGame implements GameHost {
             if (!player.ready) return;
         }
 
-        this.beginToysConsent();
+        // Resume the pregame consent pipeline from wherever it left off,
+        // rather than restarting from toys consent every time. A player can
+        // un-ready mid-pipeline (e.g. whispering !wearing again) and then
+        // re-ready, which re-triggers this function — found live 2026-07-18
+        // that re-running beginToysConsent() from scratch re-armed a full 60s
+        // timeout even though both players had already answered toys consent
+        // and there was nobody left to ask, silently stalling the game for a
+        // full minute (twice, in that incident) with no visible progress.
+        if (!this.toysConsentResolved) {
+            this.beginToysConsent();
+        } else if (!this.prizeConsentResolved) {
+            this.beginPrizeConsent();
+        } else if (!this.bondageModeResolved) {
+            this.beginBondageModeSelection();
+        } else if (!this.slotConsentResolved) {
+            // Bondage modes resolved but the slot-consent stage never got to
+            // run — happens when resolveBondageModeSelection() bailed at its
+            // not-ready guard (someone un-readied during the mode Q&A) before
+            // reaching beginSlotConsentPhase. Without this branch the final
+            // else would start the game with player-pick players never asked
+            // which slots they consent to.
+            const pickers = [...this.players.values()]
+                .filter(p => !p.joinedAfterPregameStart && p.bondageMode === "player-pick");
+            if (pickers.length > 0) {
+                this.beginSlotConsentPhase(pickers);
+            } else {
+                this.slotConsentResolved = true;
+                this.tryStartIfEveryoneReady();
+            }
+        } else {
+            this.tryStartIfEveryoneReady();
+        }
     }
 
     // The moment the game would normally start: every ready player is asked,
@@ -2992,6 +3209,7 @@ export class StripDiceGame implements GameHost {
         clearTimeout(this.toysConsentTimer);
         this.toysConsentTimer = null;
         this.awaitingToysConsent = true;
+        let askedAnyone = false;
         for (const player of this.players.values()) {
             // Anyone who joined after this Q&A already started for the rest
             // of the roster gets their own individual gate later (in
@@ -2999,11 +3217,25 @@ export class StripDiceGame implements GameHost {
             // re-trigger of this function doesn't re-ask (or silently
             // reset) players already handled.
             if (player.joinedAfterPregameStart) continue;
-            player.toysConsent = null;
+            // Players who answered toys consent at join time are already set —
+            // don't re-ask or reset them.
+            if (player.toysConsent !== null) {
+                logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) already answered at join (${player.toysConsent}) — skipping.`);
+                continue;
+            }
+            askedAnyone = true;
             this.bot.whisper(player.memberNumber,
-                "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no)"
+                "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no — 60s, no answer = no toys)"
             );
             logGameEvent(`[ToysConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        // Everyone already answered at join time — nothing to wait on, so
+        // resolve immediately instead of arming a needless 60s timeout (found
+        // live 2026-07-18: this was silently stalling the game a full minute
+        // whenever every player had already answered "yes" at !join).
+        if (!askedAnyone) {
+            this.resolveToysConsent();
+            return;
         }
         this.toysConsentTimer = setTimeout(() => this.resolveToysConsent(), TOYS_CONSENT_TIMEOUT_MS);
     }
@@ -3027,6 +3259,7 @@ export class StripDiceGame implements GameHost {
     // "no") and starts the game.
     private resolveToysConsent(): void {
         if (!this.awaitingToysConsent) return;
+        this.toysConsentResolved = true;
         const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
         for (const player of roster) {
             logGameEvent(`[ToysConsent] Resolving — ${player.name}: ${player.toysConsent}`);
@@ -3107,6 +3340,7 @@ export class StripDiceGame implements GameHost {
     // beneficial swap before moving on.
     private resolvePrizeConsent(): void {
         if (!this.awaitingPrizeConsent) return;
+        this.prizeConsentResolved = true;
         if (this.prizeConsentTimer) {
             clearTimeout(this.prizeConsentTimer);
             this.prizeConsentTimer = null;
@@ -3810,6 +4044,8 @@ export class StripDiceGame implements GameHost {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             for (const player of this.players.values()) player.bondageMode = "outfit";
             this.gameBondageMode = "outfit";
+            this.bondageModeResolved = true;
+            this.slotConsentResolved = true;
             this.tryStartIfEveryoneReady();
             return;
         }
@@ -3833,9 +4069,9 @@ export class StripDiceGame implements GameHost {
     private sendBondageModeQuestion(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             "How should your bondage penalties be chosen?\n" +
-            "pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
-            "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
-            "Reply \"pick\" or \"outfit\". (60s — no answer counts as pick)"
+            "1. pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
+            "2. outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
+            "Reply \"1/pick\" or \"2/outfit\". (60s — no answer counts as pick)"
         );
     }
 
@@ -3958,6 +4194,7 @@ export class StripDiceGame implements GameHost {
 
     private resolveBondageModeSelection(): void {
         if (!this.awaitingBondageMode) return;
+        this.bondageModeResolved = true;
         this.awaitingBondageMode = false;
         if (this.bondageModeTimer) {
             clearTimeout(this.bondageModeTimer);
@@ -3994,6 +4231,7 @@ export class StripDiceGame implements GameHost {
         if (pickers.length > 0) {
             this.beginSlotConsentPhase(pickers);
         } else {
+            this.slotConsentResolved = true;
             this.tryStartIfEveryoneReady();
         }
     }
@@ -4016,6 +4254,7 @@ export class StripDiceGame implements GameHost {
 
     private resolveSlotConsentPhase(): void {
         if (!this.awaitingSlotConsent) return;
+        this.slotConsentResolved = true;
         this.awaitingSlotConsent = false;
         if (this.slotConsentTimer) {
             clearTimeout(this.slotConsentTimer);
@@ -4172,8 +4411,12 @@ export class StripDiceGame implements GameHost {
     }
 
     // The picker is whoever has gone longest without rolling a 1 (lowest
-    // lastLossSeq; 0 = never lost, which outranks everyone). Ties — including
-    // round 1, where nobody has lost yet — resolve randomly among the tied.
+    // lastLossSeq; 0 = present from the start and never lost, which outranks
+    // everyone). A mid-game joiner is stamped with the current lossSeqCounter
+    // on entry (see the Player creation sites), i.e. treated as if they just
+    // lost, so they land at the back of the pick order instead of instantly
+    // becoming the picker. Ties — including round 1, where nobody has lost
+    // yet — resolve randomly among the tied.
     // The target never picks their own items, and ghosts never pick (they
     // don't respond to anything). In team mode, an opposing-team member is
     // preferred when one's available; otherwise falls back to anyone eligible.
@@ -4362,11 +4605,19 @@ export class StripDiceGame implements GameHost {
         const catalogItems = BC_ITEM_CATALOG.get(group) ?? [];
         const usage = this.bondageUsage[group] ?? {};
 
-        const options: string[] = Object.entries(usage)
-            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name))
+        // Pin any new items for this slot to the front (see NEW_ITEMS) so
+        // players always see the latest gear regardless of usage history.
+        const options: string[] = [...NEW_ITEMS].filter(
+            n => catalogItems.includes(n) && !excluded.includes(n)
+        );
+
+        for (const [name] of Object.entries(usage)
+            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name) && !options.includes(name))
             .sort((a, b) => b[1] - a[1])
-            .slice(0, PICK_LIST_TOP_N)
-            .map(([name]) => name);
+            .slice(0, PICK_LIST_TOP_N)) {
+            if (options.length >= PICK_LIST_TOP_N) break;
+            options.push(name);
+        }
 
         if (options.length < PICK_LIST_TOP_N) {
             for (const outfit of BONDAGE_OUTFITS) {
@@ -4391,8 +4642,9 @@ export class StripDiceGame implements GameHost {
     private formatPickList(slotDisplay: string, options: string[], hasRandom: boolean): string {
         const lines = [`Slot: ${slotDisplay} — pick one:`];
         options.forEach((name, i) => {
+            const newMarker = NEW_ITEMS.has(name) ? " 🆕 new!" : "";
             const marker = hasRandom && i === options.length - 1 ? ` ← random pick (not in top ${PICK_LIST_TOP_N})` : "";
-            lines.push(`${i + 1}. ${name}${marker}`);
+            lines.push(`${i + 1}. ${name}${newMarker}${marker}`);
         });
         lines.push("Or type any item name from this slot.");
         return lines.join("\n");
@@ -4916,8 +5168,11 @@ export class StripDiceGame implements GameHost {
             const roleHint = isWinner ? " (you're the winner — your vote counts too!)" : "";
             this.bot.whisper(player.memberNumber,
                 `⏱️ Lock time vote: ${suggestedMinutes} min proposed` +
-                ` (base ${playerFloor} + ${finisherBonus} min for ${this.finisherCount} finishers).` +
-                `${roleHint} Reply: 1 = less (−5)  2 = accept  3 = more (+5). Majority wins. 30 seconds.`
+                ` (base ${playerFloor} + ${finisherBonus} min for ${this.finisherCount} finishers).${roleHint}\n` +
+                `1. less (−5 min)\n` +
+                `2. accept\n` +
+                `3. more (+5 min)\n` +
+                `Majority wins. 30 seconds.`
             );
         }
     }
@@ -5178,25 +5433,34 @@ export class StripDiceGame implements GameHost {
                     }
                 }
 
+                // Shared lock property for the leash and, if we add one, the
+                // collar — so both carry the same password/timer and release
+                // together.
+                const neckLockProperty = {
+                    Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
+                    LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
+                    Password: password, Hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
+                    LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
+                    MemberNumberList: [], RemoveTimer: prizePlayerLockEndTime,
+                };
+
+                // A leash needs a collar in ItemNeck to attach to — if this
+                // player isn't already wearing one, add the most popular collar
+                // first, locked to the same timer/password so it releases with
+                // the leash. Never overwrites an existing collar.
                 const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
                     ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
                 if (!hasCollar) {
                     const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
                     setTimeout(() => {
-                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", {});
+                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
                     }, collarDelay);
                     stagger++;
                 }
 
                 const delay = stagger * END_GAME_EMIT_STAGGER_MS;
                 setTimeout(() => {
-                    this.bot.applyItem(prizePlayer.memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", {
-                        Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
-                        LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
-                        Password: password, Hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
-                        LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
-                        MemberNumberList: [], RemoveTimer: prizePlayerLockEndTime,
-                    });
+                    this.bot.applyItem(prizePlayer.memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", neckLockProperty);
                 }, delay);
                 stagger++;
 
@@ -5264,15 +5528,35 @@ export class StripDiceGame implements GameHost {
                     }
                 }
 
+                // Shared lock property for the leash and, if we add one, the
+                // collar — so both carry the same password/timer and release
+                // together.
+                const neckLockProperty = {
+                    Difficulty: 20,
+                    Effect: ["Lock"],
+                    LockedBy: "TimerPasswordPadlock",
+                    LockMemberNumber: this.bot.getMemberNumber(),
+                    LockMemberName: "GameBot",
+                    Password: password,
+                    Hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
+                    LockSet: true,
+                    RemoveItem: true,
+                    ShowTimer: true,
+                    EnableRandomInput: false,
+                    MemberNumberList: [],
+                    RemoveTimer: prizePlayerLockEndTime,
+                };
+
                 // The leash attaches to a collar — if this player isn't already
-                // wearing one in ItemNeck, give them the most popular one first
-                // so the leash isn't left with nothing to attach to.
+                // wearing one in ItemNeck, give them the most popular one first,
+                // locked to the same timer/password so it releases with the
+                // leash. Never overwrites an existing collar.
                 const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
                     ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
                 if (!hasCollar) {
                     const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
                     setTimeout(() => {
-                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", {});
+                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
                     }, collarDelay);
                     stagger++;
                 }
@@ -5284,21 +5568,7 @@ export class StripDiceGame implements GameHost {
                         "ItemNeckRestraints",
                         "CollarLeash",
                         "#808080",
-                        {
-                            Difficulty: 20,
-                            Effect: ["Lock"],
-                            LockedBy: "TimerPasswordPadlock",
-                            LockMemberNumber: this.bot.getMemberNumber(),
-                            LockMemberName: "GameBot",
-                            Password: password,
-                            Hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
-                            LockSet: true,
-                            RemoveItem: true,
-                            ShowTimer: true,
-                            EnableRandomInput: false,
-                            MemberNumberList: [],
-                            RemoveTimer: prizePlayerLockEndTime,
-                        }
+                        neckLockProperty
                     );
                 }, delay);
                 stagger++;
@@ -5569,6 +5839,7 @@ export class StripDiceGame implements GameHost {
         this.awaitingMinMaxReply = false;
         this.toysAllowed = false;
         this.awaitingToysConsent = false;
+        this.toysConsentResolved = false;
         if (this.toysConsentTimer) {
             clearTimeout(this.toysConsentTimer);
             this.toysConsentTimer = null;
@@ -5578,6 +5849,7 @@ export class StripDiceGame implements GameHost {
         if (this.pendingPrizeSwap) { clearTimeout(this.pendingPrizeSwap.timeout); this.pendingPrizeSwap = null; }
         this.prizeConsentTeams.clear();
         this.awaitingPrizeConsent = false;
+        this.prizeConsentResolved = false;
         if (this.prizeConsentTimer) {
             clearTimeout(this.prizeConsentTimer);
             this.prizeConsentTimer = null;
@@ -5621,11 +5893,13 @@ export class StripDiceGame implements GameHost {
         this.pickerHistory = [];
         this.gameBondageMode = "outfit";
         this.awaitingBondageMode = false;
+        this.bondageModeResolved = false;
         if (this.bondageModeTimer) {
             clearTimeout(this.bondageModeTimer);
             this.bondageModeTimer = null;
         }
         this.awaitingSlotConsent = false;
+        this.slotConsentResolved = false;
         if (this.slotConsentTimer) {
             clearTimeout(this.slotConsentTimer);
             this.slotConsentTimer = null;
@@ -5668,8 +5942,9 @@ export class StripDiceGame implements GameHost {
     }
 
     private checkPendingUpdate(): boolean {
-        const updatePath = path.join(__dirname, "..", "pending_update.txt");
-        if (!fs.existsSync(updatePath)) return false;
+        const current = readPendingUpdate();
+        if (!current) return false;
+        if (current.version === getSeenVersion()) return false;
 
         // If any players still have active locks, skip the update this cycle.
         // BC timer locks will self-release without the bot, but we want to stay
@@ -5684,25 +5959,15 @@ export class StripDiceGame implements GameHost {
             return false;
         }
 
-        let note = "";
-        try {
-            note = fs.readFileSync(updatePath, "utf8").trim();
-        } catch {
-            note = "";
-        }
-
+        const note = current.note;
         const message = note
             ? `⚙️ Update incoming (${note}) — StripDiceBot will be right back!`
             : `⚙️ Update incoming — StripDiceBot will be right back!`;
 
         this.bot.sendChat(message);
-        log(`Pending update detected${note ? ` (${note})` : ""}. Restarting...`);
+        log(`Pending update detected (version ${current.version})${note ? ` (${note})` : ""}. Restarting...`);
 
-        try {
-            fs.unlinkSync(updatePath);
-        } catch (err) {
-            log(`Failed to remove pending_update.txt: ${err}`);
-        }
+        markVersionSeen(current.version);
 
         setTimeout(() => {
             process.exit(0);
