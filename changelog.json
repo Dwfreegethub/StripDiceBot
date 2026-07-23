@@ -22,5 +22,11 @@
     "headline": "You can now friend the bot to see when the room is up, and !changelog shows what's new.",
     "detail": "Friending: BC only shows two people to each other on their friend lists when both have added the other, so adding the bot on its own never did anything. Now, if you use BC's \"Add friend with notification\" option on the bot, it adds you back automatically — after that the bot appears in your friend list whenever it's online, along with the room name and how many players are in it. The \"add without notifying\" option sends the bot no signal at all, so if you used that one (or added the bot a while ago), whisper !friend and it'll add you back. !unfriend removes you again at any time. No beeps are sent — this is display only.\nChangelog: room chat no longer gets a wall of text after every update. Restarts announce a single headline for the big changes only, and if something shipped while you were away you'll get a one-line nudge on your way in. Whisper !changelog any time for the last few updates in full.",
     "major": true
+  },
+  {
+    "version": "2026-07-22T07:35:18-05:00",
+    "headline": "Team mode fix: the whole winning team is now fully unbound at the end — including a teammate who got bound during the game.",
+    "detail": "Before, if someone on the winning team had been fully bound before their team clinched the win, they were still getting locked at game end like a loser. The bot freed them once, but then re-locked them a moment later when it applied everyone's end-game locks, so they ended up stuck. Now every member of the winning team is stripped and left free, and only the losing team gets locked.",
+    "major": true
   }
 ]

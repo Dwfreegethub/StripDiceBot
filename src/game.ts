@@ -4396,6 +4396,8 @@ export class StripDiceGame implements GameHost {
             slotDisplay: null,
             slotGroup: null,
             options: [],
+            optionsAll: [],
+            optionsPage: 0,
             chosenItem: null,
             vetoedItems: [],
             timer: null,
@@ -4547,7 +4549,7 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        const { options, hasRandom } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+        const { options, all } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
         if (options.length === 0) {
             this.bot.whisper(pending.pickerNumber, `No items are available for that slot — pick a different one.`);
             return;
@@ -4556,8 +4558,11 @@ export class StripDiceGame implements GameHost {
         pending.slotDisplay = match.display;
         pending.slotGroup = actualGroup;
         pending.options = options;
+        pending.optionsAll = all;
+        pending.optionsPage = 0;
         pending.stage = "item";
-        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, hasRandom));
+        const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
+        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, 0, totalPages));
         this.startPickTimer();
     }
 
@@ -4567,6 +4572,23 @@ export class StripDiceGame implements GameHost {
 
         let chosen: string | null = null;
         const trimmed = input.trim();
+
+        // "M" or "m" — advance to the next page of the item list.
+        if (trimmed.toLowerCase() === "m") {
+            const allOpts = pending.optionsAll;
+            const totalPages = Math.ceil(allOpts.length / PICK_LIST_TOP_N);
+            if (totalPages <= 1) {
+                this.bot.whisper(pending.pickerNumber, "There are no more options for this slot.");
+                return;
+            }
+            pending.optionsPage = (pending.optionsPage + 1) % totalPages;
+            const start = pending.optionsPage * PICK_LIST_TOP_N;
+            pending.options = allOpts.slice(start, start + PICK_LIST_TOP_N);
+            this.sendLongWhisper(pending.pickerNumber, this.formatPickList(pending.slotDisplay!, pending.options, pending.optionsPage, totalPages));
+            this.startPickTimer();
+            return;
+        }
+
         if (/^\d+$/.test(trimmed)) {
             const idx = parseInt(trimmed, 10);
             if (idx >= 1 && idx <= pending.options.length) {
@@ -4584,8 +4606,10 @@ export class StripDiceGame implements GameHost {
                     `Multiple matches: ${result.candidates.slice(0, 8).join(", ")} — be more specific.`);
                 return;
             } else {
+                const totalPages = Math.ceil(pending.optionsAll.length / PICK_LIST_TOP_N);
+                const moreHint = totalPages > 1 ? " Type M to browse more options, or" : "";
                 this.bot.whisper(pending.pickerNumber,
-                    `No item matching "${trimmed}" in this slot. Reply with a number 1-${pending.options.length} or an item name.`);
+                    `No item matching "${trimmed}" in this slot.${moreHint} type more of the name.`);
                 return;
             }
         }
@@ -4598,54 +4622,58 @@ export class StripDiceGame implements GameHost {
         return pending.vetoedItems.filter(v => v.group === group).map(v => v.item);
     }
 
-    // Top-N most popular items for this slot plus one random wildcard.
-    // Bootstrap: below N tracked entries, fill from outfits.json items for
-    // this group in the order they appear, so the list is never empty.
-    private buildPickList(group: string, excluded: string[]): { options: string[]; hasRandom: boolean } {
+    // Returns `all` — the full sorted catalog list for this slot (pinned →
+    // popular → outfit-bootstrap → shuffled remainder) — and `options`, which
+    // is the first PICK_LIST_TOP_N entries. The full list is stored in
+    // pendingBondagePick so "M for more" can page through it without
+    // re-randomising. Excluded items (vetoed) are filtered out of both lists.
+    private buildPickList(group: string, excluded: string[]): { options: string[]; all: string[] } {
         const catalogItems = BC_ITEM_CATALOG.get(group) ?? [];
         const usage = this.bondageUsage[group] ?? {};
 
         // Pin any new items for this slot to the front (see NEW_ITEMS) so
         // players always see the latest gear regardless of usage history.
-        const options: string[] = [...NEW_ITEMS].filter(
+        const pinned: string[] = [...NEW_ITEMS].filter(
             n => catalogItems.includes(n) && !excluded.includes(n)
         );
 
-        for (const [name] of Object.entries(usage)
-            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name) && !options.includes(name))
+        // All items with recorded usage, sorted by popularity (descending).
+        const popularSorted: string[] = Object.entries(usage)
+            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name) && !pinned.includes(name))
             .sort((a, b) => b[1] - a[1])
-            .slice(0, PICK_LIST_TOP_N)) {
-            if (options.length >= PICK_LIST_TOP_N) break;
-            options.push(name);
-        }
+            .map(([name]) => name);
 
-        if (options.length < PICK_LIST_TOP_N) {
-            for (const outfit of BONDAGE_OUTFITS) {
-                for (const item of outfit.items) {
-                    if (item.group !== group || options.includes(item.name) || excluded.includes(item.name)) continue;
-                    options.push(item.name);
-                    if (options.length >= PICK_LIST_TOP_N) break;
-                }
-                if (options.length >= PICK_LIST_TOP_N) break;
+        // Bootstrap fill from outfits.json — items listed in preset outfits
+        // that haven't been covered yet (stable order, no randomness).
+        const bootstrapSeen = new Set([...pinned, ...popularSorted]);
+        const bootstrap: string[] = [];
+        for (const outfit of BONDAGE_OUTFITS) {
+            for (const item of outfit.items) {
+                if (item.group !== group || bootstrapSeen.has(item.name) || excluded.includes(item.name)) continue;
+                if (!bootstrap.includes(item.name)) bootstrap.push(item.name);
+                bootstrapSeen.add(item.name);
             }
         }
 
-        const rest = catalogItems.filter(n => !options.includes(n) && !excluded.includes(n));
-        let hasRandom = false;
-        if (rest.length > 0) {
-            options.push(rest[Math.floor(Math.random() * rest.length)]);
-            hasRandom = true;
-        }
-        return { options, hasRandom };
+        // Remaining catalog items shuffled once — stable for the lifetime of
+        // this deal so M for more pages through the same order.
+        const rest = catalogItems.filter(n => !bootstrapSeen.has(n) && !excluded.includes(n));
+        const shuffled = [...rest].sort(() => Math.random() - 0.5);
+
+        const all = [...pinned, ...popularSorted, ...bootstrap, ...shuffled];
+        const options = all.slice(0, PICK_LIST_TOP_N);
+
+        return { options, all };
     }
 
-    private formatPickList(slotDisplay: string, options: string[], hasRandom: boolean): string {
-        const lines = [`Slot: ${slotDisplay} — pick one:`];
+    private formatPickList(slotDisplay: string, options: string[], page: number, totalPages: number): string {
+        const pageNote = totalPages > 1 ? ` (page ${page + 1} of ${totalPages})` : "";
+        const lines = [`Slot: ${slotDisplay} — pick one:${pageNote}`];
         options.forEach((name, i) => {
             const newMarker = NEW_ITEMS.has(name) ? " 🆕 new!" : "";
-            const marker = hasRandom && i === options.length - 1 ? ` ← random pick (not in top ${PICK_LIST_TOP_N})` : "";
-            lines.push(`${i + 1}. ${name}${newMarker}${marker}`);
+            lines.push(`${i + 1}. ${name}${newMarker}`);
         });
+        if (page + 1 < totalPages) lines.push("M. More");
         lines.push("Or type any item name from this slot.");
         return lines.join("\n");
     }
@@ -4716,13 +4744,15 @@ export class StripDiceGame implements GameHost {
         pending.chosenItem = null;
         const pickerName = this.getPlayerName(pending.pickerNumber);
 
-        const { options, hasRandom } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
+        const { options, all } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
         if (options.length === 0) {
             // Every item in this slot has been vetoed — back to slot choice.
             pending.stage = "slot";
             pending.slotDisplay = null;
             pending.slotGroup = null;
             pending.options = [];
+            pending.optionsAll = [];
+            pending.optionsPage = 0;
             this.bot.whisper(pending.pickerNumber,
                 `${target.name} vetoed ${vetoed}, and no other items are available for that slot. ${this.slotPromptText(target)}`);
             this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is choosing a different slot.`);
@@ -4732,9 +4762,12 @@ export class StripDiceGame implements GameHost {
 
         pending.stage = "item";
         pending.options = options;
+        pending.optionsAll = all;
+        pending.optionsPage = 0;
+        const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
         this.sendLongWhisper(pending.pickerNumber,
             `${target.name} vetoed ${vetoed} — pick a different item.\n` +
-            this.formatPickList(pending.slotDisplay!, options, hasRandom));
+            this.formatPickList(pending.slotDisplay!, options, 0, totalPages));
         this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is picking another item.`);
         this.startPickTimer();
     }
@@ -5015,21 +5048,26 @@ export class StripDiceGame implements GameHost {
             return true;
         }
         if (team1AllOut) {
-            const winners = team2.filter(p => !isOut(p));
+            // The whole winning team is freed (see finalizeEndGameLocks) — even
+            // any member who got fully bound. Survivors (still unbound) are the
+            // ones that count as "finishers" for the lock-time formula/display.
+            const winningTeam = team2;
+            const survivors = team2.filter(p => !isOut(p));
             this.bot.sendChat(`🔒 Team 1 is fully bound! Team 2 wins! 🎉`);
-            this.finisherCount += winners.length; // winning team counts as finishers
-            this.recordGameCompletion(winners.map(p => p.memberNumber));
-            this.logMultiplayerGameEnd("win", { winner: `Team 2 (${winners.map(p => p.name).join(", ")})` });
-            this.applyEndGameLocks(winners);
+            this.finisherCount += survivors.length; // finishers = still-unbound winners
+            this.recordGameCompletion(winningTeam.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 2 (${survivors.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winningTeam);
             return true;
         }
         if (team2AllOut) {
-            const winners = team1.filter(p => !isOut(p));
+            const winningTeam = team1;
+            const survivors = team1.filter(p => !isOut(p));
             this.bot.sendChat(`🔒 Team 2 is fully bound! Team 1 wins! 🎉`);
-            this.finisherCount += winners.length; // winning team counts as finishers
-            this.recordGameCompletion(winners.map(p => p.memberNumber));
-            this.logMultiplayerGameEnd("win", { winner: `Team 1 (${winners.map(p => p.name).join(", ")})` });
-            this.applyEndGameLocks(winners);
+            this.finisherCount += survivors.length; // finishers = still-unbound winners
+            this.recordGameCompletion(winningTeam.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 1 (${survivors.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winningTeam);
             return true;
         }
         return false;
@@ -5261,7 +5299,12 @@ export class StripDiceGame implements GameHost {
     // base (settled by the vote). Each bound player's final lock time may be
     // longer if they accumulated a 69-roll bonus during the game.
     private finalizeEndGameLocks(winners?: Player[]): void {
-        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
+        // Winners are freed, never locked — even a member of the winning team
+        // who happened to get fully bound during the game (team mode). Without
+        // this exclusion such a player would fall into boundPlayers and get
+        // locked like a loser, leaving the winning team not fully unbound.
+        const winnerNumbers = new Set((winners ?? []).map(w => w.memberNumber));
+        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound && !winnerNumbers.has(p.memberNumber));
 
         if (winners && this.toysAllowed) {
             for (const winner of winners) {

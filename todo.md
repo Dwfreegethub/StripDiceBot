@@ -36,9 +36,11 @@
 
 ## Future / Nice to Have
 
-- [ ] **Solo prize system design** — When a solo player finishes their game, they're asked if they'd want to be a "prize" (available for anyone in the room to claim). If yes, they're currently told it's not implemented yet and prompted to describe their vision (stored as feedback). Design TBD: likely a timed bondage lock + prevented room exit, with any room member able to claim. See feedback log for collected player visions. No code changes needed until design is finalized.
+- [ ] **Solo prize system** — ⏸️ ON HOLD pending WD stabilization + dedicated solo outfits. Resume after WD is ready to run. Next step: source/commission solo bondage outfits, then implement.
 
-  - _Considering — "Hardcore / trophy" solo mode_ (mia #87215, 2026-07-19, after a solo race): an opt-in higher-stakes solo variant where finishing (or beating a record) turns the player into a claimable "trophy" — i.e. wire the solo-prize outcome into a dedicated hardcore mode rather than a post-game opt-in. mia's related notes: winner picks their own bondage gear; a "naked as prize" stake (only eligible if the player is naked). Overlaps heavily with the solo prize system above — treat as one design. Just considering, no design or code yet.
+  _Player vision summary (15 submissions, 2026-07-17–21):_ Overwhelming consensus is full bondage + helpless/on-display + claimable by anyone in the room. "Doll," "pet," "bound and helpless" language repeats across 7+ independent submissions. Core design: lose solo → fully restrained in a dedicated outfit → claimable by room members for a timed lock. Notable additions worth considering: Indigo suggested bot-counted punishment tasks as a release condition (instead of just a timer); mia suggested a pre-game "hardcore mode" stake where beating a record auto-triggers prize status.
+
+- [ ] **Solo tournament** — Design TBD. Likely a structured bracket or ladder where solo players compete for records across a session, with the tournament winner (or loser) becoming a prize. No design or code yet — revisit after solo prize system ships.
 
 - [x] ~~**69 on first roll — special event**~~ — Removed; handled another way.
 

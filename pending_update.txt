@@ -1,4 +1,3 @@
-2026-07-20T12:00:00-05:00
-You can now friend the bot to see when the room is up, and !changelog shows what's new.
-Friending: BC only shows two people to each other on their friend lists when both have added the other, so adding the bot on its own never did anything. Now, if you use BC's "Add friend with notification" option on the bot, it adds you back automatically — after that the bot appears in your friend list whenever it's online, along with the room name and how many players are in it. The "add without notifying" option sends the bot no signal at all, so if you used that one (or added the bot a while ago), whisper !friend and it'll add you back. !unfriend removes you again at any time. No beeps are sent — this is display only.
-Changelog: room chat no longer gets a wall of text after every update. Restarts announce a single headline for the big changes only, and if something shipped while you were away you'll get a one-line nudge on your way in. Whisper !changelog any time for the last few updates in full.
+2026-07-22T00:00:01-05:00
+Bondage picker now has "M for more" — browse the full item catalog one page at a time instead of being limited to the top 9.
+The bondage pick list now shows "M. More" at the bottom when the slot has more items than fit on one page. Type M to page through the full catalog (popular items first, then preset outfit items, then the rest). Numbers are relative (1-9) per page. Works the same way after a veto — fresh list, page 1.

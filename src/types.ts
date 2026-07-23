@@ -42,7 +42,12 @@ export interface PendingBondagePick {
     stage: "slot" | "item" | "veto";
     slotDisplay: string | null;  // picker-facing name, e.g. "Mouth"
     slotGroup: string | null;    // actual BC group applied, e.g. "ItemMouth2"
-    options: string[];           // current numbered item list
+    options: string[];           // current page's numbered item list (slice of optionsAll)
+    // Full sorted catalog for this slot (pinned → popular → outfit-bootstrap →
+    // random), generated once at slot-pick time. "M for more" pages through it.
+    optionsAll: string[];
+    // Current page index into optionsAll (0-based).
+    optionsPage: number;
     chosenItem: string | null;
     vetoedItems: { group: string; item: string }[]; // vetoed during this pick session, scoped per group
     timer: NodeJS.Timeout | null; // picker-response or veto timer

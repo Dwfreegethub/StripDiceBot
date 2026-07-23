@@ -24,7 +24,7 @@ export class FeedbackManager {
     // Admin proxy-feedback confirmation, keyed by admin member number. Set
     // when an admin runs "!feedback <room member name> <text>" so a follow-up
     // yes/no whisper can confirm logging it under the target player's name.
-    private pendingAdminFeedbackProxy: Map<number, { targetMemberNumber: number; targetName: string; text: string; timeout: NodeJS.Timeout }> = new Map();
+    private pendingAdminFeedbackProxy: Map<number, { adminName: string; targetMemberNumber: number; targetName: string; text: string; timeout: NodeJS.Timeout }> = new Map();
 
     constructor(private readonly host: GameHost) {
         this.feedbackStatus = host.storage.loadFeedbackStatus();
@@ -69,7 +69,7 @@ export class FeedbackManager {
                 const rest = text.slice(spaceIdx + 1).trim();
                 const target = rest ? this.host.matchRoomMemberByName(firstWord) : undefined;
                 if (target && target.memberNumber !== memberNumber) {
-                    this.startAdminProxy(memberNumber, target, rest);
+                    this.startAdminProxy(memberNumber, name, target, rest);
                     return;
                 }
             }
@@ -109,7 +109,7 @@ export class FeedbackManager {
 
     // Starts (or restarts) the yes/no confirmation window for an admin's
     // proxied feedback submission on behalf of a room member.
-    private startAdminProxy(adminMemberNumber: number, target: { memberNumber: number; name: string }, text: string): void {
+    private startAdminProxy(adminMemberNumber: number, adminName: string, target: { memberNumber: number; name: string }, text: string): void {
         const existing = this.pendingAdminFeedbackProxy.get(adminMemberNumber);
         if (existing) clearTimeout(existing.timeout);
 
@@ -119,6 +119,7 @@ export class FeedbackManager {
         }, ADMIN_FEEDBACK_PROXY_TIMEOUT_MS);
 
         this.pendingAdminFeedbackProxy.set(adminMemberNumber, {
+            adminName,
             targetMemberNumber: target.memberNumber,
             targetName: target.name,
             text,
@@ -146,7 +147,8 @@ export class FeedbackManager {
         if (msg === "no" || msg === "n") {
             clearTimeout(pending.timeout);
             this.pendingAdminFeedbackProxy.delete(memberNumber);
-            this.host.bot.whisper(memberNumber, "Feedback cancelled.");
+            this.logEntry(memberNumber, pending.adminName, pending.text);
+            this.host.bot.whisper(memberNumber, `Logged under your name instead.`);
             return true;
         }
         return false;
