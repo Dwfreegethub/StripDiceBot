@@ -288,6 +288,24 @@ export const REVIEWING_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new 
     "testing",
 ]);
 
+// Every status !setstatus accepts. Must stay in step with FeedbackItemStatus:
+// omitting one means an admin can't set it at all without hand-editing
+// feedback_status.json (which is exactly how "declined" went missing).
+export const FEEDBACK_VALID_STATUSES: FeedbackItemStatus[] = [
+    "pending",
+    "reviewing",
+    "testing",
+    "researching",
+    "implemented",
+    "partly_implemented",
+    "declined",
+];
+
+// Chance (0-1) that finishing an activity earns a one-line !feedback nudge.
+// Random so regulars aren't prompted after every game — SlaveParking uses the
+// same 1-in-5 rate across its own exit points.
+export const FEEDBACK_NUDGE_CHANCE = 0.20;
+
 // ============================================================
 // TOURNAMENT MODE - format defaults. Every *duration* is chosen by
 // the admin during !tournament setup (so a rehearsal can use 1-hour

@@ -37,6 +37,11 @@ export interface GameHost {
     // Like isAdmin, but whispers a rejection to non-admins.
     requireAdmin(memberNumber: number): boolean;
 
+    // Whispers every admin currently in the room, skipping `except`. Used to
+    // surface things an admin would want to see as they happen (new feedback)
+    // rather than only when they go looking for it.
+    notifyAdminsInRoom(text: string, except?: number): void;
+
     // Resolves (auto-detecting from BC's Pronouns appearance item on first
     // use, sticky afterward, overridable via !clothes) which clothing list
     // a member's !wearing/!solo flow uses. See game.ts's implementation for

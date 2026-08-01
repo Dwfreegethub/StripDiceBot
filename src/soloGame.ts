@@ -487,6 +487,7 @@ export class SoloGameManager {
         const players = [`${solo.name}(#${memberNumber})`];
 
         this.host.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
+        this.host.feedback.maybeSuggestFeedback(memberNumber);
         this.askSoloPrizeQuestion(memberNumber, solo.name);
 
         const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };

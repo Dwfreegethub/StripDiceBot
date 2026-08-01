@@ -1915,6 +1915,17 @@ export class StripDiceGame implements GameHost {
         return true;
     }
 
+    // GameHost: whisper every admin who's currently in the room. Only reaches
+    // admins who are present — there's no queue for absent ones, since the
+    // point is a live heads-up, and anything missed is still in !feedback list.
+    public notifyAdminsInRoom(text: string, except?: number): void {
+        for (const admin of secrets.adminMemberNumbers) {
+            if (admin === except) continue;
+            if (!this.roomMembers.has(admin)) continue;
+            this.bot.whisper(admin, text);
+        }
+    }
+
     private handleDebugRoll(memberNumber: number, message: string): void {
         if (!this.requireAdmin(memberNumber)) return;
         const gameActive = this.state !== GameState.Idle || this.solo.activeCount() > 0;
@@ -2684,6 +2695,11 @@ export class StripDiceGame implements GameHost {
             } else {
                 this.storage.incrementGameCount("multiplayer");
             }
+            // A finished game is the best moment to ask what someone thought.
+            // Random per player, so nobody gets nudged every single round.
+            for (const player of this.players.values()) {
+                this.feedback.maybeSuggestFeedback(player.memberNumber);
+            }
         } else {
             this.storage.incrementGameCount("aborted");
         }
@@ -3005,7 +3021,7 @@ export class StripDiceGame implements GameHost {
             `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
             `!midgamejoin on/off - Allow players to join games already in progress\n` +
             `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
-            `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
+            `!setstatus [playerID] [status] - Set a player's feedback status (pending, reviewing, testing, researching, implemented, partly_implemented, declined)\n` +
             `!feedback list - View a summary of all tracked feedback\n` +
             `!outfits - View submitted outfit suggestions\n` +
             `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +

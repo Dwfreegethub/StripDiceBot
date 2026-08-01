@@ -9,8 +9,8 @@ import { centralTimestamp, log } from "./logger";
 import { GameHost } from "./host";
 import { FeedbackItemStatus, FeedbackStatusEntry } from "./types";
 import {
-    ADMIN_FEEDBACK_PROXY_TIMEOUT_MS, FEEDBACK_STATUS_LABELS,
-    RESOLVED_FEEDBACK_STATUSES, REVIEWING_FEEDBACK_STATUSES,
+    ADMIN_FEEDBACK_PROXY_TIMEOUT_MS, FEEDBACK_NUDGE_CHANCE, FEEDBACK_STATUS_LABELS,
+    FEEDBACK_VALID_STATUSES, RESOLVED_FEEDBACK_STATUSES, REVIEWING_FEEDBACK_STATUSES,
 } from "./constants";
 
 export class FeedbackManager {
@@ -105,6 +105,22 @@ export class FeedbackManager {
         this.host.storage.saveFeedbackStatus(this.feedbackStatus);
 
         this.host.markFeedbackGiven(memberNumber);
+
+        // Live heads-up to any admin in the room (SlaveParking does the same).
+        // Without this, feedback only surfaces when someone remembers to run
+        // !feedback list — which meant replies could sit for days.
+        this.host.notifyAdminsInRoom(`📝 New feedback from ${name} (#${memberNumber}): ${text}`, memberNumber);
+    }
+
+    // Whispers a one-line !feedback reminder, with a small random chance, at
+    // natural end-of-activity moments. Ported from SlaveParking: a nudge at
+    // the point someone has just finished something gets far more responses
+    // than a line buried in the welcome message, and keeping it random means
+    // regulars aren't pestered after every single game.
+    public maybeSuggestFeedback(memberNumber: number): void {
+        if (Math.random() >= FEEDBACK_NUDGE_CHANCE) return;
+        this.host.bot.whisper(memberNumber,
+            "💬 Enjoyed that? Whisper !feedback with any thoughts, ideas, or bugs — we read every one.");
     }
 
     // Starts (or restarts) the yes/no confirmation window for an admin's
@@ -161,7 +177,11 @@ export class FeedbackManager {
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
         const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
-        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "researching", "implemented", "partly_implemented"];
+        // Every status the type allows. "declined" and "pending" were missing,
+        // so an admin literally could not set them despite both having labels
+        // and "declined" counting as resolved — it had to be hand-edited in
+        // feedback_status.json. Same fix SlaveParking made.
+        const validStatuses: FeedbackItemStatus[] = FEEDBACK_VALID_STATUSES;
 
         if (!playerId || !/^\d+$/.test(playerId)) {
             this.host.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
