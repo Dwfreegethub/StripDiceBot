@@ -300,6 +300,14 @@ export interface TournamentPlayer {
     serving: boolean;
     // Epoch ms when the current serving stretch began; null when not serving.
     servingSince: number | null;
+    // Password on this player's punishment locks, handed to whoever claims
+    // them so they can release them early if they choose. Regenerated each
+    // time a sentence starts; null when not serving.
+    lockPassword: string | null;
+    // Who currently holds this prisoner, if anyone. Cleared when the sentence
+    // ends, when they stop serving, or when the claimer leaves the room.
+    claimedBy: number | null;
+    claimedByName: string | null;
     // Epoch ms when they dropped out of the room *while serving*. The clock
     // deliberately keeps running through a short disconnect — a dropped
     // connection shouldn't lengthen a sentence. If they don't make it back

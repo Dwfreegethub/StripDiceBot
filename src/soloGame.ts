@@ -574,10 +574,12 @@ export class SoloGameManager {
     // without owning any bondage code. Deliberately reuses the solo themes
     // until a dedicated tournament look is decided — swap the theme choice
     // here and nothing else changes.
-    public applyTournamentBondage(memberNumber: number, minutes: number): void {
+    // `password` locks the punishment under a known key so whoever claims this
+    // prisoner can be handed it and let them out early if they want to.
+    public applyTournamentBondage(memberNumber: number, minutes: number, password?: string): void {
         const theme = SOLO_THEMES[Math.floor(Math.random() * SOLO_THEMES.length)];
         log(`Tournament punishment for #${memberNumber}: ${theme.name}, ${minutes} min`);
-        this.applyThemePenalty(memberNumber, theme, minutes);
+        this.applyThemePenalty(memberNumber, theme, minutes, password);
     }
 
     // ---- parked tournament games (left the room mid-game) ------------------
@@ -739,7 +741,7 @@ export class SoloGameManager {
 
     // Assembles BondageItem[] from a SoloTheme (one random item per stage) and
     // applies them with the same spaced lock+verify machinery as applyPenalty.
-    private applyThemePenalty(memberNumber: number, theme: SoloTheme, penaltyMinutes: number): void {
+    private applyThemePenalty(memberNumber: number, theme: SoloTheme, penaltyMinutes: number, password?: string): void {
         const items: BondageItem[] = theme.stages.map(stage => {
             const name = stage.items[Math.floor(Math.random() * stage.items.length)];
             const property = stage.typeRecord ? { TypeRecord: stage.typeRecord } : {};
@@ -759,7 +761,10 @@ export class SoloGameManager {
                             hint: `Released in ${penaltyMinutes} minutes`,
                             removeItem: true,
                             showTimer: true,
-                            removeTimer: lockEndTime
+                            removeTimer: lockEndTime,
+                            // Tournament punishment passes a per-prisoner
+                            // password so a claimer can release them early.
+                            ...(password ? { password } : {}),
                         })
                     );
                 }, REMOVAL_UNLOCK_GAP_MS);

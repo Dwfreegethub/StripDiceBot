@@ -82,13 +82,17 @@ export interface GameHost {
     // Punishment time this member still owes, in ms. Used to gate BD play.
     tournamentPunishMs(memberNumber: number): number;
 
-    // Binds a player for tournament punishment, locked for `durationMs`, and
-    // makes them claimable. The look is not final — see design_tournament.md;
-    // it currently reuses the themed bondage sets.
-    applyTournamentPunishment(memberNumber: number, durationMs: number): void;
+    // Binds a player for tournament punishment, locked for `durationMs` under
+    // `password` so whoever claims them can let them out early. The look is not
+    // final — see design_tournament.md; it currently reuses the themed sets.
+    applyTournamentPunishment(memberNumber: number, durationMs: number, password: string): void;
     // Frees a player from tournament punishment early (served in full, or
-    // paused via !tournament stop).
+    // paused via !tournament stop). Also removes the claim leash.
     releaseTournamentPunishment(memberNumber: number): void;
+    // Puts a leash (and a collar to hang it from, if they aren't wearing one)
+    // on a claimed prisoner, locked to the same password and timer as the rest
+    // of their punishment so it all comes off together.
+    attachTournamentLeash(memberNumber: number, password: string, lockEndTime: number): void;
 
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;

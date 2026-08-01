@@ -16,7 +16,7 @@ import {
     activePlayers, applyResult, evaluateField, findPlayer, isActive, matchFor,
     pairRound, punishRemaining, punishmentForLoss, rankPlayers, recordPairing, resolveMatch,
 } from "./tournamentLogic";
-import { formatDuration, parseDuration, parseWhen } from "./util";
+import { formatDuration, generatePassword, parseDuration, parseWhen } from "./util";
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
@@ -466,6 +466,9 @@ export class TournamentManager {
             serving: false,
             servingSince: null,
             disconnectedAt: null,
+            lockPassword: null,
+            claimedBy: null,
+            claimedByName: null,
         });
         this.save();
         logGameEvent(`[TOURNAMENT] ${name} (#${memberNumber}) registered (${this.state.players.length} total)`);
@@ -1020,6 +1023,12 @@ export class TournamentManager {
         player.serving = true;
         player.servingSince = Date.now();
         player.disconnectedAt = null;
+        // Fresh password per sentence — handed to whoever claims them, so a
+        // claimer can let them out early without the bot's own key ever
+        // being shared.
+        player.lockPassword = generatePassword();
+        player.claimedBy = null;
+        player.claimedByName = null;
         this.save();
 
         logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) began serving ${formatDuration(owed)}`);
@@ -1027,7 +1036,7 @@ export class TournamentManager {
 
         this.host.bot.sendChat(
             `⛓️ ${player.name} is serving tournament punishment — bound and claimable for ` +
-            `${formatDuration(owed)}. Tournament players can whisper !claim to claim them.`);
+            `${formatDuration(owed)}. Tournament players can whisper !claim to take them.`);
         this.host.sendLongWhisper(memberNumber,
             `⛓️ Serving now — ${formatDuration(owed)} to go. The clock only runs while you're here and bound. ` +
             `Whisper !tournament stop to pause and keep the remainder for later.`);
@@ -1071,6 +1080,12 @@ export class TournamentManager {
         player.serving = false;
         player.servingSince = null;
         player.disconnectedAt = null;
+        // No longer bound, so no longer held — a new sentence means a new
+        // password and a fresh chance for someone to claim them.
+        if (player.claimedBy !== null) {
+            this.notify(player.claimedBy, `${player.name} is no longer bound — they're not yours any more.`);
+        }
+        this.clearClaim(player);
     }
 
     // Called when a member leaves the room while serving. The clock is NOT
@@ -1088,6 +1103,13 @@ export class TournamentManager {
         this.save();
         logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) dropped out mid-serve — ` +
             `clock keeps running for ${formatDuration(TOURNAMENT_RESUME_GRACE_MS)}`);
+    }
+
+    // Anyone leaving may have been holding a prisoner; hand them back.
+    public onAnyoneLeftRoom(memberNumber: number): void {
+        if (!this.state) return;
+        this.releaseClaimsBy(memberNumber);
+        this.save();
     }
 
     // Checks every serving player for a completed sentence. Called on the same
@@ -1138,7 +1160,7 @@ export class TournamentManager {
     // swapping in a dedicated tournament outfit later means changing only this
     // method and its release counterpart.
     private applyPunishmentBondage(memberNumber: number, player: TournamentPlayer, durationMs: number): void {
-        this.host.applyTournamentPunishment(memberNumber, durationMs);
+        this.host.applyTournamentPunishment(memberNumber, durationMs, player.lockPassword ?? generatePassword());
     }
 
     private releasePunishmentBondage(memberNumber: number): void {
@@ -1158,6 +1180,111 @@ export class TournamentManager {
     public servingPlayers(): TournamentPlayer[] {
         if (!this.state) return [];
         return this.state.players.filter(p => p.serving);
+    }
+
+    // Prisoners this member could take right now: serving, not already held,
+    // not themselves, and actually in the room to be leashed.
+    public claimablePrisoners(memberNumber: number): TournamentPlayer[] {
+        if (!this.canClaim(memberNumber)) return [];
+        return this.servingPlayers().filter(p =>
+            p.memberNumber !== memberNumber &&
+            p.claimedBy === null &&
+            this.host.isInRoom(p.memberNumber));
+    }
+
+    // Handles !claim for tournament prisoners. Returns false if this member has
+    // nothing to claim, so game.ts can fall through to its own end-game prize
+    // handling rather than swallowing the command.
+    public tryHandleClaim(memberNumber: number, args: string): boolean {
+        if (!this.state || !this.canClaim(memberNumber)) return false;
+
+        const claimer = findPlayer(this.state, memberNumber)!;
+        // Someone serving their own sentence isn't in a position to collect.
+        if (claimer.serving) {
+            this.host.bot.whisper(memberNumber, "You're serving your own punishment right now — no claiming until you're free.");
+            return true;
+        }
+
+        const available = this.claimablePrisoners(memberNumber);
+        const alreadyMine = this.servingPlayers().filter(p => p.claimedBy === memberNumber);
+
+        if (available.length === 0 && alreadyMine.length === 0) return false;
+
+        const trimmed = args.trim();
+        if (!trimmed) {
+            const lines: string[] = [];
+            if (available.length > 0) {
+                lines.push("⛓️ Tournament prisoners you can claim:");
+                available.forEach((p, i) => {
+                    lines.push(`${i + 1}. ${p.name} — ${formatDuration(punishRemaining(p, Date.now()))} left`);
+                });
+                lines.push(`Whisper !claim 1 to take one. You'll get their lock password and they'll be leashed.`);
+            }
+            if (alreadyMine.length > 0) {
+                lines.push(`Already yours: ${alreadyMine.map(p => p.name).join(", ")}.`);
+            }
+            this.host.sendLongWhisper(memberNumber, lines.join("\n"));
+            return true;
+        }
+
+        const index = parseInt(trimmed.split(/\s+/)[0], 10);
+        if (isNaN(index) || index < 1 || index > available.length) {
+            this.host.bot.whisper(memberNumber,
+                available.length > 0
+                    ? `Pick a number between 1 and ${available.length} — whisper !claim on its own to see the list.`
+                    : "There's nobody available to claim right now.");
+            return true;
+        }
+
+        const prisoner = available[index - 1];
+        const claimerName = this.host.getPlayerName(memberNumber);
+        prisoner.claimedBy = memberNumber;
+        prisoner.claimedByName = claimerName;
+        this.save();
+
+        const lockEndTime = Date.now() + punishRemaining(prisoner, Date.now());
+        if (prisoner.lockPassword) {
+            this.host.attachTournamentLeash(prisoner.memberNumber, prisoner.lockPassword, lockEndTime);
+        }
+
+        logGameEvent(`[TOURNAMENT] ${claimerName} (#${memberNumber}) claimed ${prisoner.name} (#${prisoner.memberNumber})`);
+        this.host.storage.appendTournamentLog(
+            `[${new Date().toISOString()}] CLAIM ${claimerName}(#${memberNumber}) took ${prisoner.name}(#${prisoner.memberNumber})`);
+
+        this.host.sendLongWhisper(memberNumber,
+            `⛓️ You've claimed ${prisoner.name}! They're leashed and yours for the next ` +
+            `${formatDuration(punishRemaining(prisoner, Date.now()))}.\n` +
+            (prisoner.lockPassword
+                ? `Their lock password is: ${prisoner.lockPassword} — use it if you'd like to let them out early, ` +
+                  `or leave them to serve it out.\n`
+                : "") +
+            `Note: releasing their locks doesn't clear their sentence — they still owe the time before they can play again.`);
+
+        this.notify(prisoner.memberNumber,
+            `⛓️ ${claimerName} has claimed you. You're theirs while you serve — they have your lock password.`);
+        this.host.bot.sendChat(`⛓️ ${claimerName} has claimed ${prisoner.name}.`);
+        return true;
+    }
+
+    // Drops a claim — on release, on stopping, or when the claimer leaves.
+    private clearClaim(player: TournamentPlayer): void {
+        player.claimedBy = null;
+        player.claimedByName = null;
+        player.lockPassword = null;
+    }
+
+    // If a claimer walks out, their prisoner goes back on the board rather
+    // than staying held by someone who isn't there.
+    private releaseClaimsBy(memberNumber: number): void {
+        if (!this.state) return;
+        for (const prisoner of this.state.players) {
+            if (prisoner.claimedBy !== memberNumber) continue;
+            const heldBy = prisoner.claimedByName ?? "Their claimer";
+            prisoner.claimedBy = null;
+            prisoner.claimedByName = null;
+            this.notify(prisoner.memberNumber, `${heldBy} has left — you're unclaimed again, though you're still serving.`);
+            this.host.bot.sendChat(`⛓️ ${prisoner.name} is unclaimed again — ${heldBy} left the room.`);
+        }
     }
 
     // ---- status / standings --------------------------------------------------

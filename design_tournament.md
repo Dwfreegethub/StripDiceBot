@@ -32,6 +32,7 @@
 - `!tournament play` — full gating (registered, not eliminated/withdrawn, has a match, games left, owes no punishment), builds the game context.
 - Score recording with room commentary on who leads on total rolls; match resolution the moment both sides finish.
 - `!tournament serve` / `!tournament stop` with disconnect tolerance (see *Serving Punishment Time*). `canClaim()` limits claiming to other tournament players.
+- **`!claim` for prisoners** — reuses the end-game prize machinery. Starting a sentence mints a per-prisoner password; `!claim` lists who's available (serving, unheld, in the room, not yourself), `!claim 1` takes one: the claimer gets the password, the prisoner gets a collar-and-leash on the same lock, and the room is told. Releasing their locks does **not** clear the sentence — the time is still owed. A claim ends when the sentence does, when they stop serving, or when the claimer leaves the room. End-game prizes take precedence over tournament prisoners on the shared `!claim` command, so the two never collide.
 
 **Solo integration** — the two managers never import each other; they meet on `GameHost`
 - `startTournamentGame` / `reportTournamentGame` / `tournamentPunishMs` / `applyTournamentPunishment` / `releaseTournamentPunishment`.
@@ -42,7 +43,6 @@
 
 | Item | Notes |
 |---|---|
-| `!claim` for tournament prisoners | `canClaim()` and `servingPlayers()` exist; the command, leash application and password delivery do not. This is what makes punishment matter to everyone else — **best next step**. |
 | Dispute system | `!tournament replay` / `deny` / `reverse`, the post-round "do you agree?" prompts, `tournament_disputes.log`. Recommend **skipping for tournament #1** — `!tournament pause` plus reading `tournament_game_log.txt` covers a rehearsal you're present for. |
 | Early round start vote | "Everyone finished — start the next round now?" Purely a convenience; rounds already close on their deadline. |
 | `!tournament advance` | Admin manual round advance, listed under Admin Commands. Useful for testing. |
@@ -64,10 +64,11 @@
 
 ### Suggested order from here
 
-1. `!claim` — makes punishment real; needs the bondage-look decision to feel finished but not to function.
-2. Round status on entry — small, and the most-missed piece of polish for an async format.
-3. A throwaway live tournament: 2–3 players, `now` / `5 minutes` / `now` / `1 hour` rounds, `0` grace rounds, tiny punishments. Exercises every path in an afternoon.
-4. Disputes and the early-start vote only if the format survives contact.
+1. Round status on entry — small, and the most-missed piece of polish for an async format.
+2. A throwaway live tournament: 2–3 players, `now` / `5 minutes` / `now` / `1 hour` rounds, `0` grace rounds, tiny punishments. Exercises every path in an afternoon.
+3. Disputes and the early-start vote only if the format survives contact.
+
+(`!claim` shipped 2026-08-01 — see Done.)
 
 ---
 

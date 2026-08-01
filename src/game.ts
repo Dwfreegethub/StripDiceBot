@@ -308,8 +308,10 @@ export class StripDiceGame implements GameHost {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
         // Punishment only counts while they're here to be claimed — leaving
-        // banks whatever they've served so far.
+        // banks whatever they've served so far. A departing claimer also
+        // releases whoever they were holding.
         this.tournament.onLeaveRoom(memberNumber);
+        this.tournament.onAnyoneLeftRoom(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
 
         // If the team game host leaves during setup (before joining a team), auto-cancel.
@@ -2069,7 +2071,14 @@ export class StripDiceGame implements GameHost {
     // Team mode: any winner claiming delivers ALL passwords to ALL winners at once.
     // Solo mode: !claim lists prizes; !claim 1 2 delivers passwords by index.
     private handleClaim(memberNumber: number, message: string): void {
+        const claimArgs = message.trim().replace(/^!claim\s*/i, "").trim();
+
+        // End-game prizes take precedence — they're tied to a game that just
+        // finished and expire quickly. Only when this player has none does
+        // !claim mean the tournament's prisoners, so the two never fight over
+        // the same command.
         if (!this.lastWinners.has(memberNumber)) {
+            if (this.tournament.tryHandleClaim(memberNumber, claimArgs)) return;
             this.bot.whisper(memberNumber, "Only the most recent winner(s) can use !claim.");
             return;
         }
@@ -6640,14 +6649,45 @@ export class StripDiceGame implements GameHost {
     // still undecided (design_tournament.md), so this reuses the solo themed
     // bondage sets for now — one random theme, locked for the sentence. When
     // a dedicated tournament outfit exists, only this method changes.
-    public applyTournamentPunishment(memberNumber: number, durationMs: number): void {
+    public applyTournamentPunishment(memberNumber: number, durationMs: number, password: string): void {
         const minutes = Math.max(1, Math.ceil(durationMs / 60000));
-        this.solo.applyTournamentBondage(memberNumber, minutes);
+        this.solo.applyTournamentBondage(memberNumber, minutes, password);
     }
 
-    // GameHost: free a player from tournament punishment.
+    // GameHost: free a player from tournament punishment. removeAllItems
+    // already covers ItemNeck/ItemNeckRestraints, so the claim leash and any
+    // collar the bot added come off with everything else.
     public releaseTournamentPunishment(memberNumber: number): void {
         this.removeAllItems(memberNumber);
+    }
+
+    // GameHost: leash a claimed prisoner. Same collar-then-leash sequence the
+    // end-game prize path uses, on the same lock/password as the rest of their
+    // punishment so it all releases together. Never overwrites an existing
+    // collar — if they're already wearing one, the leash just attaches to it.
+    public attachTournamentLeash(memberNumber: number, password: string, lockEndTime: number): void {
+        const minutesLeft = Math.max(1, Math.ceil((lockEndTime - Date.now()) / 60000));
+        const neckLockProperty = {
+            Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
+            LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
+            Password: password, Hint: `Tournament prisoner — released in ${minutesLeft} min`,
+            LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
+            MemberNumberList: [], RemoveTimer: lockEndTime,
+        };
+
+        const hasCollar = this.characterDataCache.get(memberNumber)?.Appearance
+            ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+
+        let stagger = 0;
+        if (!hasCollar) {
+            setTimeout(() => {
+                this.bot.applyItem(memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
+            }, stagger * END_GAME_EMIT_STAGGER_MS);
+            stagger++;
+        }
+        setTimeout(() => {
+            this.bot.applyItem(memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", neckLockProperty);
+        }, stagger * END_GAME_EMIT_STAGGER_MS);
     }
 
     // GameHost: is this member currently in the room? Tournament messaging is

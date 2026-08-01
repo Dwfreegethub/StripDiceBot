@@ -51,6 +51,9 @@ function makePlayer(memberNumber: number): TournamentPlayer {
         serving: false,
         servingSince: null,
         disconnectedAt: null,
+        lockPassword: null,
+        claimedBy: null,
+        claimedByName: null,
     };
 }
 
@@ -674,7 +677,49 @@ function testEndToEnd(): void {
     check(manager.canClaim(302) === true, "a tournament player can claim");
     check(manager.canClaim(888) === false, "someone outside the tournament cannot claim");
 
-    console.log("  38 assertions");
+    // ---- claiming a prisoner ----
+    let leashed = 0;
+    host.attachTournamentLeash = () => { leashed++; };
+
+    manager.handleServe(convict);
+    const served = getSaved()!.players.find(p => p.memberNumber === convict)!;
+    check(typeof served.lockPassword === "string" && served.lockPassword.length > 0,
+        "serving generates a lock password to hand to a claimer");
+
+    // Someone outside the tournament can't claim — tryHandleClaim declines so
+    // game.ts falls through to its own end-game prize handling.
+    check(manager.tryHandleClaim(888, "") === false, "a non-participant's !claim is not handled here");
+
+    // A prisoner shows up as claimable to another player.
+    const claimer = players.find(([mn]) => mn !== convict)![0];
+    const listBefore = manager.claimablePrisoners(claimer);
+    check(listBefore.some(p => p.memberNumber === convict), "a serving prisoner is claimable");
+    check(!listBefore.some(p => p.memberNumber === claimer), "you never appear in your own claim list");
+
+    // Claim them.
+    check(manager.tryHandleClaim(claimer, "1") === true, "claiming by index is handled");
+    const held = getSaved()!.players.find(p => p.memberNumber === convict)!;
+    check(held.claimedBy === claimer, "the prisoner records who holds them", String(held.claimedBy));
+    check(leashed === 1, "claiming attaches a leash", `${leashed} leashes`);
+    check(manager.claimablePrisoners(claimer).length === 0, "an already-held prisoner drops off the list");
+
+    // A claimer who leaves hands their prisoner back.
+    manager.onAnyoneLeftRoom(claimer);
+    check(getSaved()!.players.find(p => p.memberNumber === convict)!.claimedBy === null,
+        "a departing claimer releases their prisoner");
+
+    // Serving their own sentence blocks claiming.
+    check(manager.tryHandleClaim(convict, "") === true, "a serving prisoner's !claim is intercepted");
+    check(manager.claimablePrisoners(convict).length === 0, "a serving player is offered nobody");
+
+    // Finishing the sentence clears password and claim together.
+    manager.tryHandleClaim(claimer, "1");
+    manager.handleStop(convict);
+    const freed = getSaved()!.players.find(p => p.memberNumber === convict)!;
+    check(freed.claimedBy === null && freed.lockPassword === null,
+        "stopping clears both the claim and the password");
+
+    console.log("  50 assertions");
 }
 
 // ---- main ----------------------------------------------------------------
