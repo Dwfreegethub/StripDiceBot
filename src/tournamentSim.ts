@@ -530,7 +530,7 @@ function testSetupInterview(): void {
 function testEndToEnd(): void {
     console.log("\nEnd-to-end tournament");
     const ADMIN = 999;
-    const { host, getSaved } = makeStubHost([ADMIN]);
+    const { host, getSaved, said } = makeStubHost([ADMIN]);
 
     // Capture what the manager asks the solo game to start, and let the test
     // "play" it by feeding a score straight back.
@@ -719,7 +719,32 @@ function testEndToEnd(): void {
     check(freed.claimedBy === null && freed.lockPassword === null,
         "stopping clears both the claim and the password");
 
-    console.log("  50 assertions");
+    // ---- round status on entry ----
+    // Someone with a live match should be told where they stand when they walk
+    // in, since an async format means they'd otherwise never see it happen.
+    const idle = players.map(([mn]) => mn).find(mn => {
+        const p = getSaved()!.players.find(pp => pp.memberNumber === mn)!;
+        return !p.eliminated && !p.withdrew && p.punishMsRemaining === 0;
+    })!;
+    said.length = 0;
+    manager.onEnterRoom(idle);
+    const gotStatus = said.some(s => s.includes("Tournament — Round"));
+    check(gotStatus, "entering the room whispers your round status");
+
+    // Bouncing straight back in must not re-whisper.
+    said.length = 0;
+    manager.onEnterRoom(idle);
+    check(!said.some(s => s.includes("Tournament — Round")),
+        "re-entering within the cooldown does not repeat the status");
+
+    // Someone who owes punishment gets the serve prompt instead — that
+    // conversation takes priority and already states the debt.
+    said.length = 0;
+    manager.onEnterRoom(convict);
+    check(!said.some(s => s.includes("Tournament — Round")),
+        "a player owing punishment gets the serve prompt, not a status dump");
+
+    console.log("  53 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

@@ -20,7 +20,8 @@ import { formatDuration, generatePassword, parseDuration, parseWhen } from "./ut
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
-    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_RESUME_GRACE_MS, TOURNAMENT_SERVE_PROMPT_MS,
+    TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS, TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_RESUME_GRACE_MS,
+    TOURNAMENT_SERVE_PROMPT_MS,
     TOURNAMENT_SETUP_TIMEOUT_MS,
 } from "./constants";
 
@@ -140,6 +141,11 @@ export class TournamentManager {
 
     // Players asked "ready to serve?" on entering the room, awaiting a yes/no.
     private pendingServePrompt: Map<number, NodeJS.Timeout> = new Map();
+
+    // When each player was last sent their round status on entering the room,
+    // so someone whose connection is flapping doesn't get whispered every time.
+    // In-memory only — a restart just means one extra status whisper.
+    private lastStatusOnEntry: Map<number, number> = new Map();
 
     // Admin partway through !tournament setup. Only one at a time.
     private setup: {
@@ -935,24 +941,52 @@ export class TournamentManager {
     public onEnterRoom(memberNumber: number): void {
         if (!this.state) return;
         const player = findPlayer(this.state, memberNumber);
-        if (!player || player.punishMsRemaining <= 0) return;
+        if (!player) return;
 
-        // Still bound: they never stopped serving, they just dropped out. The
-        // clock ran the whole time, so there's nothing to restart — just clear
-        // the disconnect marker so it isn't retroactively paused.
-        if (player.serving) {
-            const wasDisconnected = player.disconnectedAt !== null;
-            player.disconnectedAt = null;
-            this.save();
-            this.host.bot.whisper(memberNumber,
-                wasDisconnected
-                    ? `⛓️ Welcome back — your punishment clock kept running while you were gone. ` +
-                      `${formatDuration(punishRemaining(player, Date.now()))} left.`
-                    : `⛓️ ${formatDuration(punishRemaining(player, Date.now()))} left to serve.`);
+        if (player.punishMsRemaining > 0) {
+            // Still bound: they never stopped serving, they just dropped out.
+            // The clock ran the whole time, so there's nothing to restart —
+            // just clear the disconnect marker so it isn't retroactively paused.
+            if (player.serving) {
+                const wasDisconnected = player.disconnectedAt !== null;
+                player.disconnectedAt = null;
+                this.save();
+                this.host.bot.whisper(memberNumber,
+                    wasDisconnected
+                        ? `⛓️ Welcome back — your punishment clock kept running while you were gone. ` +
+                          `${formatDuration(punishRemaining(player, Date.now()))} left.`
+                        : `⛓️ ${formatDuration(punishRemaining(player, Date.now()))} left to serve.`);
+                return;
+            }
+
+            this.promptToServe(memberNumber, player);
             return;
         }
 
-        this.promptToServe(memberNumber, player);
+        this.sendRoundStatusOnEntry(memberNumber, player);
+    }
+
+    // The format is asynchronous — a player can be paired for hours without
+    // ever seeing it happen — so walking into the room is the moment to tell
+    // them where they stand. Only for players with nothing to do about
+    // punishment (that conversation takes priority and already states the
+    // debt), and rate-limited so bouncing in and out isn't a wall of whispers.
+    private sendRoundStatusOnEntry(memberNumber: number, player: TournamentPlayer): void {
+        if (!this.state || this.state.status !== "active") return;
+        if (player.eliminated || player.withdrew) return;
+
+        const now = Date.now();
+        const lastSent = this.lastStatusOnEntry.get(memberNumber) ?? 0;
+        if (now - lastSent < TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS) return;
+        this.lastStatusOnEntry.set(memberNumber, now);
+
+        const lines = [`🏆 Tournament — Round ${this.state.currentRound}`];
+        if (this.state.roundDeadline) {
+            const left = Date.parse(this.state.roundDeadline) - now;
+            if (left > 0) lines.push(`Time left this round: ${formatDuration(left)}`);
+        }
+        lines.push(this.personalBlock(memberNumber, now));
+        this.host.sendLongWhisper(memberNumber, lines.join("\n"));
     }
 
     private promptToServe(memberNumber: number, player: TournamentPlayer): void {

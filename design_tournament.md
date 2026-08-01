@@ -32,6 +32,7 @@
 - `!tournament play` — full gating (registered, not eliminated/withdrawn, has a match, games left, owes no punishment), builds the game context.
 - Score recording with room commentary on who leads on total rolls; match resolution the moment both sides finish.
 - `!tournament serve` / `!tournament stop` with disconnect tolerance (see *Serving Punishment Time*). `canClaim()` limits claiming to other tournament players.
+- **Round status on entry** — an active participant walking into the room is whispered their round, time left, and their personal "what do I do next" block. Rate-limited (`TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS`, 15 min) so a flapping connection doesn't produce a wall of whispers, and skipped entirely for anyone owing punishment — that conversation takes priority and already states the debt.
 - **`!claim` for prisoners** — reuses the end-game prize machinery. Starting a sentence mints a per-prisoner password; `!claim` lists who's available (serving, unheld, in the room, not yourself), `!claim 1` takes one: the claimer gets the password, the prisoner gets a collar-and-leash on the same lock, and the room is told. Releasing their locks does **not** clear the sentence — the time is still owed. A claim ends when the sentence does, when they stop serving, or when the claimer leaves the room. End-game prizes take precedence over tournament prisoners on the shared `!claim` command, so the two never collide.
 
 **Solo integration** — the two managers never import each other; they meet on `GameHost`
@@ -46,7 +47,6 @@
 | Dispute system | `!tournament replay` / `deny` / `reverse`, the post-round "do you agree?" prompts, `tournament_disputes.log`. Recommend **skipping for tournament #1** — `!tournament pause` plus reading `tournament_game_log.txt` covers a rehearsal you're present for. |
 | Early round start vote | "Everyone finished — start the next round now?" Purely a convenience; rounds already close on their deadline. |
 | `!tournament advance` | Admin manual round advance, listed under Admin Commands. Useful for testing. |
-| Round status on entry | Design says a player entering mid-round is whispered their opponent and match status. Currently only punishment is handled on entry; they must run `!tournament` themselves. |
 | Punishment bondage look | Undecided. Currently picks a random one of the nine themed solo sets, isolated behind `applyTournamentPunishment()` — swapping it touches one method. |
 
 ### Deliberately not doing
@@ -64,11 +64,11 @@
 
 ### Suggested order from here
 
-1. Round status on entry — small, and the most-missed piece of polish for an async format.
-2. A throwaway live tournament: 2–3 players, `now` / `5 minutes` / `now` / `1 hour` rounds, `0` grace rounds, tiny punishments. Exercises every path in an afternoon.
-3. Disputes and the early-start vote only if the format survives contact.
+1. **A throwaway live tournament** — 2–3 players, `now` / `5 minutes` / `now` / `1 hour` rounds, `0` grace rounds, tiny punishments. Exercises every path in an afternoon, and is the only thing that can prove any of this works against BC.
+2. Disputes and the early-start vote only if the format survives contact.
+3. The punishment bondage look, whenever it's decided (decision 16).
 
-(`!claim` shipped 2026-08-01 — see Done.)
+(`!claim` and round-status-on-entry both shipped 2026-08-01 — see Done.)
 
 ---
 
@@ -80,6 +80,19 @@
 4. **Tie-of-ties breaker: total elapsed time across the 3 games — fastest wins.** Applied only when match points *and* total rolls are both tied. **Not announced up front**; only revealed if it actually decides a match. Requires per-game duration tracking.
 5. **All durations are configured at setup**, in plain language, accepting minutes/hours/days (e.g. `1 hour` rounds for a test run). Nothing time-related is hardcoded.
 6. **Tournament #1's shape is undecided** — DW will choose once it is built. Expect a small test tournament before a real one, so short round lengths must work.
+
+### Decisions (2026-08-01)
+
+7. **Only tournament players may claim prisoners** — not the whole room. Keeps the stakes inside the competition. (`canClaim()`.)
+8. **A claimer gets the prisoner's lock password and may release them early — but that does NOT clear the sentence.** The clock and the bondage are deliberately separate: letting someone out is a kindness, never an escape. Time still owed is still owed, and still blocks their next match.
+9. **End-game prizes take precedence over tournament prisoners on the shared `!claim` command.** Only a player with no claimable game prizes falls through to the tournament list, so the two systems never fight over the same word.
+10. **A claim ends when the sentence ends, when they stop serving, or when the claimer leaves the room.** In the last case the prisoner is announced as available again rather than staying held by someone who isn't there.
+11. **Byes are capped at one per round**, via float-down between record groups. The original per-record-group rule would issue several free wins in a single round. Bye recipient is the highest-ranked player with the fewest byes — deterministic, not random, so pairing is reproducible in the simulator.
+12. **An empty field freezes for an admin ruling.** If the last active players all forfeit there is nobody to crown; the bot refuses to guess (status `frozen` + `frozenReason`) rather than applying a rule nobody agreed to.
+13. **A tournament game whose player leaves is parked, not scored or discarded.** Return inside `TOURNAMENT_RESUME_GRACE_MS` (10 min) and it resumes exactly where it was; miss it and the game is voided with no score and must be replayed. A disconnect isn't punished; a rage-quit costs the whole run.
+14. **A short disconnect does not pause a sentence.** The clock runs through the grace window, and only if they fail to return is the sentence paused *retroactively as of the moment they vanished* — so a dropout costs nothing and logging off gains nothing.
+15. **Entering the room never binds anyone.** If punishment is owed the bot asks and waits for a yes. A player who was already bound and merely stepped out is not re-asked — they never stopped serving.
+16. **Punishment bondage look is still undecided** — currently a random one of the nine themed solo sets, isolated behind `applyTournamentPunishment()`/`releaseTournamentPunishment()` so swapping it touches one method.
 
 ---
 
