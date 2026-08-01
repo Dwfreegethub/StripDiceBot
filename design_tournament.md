@@ -19,10 +19,12 @@
 
 Punishment is **bound in the room + claimable** (prize mode), for the duration in the punishment table. Because an hour is a long time to be stuck, serving is interruptible:
 
-- The clock only runs while the player is **actively serving** — bound, in the room, and claimable.
+- The clock runs while the player is **actively serving** — bound and claimable.
+- **Entering the room never binds anyone.** If time is owed the bot asks whether they're ready and waits for a yes. A player who was *already* bound and merely dropped out is not asked again — they never stopped serving.
 - A player may ask to stop early. The bot releases them and banks the remaining time; they keep whatever balance is left.
 - Returning later, they ask to serve again and the bot re-applies the bondage for the remaining balance.
-- Leaving the room while serving automatically pauses the clock and banks the remainder (same as asking to stop).
+- **A short disconnect does not pause the clock.** BC drops people routinely and a dropped connection must not lengthen a sentence, so the time keeps running for the grace window (`TOURNAMENT_RESUME_GRACE_MS`, 10 min). Return inside it and nothing was interrupted. Fail to return and the sentence is paused **retroactively, as of the moment they vanished** — so the grace period is never credited to someone who simply logged off.
+- Pause-on-no-return is evaluated on activity ticks rather than a timer, so it still holds correctly across a bot restart.
 - The balance persists across bot restarts — it is stored in `tournament.json`, not in memory.
 - BD stays locked for that player until the balance reaches zero.
 

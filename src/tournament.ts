@@ -20,7 +20,8 @@ import { formatDuration, parseDuration, parseWhen } from "./util";
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
-    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_SERVE_PROMPT_MS, TOURNAMENT_SETUP_TIMEOUT_MS,
+    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_RESUME_GRACE_MS, TOURNAMENT_SERVE_PROMPT_MS,
+    TOURNAMENT_SETUP_TIMEOUT_MS,
 } from "./constants";
 
 // One question in the admin setup interview. `apply` stores the parsed answer;
@@ -464,6 +465,7 @@ export class TournamentManager {
             punishMsRemaining: 0,
             serving: false,
             servingSince: null,
+            disconnectedAt: null,
         });
         this.save();
         logGameEvent(`[TOURNAMENT] ${name} (#${memberNumber}) registered (${this.state.players.length} total)`);
@@ -932,12 +934,18 @@ export class TournamentManager {
         const player = findPlayer(this.state, memberNumber);
         if (!player || player.punishMsRemaining <= 0) return;
 
+        // Still bound: they never stopped serving, they just dropped out. The
+        // clock ran the whole time, so there's nothing to restart — just clear
+        // the disconnect marker so it isn't retroactively paused.
         if (player.serving) {
-            player.servingSince = Date.now();
+            const wasDisconnected = player.disconnectedAt !== null;
+            player.disconnectedAt = null;
             this.save();
             this.host.bot.whisper(memberNumber,
-                `⛓️ Welcome back — your punishment clock is running again. ` +
-                `${formatDuration(punishRemaining(player, Date.now()))} left.`);
+                wasDisconnected
+                    ? `⛓️ Welcome back — your punishment clock kept running while you were gone. ` +
+                      `${formatDuration(punishRemaining(player, Date.now()))} left.`
+                    : `⛓️ ${formatDuration(punishRemaining(player, Date.now()))} left to serve.`);
             return;
         }
 
@@ -1011,6 +1019,7 @@ export class TournamentManager {
 
         player.serving = true;
         player.servingSince = Date.now();
+        player.disconnectedAt = null;
         this.save();
 
         logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) began serving ${formatDuration(owed)}`);
@@ -1061,23 +1070,24 @@ export class TournamentManager {
         player.punishMsRemaining = Math.max(0, remaining);
         player.serving = false;
         player.servingSince = null;
+        player.disconnectedAt = null;
     }
 
-    // Called when a member leaves the room. Leaving auto-pauses the clock —
-    // punishment only counts while they're actually present to be claimed.
+    // Called when a member leaves the room while serving. The clock is NOT
+    // stopped here: BC drops people all the time, and a dropped connection
+    // shouldn't add to someone's sentence. The time keeps running through the
+    // grace window. Only if they fail to come back does the sentence pause,
+    // and then retroactively as of this moment (see checkServingCompletions)
+    // so a long absence never counts as time served.
     public onLeaveRoom(memberNumber: number): void {
         if (!this.state) return;
         const player = findPlayer(this.state, memberNumber);
-        if (!player || !player.serving) return;
+        if (!player || !player.serving || player.disconnectedAt !== null) return;
 
-        this.bankServedTime(player);
+        player.disconnectedAt = Date.now();
         this.save();
-        logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) left mid-serve, ` +
-            `${formatDuration(player.punishMsRemaining)} banked`);
-
-        if (player.punishMsRemaining <= 0) {
-            this.host.bot.sendChat(`⛓️ ${player.name} finished their tournament punishment.`);
-        }
+        logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) dropped out mid-serve — ` +
+            `clock keeps running for ${formatDuration(TOURNAMENT_RESUME_GRACE_MS)}`);
     }
 
     // Checks every serving player for a completed sentence. Called on the same
@@ -1086,13 +1096,38 @@ export class TournamentManager {
         if (!this.state) return;
         for (const player of this.state.players) {
             if (!player.serving) continue;
-            if (punishRemaining(player, now) > 0) continue;
 
-            this.bankServedTime(player);
-            this.releasePunishmentBondage(player.memberNumber);
-            logGameEvent(`[TOURNAMENT] ${player.name} (#${player.memberNumber}) completed their punishment`);
-            this.host.bot.sendChat(`⛓️ ${player.name} has served their tournament punishment in full and is free.`);
-            this.notify(player.memberNumber, "✅ Punishment served — you're free, and clear to play your next match.");
+            // Sentence finished — free them even if they're not here to see it
+            // (and even if the tournament itself is paused or frozen).
+            if (punishRemaining(player, now) <= 0) {
+                this.bankServedTime(player);
+                player.disconnectedAt = null;
+                this.releasePunishmentBondage(player.memberNumber);
+                logGameEvent(`[TOURNAMENT] ${player.name} (#${player.memberNumber}) completed their punishment`);
+                this.host.bot.sendChat(`⛓️ ${player.name} has served their tournament punishment in full and is free.`);
+                this.notify(player.memberNumber, "✅ Punishment served — you're free, and clear to play your next match.");
+                continue;
+            }
+
+            // Dropped out and didn't come back inside the grace window. Pause
+            // the sentence retroactively, as of the moment they vanished, so
+            // the grace time isn't credited to someone who simply logged off.
+            // Done on activity ticks rather than a timer so it still holds
+            // across a bot restart.
+            if (player.disconnectedAt !== null && now - player.disconnectedAt >= TOURNAMENT_RESUME_GRACE_MS) {
+                const servedUntilDisconnect = Math.max(0, player.disconnectedAt - (player.servingSince ?? player.disconnectedAt));
+                player.punishMsRemaining = Math.max(0, player.punishMsRemaining - servedUntilDisconnect);
+                player.serving = false;
+                player.servingSince = null;
+                player.disconnectedAt = null;
+                this.releasePunishmentBondage(player.memberNumber);
+                logGameEvent(`[TOURNAMENT] ${player.name} (#${player.memberNumber}) didn't return within ` +
+                    `${formatDuration(TOURNAMENT_RESUME_GRACE_MS)} — sentence paused, ` +
+                    `${formatDuration(player.punishMsRemaining)} still owed`);
+                this.notify(player.memberNumber,
+                    `⛓️ You didn't make it back, so your punishment is paused with ` +
+                    `${formatDuration(player.punishMsRemaining)} left. Whisper !tournament serve when you're back.`);
+            }
         }
         this.save();
     }

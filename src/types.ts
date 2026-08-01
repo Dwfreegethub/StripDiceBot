@@ -300,6 +300,12 @@ export interface TournamentPlayer {
     serving: boolean;
     // Epoch ms when the current serving stretch began; null when not serving.
     servingSince: number | null;
+    // Epoch ms when they dropped out of the room *while serving*. The clock
+    // deliberately keeps running through a short disconnect — a dropped
+    // connection shouldn't lengthen a sentence. If they don't make it back
+    // within the grace window the sentence is paused retroactively, as of
+    // this moment, so logging off can never be used to serve time.
+    disconnectedAt: number | null;
 }
 
 // Attached to a solo game that is being played as part of a tournament match.

@@ -50,6 +50,7 @@ function makePlayer(memberNumber: number): TournamentPlayer {
         punishMsRemaining: 0,
         serving: false,
         servingSince: null,
+        disconnectedAt: null,
     };
 }
 
@@ -640,18 +641,40 @@ function testEndToEnd(): void {
     check(afterStop.punishMsRemaining > 0 && afterStop.punishMsRemaining <= 5 * 60 * 1000,
         "stopping banks the remaining time", `${afterStop.punishMsRemaining}ms`);
 
-    // Leaving mid-serve auto-pauses rather than letting the clock run on.
+    // A short disconnect must NOT pause the sentence — a dropped connection
+    // shouldn't add to someone's time.
     manager.handleServe(convict);
     check(getSaved()!.players.find(p => p.memberNumber === convict)!.serving === true, "serve resumes after a stop");
     manager.onLeaveRoom(convict);
-    check(getSaved()!.players.find(p => p.memberNumber === convict)!.serving === false,
-        "leaving the room pauses the sentence");
+    let p = getSaved()!.players.find(pp => pp.memberNumber === convict)!;
+    check(p.serving === true, "a disconnect does not stop the clock");
+    check(p.disconnectedAt !== null, "the disconnect moment is recorded");
+
+    // Coming back inside the window: clock never paused, marker cleared.
+    manager.onEnterRoom(convict);
+    p = getSaved()!.players.find(pp => pp.memberNumber === convict)!;
+    check(p.serving === true && p.disconnectedAt === null,
+        "returning in time resumes seamlessly with the clock still running");
+
+    // Not coming back: the sentence pauses retroactively as of the disconnect,
+    // so the grace window can't be farmed by logging off.
+    const beforeDebt = manager.punishMsFor(convict);
+    manager.onLeaveRoom(convict);
+    const disconnectMoment = Date.now();
+    manager.checkSchedule(disconnectMoment + 11 * 60 * 1000);
+    p = getSaved()!.players.find(pp => pp.memberNumber === convict)!;
+    check(p.serving === false, "failing to return pauses the sentence");
+    check(p.disconnectedAt === null, "disconnect marker cleared on pause");
+    check(p.punishMsRemaining > 0, "time still owed after the pause", `${p.punishMsRemaining}ms`);
+    check(p.punishMsRemaining >= beforeDebt - 60 * 1000,
+        "the 10 minutes away were NOT credited as time served",
+        `owed ${p.punishMsRemaining}ms vs ${beforeDebt}ms before`);
 
     // Only tournament players may claim.
     check(manager.canClaim(302) === true, "a tournament player can claim");
     check(manager.canClaim(888) === false, "someone outside the tournament cannot claim");
 
-    console.log("  31 assertions");
+    console.log("  38 assertions");
 }
 
 // ---- main ----------------------------------------------------------------
