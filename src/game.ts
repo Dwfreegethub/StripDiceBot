@@ -3,7 +3,10 @@ import { log, centralTimestamp, logGameEvent } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
 import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES, TEAM_69_MESSAGES, TEAM_69_CAP_MESSAGES } from "./messages";
-import { readPendingUpdate, getSeenVersion, markVersionSeen } from "./pendingUpdate";
+// markVersionSeen deliberately not imported here — marking the version is
+// index.ts's job on startup, and doing it here suppressed the changelog entry
+// and the room announcement. See checkPendingUpdate().
+import { readPendingUpdate, getSeenVersion } from "./pendingUpdate";
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
@@ -111,6 +114,10 @@ export class StripDiceGame implements GameHost {
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
     private reconnectPending: boolean = false;
+    // True once a pending update has been announced and the process is in its
+    // 2-second wind-down before exiting, so a second idle check can't announce
+    // the same update again. Not persisted — the process is about to die.
+    private updateRestartPending: boolean = false;
     private gameCooldownUntil: number = 0;
     private pendingTurnTimerBonusMs: number = 0;
     private pendingJoinPauses: { memberNumber: number; name: string }[] = [];
@@ -6208,6 +6215,10 @@ export class StripDiceGame implements GameHost {
     }
 
     private checkPendingUpdate(): boolean {
+        // Already announced and waiting on the 2s exit — don't announce twice
+        // if another idle check lands in that window.
+        if (this.updateRestartPending) return true;
+
         const current = readPendingUpdate();
         if (!current) return false;
         if (current.version === getSeenVersion()) return false;
@@ -6225,15 +6236,27 @@ export class StripDiceGame implements GameHost {
             return false;
         }
 
-        const note = current.note;
-        const message = note
-            ? `⚙️ Update incoming (${note}) — StripDiceBot will be right back!`
+        // Only the headline goes to room chat. Using `note` (headline + full
+        // detail) put the whole update in one message, which BC silently drops
+        // once it passes ~900 characters — so a long update announced nothing
+        // at all. The detail is what !changelog is for.
+        const headline = current.headline;
+        const message = headline
+            ? `⚙️ Update incoming (${headline}) — StripDiceBot will be right back!`
             : `⚙️ Update incoming — StripDiceBot will be right back!`;
 
         this.bot.sendChat(message);
-        log(`Pending update detected (version ${current.version})${note ? ` (${note})` : ""}. Restarting...`);
+        log(`Pending update detected (version ${current.version})${headline ? ` (${headline})` : ""}. Restarting...`);
 
-        markVersionSeen(current.version);
+        // Deliberately does NOT mark the version seen. index.ts marks it on the
+        // way back up, and that same comparison is what records the changelog
+        // entry and posts the headline. Marking it here made the restarted
+        // process think it had already handled the update, so the changelog
+        // entry and the announcement were both silently skipped — which is why
+        // the 2026-07-29 update never appeared in changelog.json despite the
+        // seen-marker naming it. An in-memory flag prevents a double
+        // announcement during the 2s exit window instead.
+        this.updateRestartPending = true;
 
         setTimeout(() => {
             process.exit(0);
