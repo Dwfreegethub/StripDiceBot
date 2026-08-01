@@ -43,6 +43,14 @@ export interface GameHost {
     // the full rationale (deliberately ignores body/genital data).
     resolveClothingPath(memberNumber: number): "male" | "female";
 
+    // True if this member is currently in the room. Tournament delivery is
+    // whisper-first for people who are present and beep-fallback for those who
+    // aren't — beeps only reach players who are online, so neither path is
+    // guaranteed and both are best-effort.
+    isInRoom(memberNumber: number): boolean;
+    // Everyone currently in the room, bot excluded.
+    getRoomMembers(): number[];
+
     // Cached room-member name, if seen.
     getNameFor(memberNumber: number): string | undefined;
     // Cached name with a "Player #N" fallback.

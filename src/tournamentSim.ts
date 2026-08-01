@@ -20,6 +20,7 @@ import {
     punishmentForLoss, recordPairing, resolveMatch,
 } from "./tournamentLogic";
 import { formatDuration, parseDuration, parseWhen } from "./util";
+import { TournamentManager } from "./tournament";
 
 const GAMES_PER_MATCH = 3;
 
@@ -63,6 +64,7 @@ function makeState(playerCount: number): TournamentState {
         matches: [],
         champion: null,
         runnerUp: null,
+        frozenReason: null,
     };
 }
 
@@ -372,6 +374,108 @@ function testPunishment(): void {
     console.log("  5 assertions");
 }
 
+// ---- setup interview + registration -------------------------------------
+
+// Minimal stand-in for GameHost so the manager can be driven without a bot,
+// a room, or touching tournament.json. Records everything it was told to say
+// so the interview's behaviour can be asserted.
+function makeStubHost(adminNumbers: number[]) {
+    const said: string[] = [];
+    let saved: TournamentState | null = null;
+
+    const host: any = {
+        bot: {
+            whisper: (_mn: number, text: string) => said.push(text),
+            sendChat: (text: string) => said.push(`[chat] ${text}`),
+            beep: (_mn: number, text: string) => said.push(`[beep] ${text}`),
+            isFriend: () => true,
+            getMemberNumber: () => 1,
+        },
+        storage: {
+            loadTournament: () => saved,
+            saveTournament: (s: TournamentState) => { saved = s; },
+            archiveTournament: () => { saved = null; },
+            appendTournamentLog: () => { /* no-op */ },
+        },
+        sendLongWhisper: (_mn: number, text: string) => said.push(text),
+        isAdmin: (mn: number) => adminNumbers.includes(mn),
+        requireAdmin: (mn: number) => adminNumbers.includes(mn),
+        isInRoom: () => true,
+        getRoomMembers: () => adminNumbers,
+        getPlayerName: (mn: number) => `Player${mn}`,
+        getNameFor: (mn: number) => `Player${mn}`,
+    };
+
+    return { host, said, getSaved: () => saved };
+}
+
+function testSetupInterview(): void {
+    console.log("\nSetup interview & registration");
+    const ADMIN = 999;
+    const { host, said, getSaved } = makeStubHost([ADMIN]);
+    const manager = new TournamentManager(host);
+
+    manager.handleSetup(ADMIN);
+    check(manager.isSettingUp(ADMIN), "setup starts for the admin");
+    check(!manager.isSettingUp(1234), "setup is scoped to the admin who started it");
+
+    // A non-admin cannot start one.
+    const { host: host2 } = makeStubHost([ADMIN]);
+    const manager2 = new TournamentManager(host2);
+    manager2.handleSetup(1234);
+    check(!manager2.isSettingUp(1234), "non-admins cannot start setup");
+
+    // Walk the interview with short, test-run style values.
+    const answers = ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "yes"];
+    for (const answer of answers) {
+        const consumed = manager.handleSetupAnswer(ADMIN, answer);
+        check(consumed, `answer "${answer}" consumed`);
+    }
+    check(getSaved() === null, "nothing is saved until the summary is confirmed");
+
+    // Confirm.
+    manager.handleSetupAnswer(ADMIN, "yes");
+    const state = getSaved();
+    check(state !== null, "confirming creates the tournament");
+    check(state?.status === "registration", "new tournament opens in registration", state?.status);
+    check(state?.config.roundLengthMs === 60 * 60 * 1000, "1-hour rounds stored exactly",
+        String(state?.config.roundLengthMs));
+    check(state?.config.firstLossPunishMs === 5 * 60 * 1000, "5-minute first-loss punishment stored",
+        String(state?.config.firstLossPunishMs));
+    check(state?.config.eliminationPunishMs === 15 * 60 * 1000, "15-minute elimination punishment stored",
+        String(state?.config.eliminationPunishMs));
+    check(state?.config.allowsWithdrawal === true, "withdrawal answer stored");
+    check(!manager.isSettingUp(ADMIN), "setup ends after creation");
+
+    // Bad input is rejected and re-asked rather than guessed at.
+    const { host: host3, getSaved: getSaved3 } = makeStubHost([ADMIN]);
+    const manager3 = new TournamentManager(host3);
+    manager3.handleSetup(ADMIN);
+    manager3.handleSetupAnswer(ADMIN, "sometime next week-ish");
+    check(manager3.isSettingUp(ADMIN), "unparseable answer keeps the interview open");
+    manager3.handleSetupAnswer(ADMIN, "cancel");
+    check(!manager3.isSettingUp(ADMIN), "'cancel' aborts the interview");
+    check(getSaved3() === null, "cancelling creates nothing");
+
+    // Registration.
+    said.length = 0;
+    manager.handleRegister(101, "Alice");
+    manager.handleRegister(102, "Bella");
+    manager.handleRegister(101, "Alice");  // duplicate
+    const registered = getSaved()!.players;
+    check(registered.length === 2, "duplicate registration is ignored", `${registered.length} players`);
+    check(registered[0].punishMsRemaining === 0 && registered[0].serving === false,
+        "new registrants start with no punishment owed");
+
+    // Withdrawing during registration removes them outright.
+    manager.handleWithdraw(102);
+    check(getSaved()!.players.length === 1, "withdrawing during registration un-registers",
+        `${getSaved()!.players.length} players`);
+
+    check(manager.punishMsFor(101) === 0, "no punishment owed before playing");
+    console.log("  22 assertions");
+}
+
 // ---- main ----------------------------------------------------------------
 
 function main(): void {
@@ -380,6 +484,7 @@ function main(): void {
     testDurations();
     testMatchResolution();
     testPunishment();
+    testSetupInterview();
 
     console.log("\nFull tournaments");
     const fieldSizes = [2, 3, 4, 5, 6, 7, 8, 11, 16, 23, 32];

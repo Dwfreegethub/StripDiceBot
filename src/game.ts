@@ -32,6 +32,7 @@ import { GameHost } from "./host";
 import { BotStorage } from "./storage";
 import { SoloGameManager } from "./soloGame";
 import { FeedbackManager } from "./feedback";
+import { TournamentManager } from "./tournament";
 
 // ============================================================
 // GAME CLASS
@@ -219,6 +220,7 @@ export class StripDiceGame implements GameHost {
     public readonly storage: BotStorage = new BotStorage();
     public readonly solo: SoloGameManager;
     public readonly feedback: FeedbackManager;
+    public readonly tournament: TournamentManager;
 
     // ============================================================
     // TEAM MODE (2v2 / 3v3)
@@ -238,6 +240,7 @@ export class StripDiceGame implements GameHost {
         this.bot = bot;
         this.solo = new SoloGameManager(this);
         this.feedback = new FeedbackManager(this);
+        this.tournament = new TournamentManager(this);
         this.bondageUsage = this.storage.loadBondageUsage();
         this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
@@ -583,6 +586,17 @@ export class StripDiceGame implements GameHost {
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
         "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
+        // Tournament — longer forms first so "!tournament register" isn't
+        // swallowed by the bare "!tournament" status command.
+        "!tournament setup": { handler: (mn) => this.tournament.handleSetup(mn), whisperOnly: true },
+        "!tournament register": { handler: (mn, name) => this.tournament.handleRegister(mn, name), whisperOnly: true },
+        "!tournament withdraw": { handler: (mn) => this.tournament.handleWithdraw(mn), whisperOnly: true },
+        "!tournament resume": { handler: (mn) => this.tournament.handleResume(mn), whisperOnly: true },
+        "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn), whisperOnly: true },
+        "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn), whisperOnly: true },
+        "!tournament status": { handler: (mn) => this.tournament.handleStatus(mn) },
+        "!tournament rules": { handler: (mn) => this.tournament.handleRules(mn) },
+        "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
     };
 
     private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
@@ -687,6 +701,14 @@ export class StripDiceGame implements GameHost {
 
         // Yes/No confirmation for a pending admin proxy-feedback submission.
         if (this.feedback.tryHandleProxyYesNo(memberNumber, msg)) return;
+
+        // Admin partway through the !tournament setup interview — their plain
+        // whispers are answers ("1 hour", "yes"), so they must be intercepted
+        // before command dispatch. Commands still work: an answer starting
+        // with "!" falls through, and "cancel" aborts the interview.
+        if (this.tournament.isSettingUp(memberNumber) && !msg.startsWith("!")) {
+            if (this.tournament.handleSetupAnswer(memberNumber, message)) return;
+        }
 
         // Winner's 69 bonus assignment phase (before the lock-time vote) —
         // winner whispers a player name to give them 5 min, or "skip".
@@ -6527,6 +6549,17 @@ export class StripDiceGame implements GameHost {
         if (this.turnOrder.length === 0) return undefined;
         const memberNumber = this.turnOrder[this.currentTurnIndex];
         return this.players.get(memberNumber);
+    }
+
+    // GameHost: is this member currently in the room? Tournament messaging is
+    // whisper-if-present, beep-if-not (and beeps only reach online players).
+    public isInRoom(memberNumber: number): boolean {
+        return this.roomMembers.has(memberNumber);
+    }
+
+    // GameHost: everyone in the room except the bot itself.
+    public getRoomMembers(): number[] {
+        return [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
     }
 
     public getNameFor(memberNumber: number): string | undefined {

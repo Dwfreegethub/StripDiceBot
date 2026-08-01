@@ -268,7 +268,11 @@ export interface OutfitSuggestion {
 // Every duration is admin-configured at setup; nothing here is
 // hardcoded to a particular tournament length.
 // ============================================================
-export type TournamentStatus = "registration" | "active" | "paused" | "complete" | "cancelled";
+// "frozen" is distinct from "paused": paused is an admin choosing to stop the
+// clock, frozen is the bot refusing to guess. Currently reachable when the last
+// active players all forfeit and there is nobody left to crown — the result
+// waits for an admin ruling rather than being decided by a rule nobody agreed to.
+export type TournamentStatus = "registration" | "active" | "paused" | "frozen" | "complete" | "cancelled";
 
 // How a match was decided. "time" is the hidden tiebreaker — total elapsed
 // game time, fastest wins — and is only ever surfaced to players when it
@@ -350,6 +354,8 @@ export interface TournamentState {
     matches: TournamentMatch[];
     champion: number | null;
     runnerUp: number | null;
+    // Why the tournament froze, shown to the admin who has to rule on it.
+    frozenReason: string | null;
 }
 
 // ============================================================
