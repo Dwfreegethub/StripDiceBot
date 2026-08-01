@@ -1,3 +1,5 @@
-2026-07-29T19:00:00
-Several end-game improvements + tighter locks
-Solo game loser lock time increased to 10 min base (+2 min per repeat loss today). Solo losers now get offered a themed bondage path (shibari, leather, latex, high-tech, and more) — say yes to accept or no for a random preset. Prize claim window now lasts until the prize player's lock expires, even across games. Prize list shows time remaining. Winners can only claim prizes from their own game. 69 bonus now uses a numbered menu — pick by number, 30s per pick, 0 to skip remaining. All bot-applied bondage now uses higher difficulty locks (harder to escape). Team game can now be cancelled with !cancel by the person who started it.
+2026-07-31T23:00:00
+Feedback now reaches us the moment you send it.
+Your feedback used to sit in a file until someone thought to go and read it. Now, if a keeper is in the room when you whisper !feedback, it lands in front of them immediately — so replies and fixes come faster.
+After a game finishes you may occasionally get a one-line nudge asking what you thought. It's random and only after a completed game, so it won't pester you every round — and !feedback still works any time without waiting to be asked.
+Behind the scenes: the admin !setstatus command can now set every feedback status, including "declined". Two statuses were missing from the list, so those updates could never be recorded — and therefore never whispered back to you — without hand-editing the file. If you sent something that quietly went nowhere, that's why; it should get a proper answer now.
