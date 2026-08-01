@@ -582,6 +582,7 @@ export class StripDiceGame implements GameHost {
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
+        "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
     };
 
     private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
@@ -1880,6 +1881,46 @@ export class StripDiceGame implements GameHost {
         this.bot.whisper(memberNumber, `Next roll forced to ${n}. Will clear after use.`);
     }
 
+    // !testbeep <memberNumber|name> [message] — admin-only. Beeps the target so
+    // we can confirm (a) beeps arrive at all and (b) the Message text rides
+    // along. Beeps only reach players who are ONLINE, so this also doubles as
+    // the way to check the offline case: beep someone who has logged off and
+    // confirm nothing lands. Name lookup only works for people in the room —
+    // pass a member number to reach anyone else.
+    private handleTestBeep(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const tokens = message.trim().slice("!testbeep".length).trim().split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) {
+            this.bot.whisper(memberNumber, "Usage: !testbeep <memberNumber|name> [message]");
+            return;
+        }
+
+        const first = tokens[0].replace(/^@/, "");
+        let target: number;
+        let targetName: string;
+
+        if (/^\d{3,}$/.test(first)) {
+            target = Number(first);
+            targetName = this.nameCache.get(target) ?? `#${target}`;
+        } else {
+            const match = this.matchRoomMemberByName(first);
+            if (!match) {
+                this.bot.whisper(memberNumber, `No one in the room matches "${first}" — pass a member number to beep someone outside the room.`);
+                return;
+            }
+            target = match.memberNumber;
+            targetName = match.name;
+        }
+
+        const text = tokens.slice(1).join(" ") || "StripDiceBot test beep — reply to this so we can check the incoming path.";
+        this.bot.beep(target, text);
+
+        const friendNote = this.bot.isFriend(target) ? "" : " (⚠️ not on my friend list — they may not see it)";
+        this.bot.whisper(memberNumber, `Beeped ${targetName} (#${target})${friendNote}. Have them reply so we can see the incoming shape in the log.`);
+        logGameEvent(`[TESTBEEP] admin #${memberNumber} → ${targetName} (#${target}): "${text}"`);
+    }
+
     private handleLockTime(memberNumber: number, message: string): void {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can set the lock duration.");
@@ -2920,7 +2961,8 @@ export class StripDiceGame implements GameHost {
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)`;
+            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
+            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)`;
 
         this.sendLongWhisper(memberNumber, text);
     }

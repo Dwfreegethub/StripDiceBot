@@ -193,6 +193,15 @@ async function main() {
         game.onReconnect();
     });
 
+    // Incoming beeps — replies to anything the bot sent via !testbeep, plus
+    // any unsolicited beep. Logged with the full payload so the reply shape is
+    // visible while we work out what tournament notifications can rely on.
+    bot.onAccountBeep((data: any) => {
+        const from = data?.MemberNumber ?? data?.MemberNumberFrom ?? "unknown";
+        const msg = data?.Message ?? "";
+        log(`BEEP received from #${from}${msg ? `: "${msg}"` : " (no message)"} — raw: ${JSON.stringify(data)}`);
+    });
+
     bot.listenAll();
 
     try {

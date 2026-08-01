@@ -1,6 +1,16 @@
 # StripDiceBot — Solo Tournament Mode
 
-**Status:** Design complete, not yet implemented. Build after WinnersDice feature work settles down.
+**Status:** Design complete. Build in progress on the `tournament` branch — beep plumbing landed, tournament logic not started.
+
+---
+
+## Open Questions (blocking build)
+
+1. **Records & penalty ladder** — do tournament games count toward daily/all-time solo records, and toward `attemptsToday` (which adds +2 min of bondage per loss per day)? Three games per match makes that ramp steeply.
+2. **Byes near the end** — a bye is a free win. With 3 players left all on 1 loss, one gets a free pass toward the final. Acceptable?
+3. **Grand final semantics** — "last 2 standing play one match" treats a 0-loss and a 1-loss finalist identically, which isn't strictly double elimination. Intentional simplification for a clean 1st/2nd?
+4. **Total tie** — if match points *and* total rolls are both tied, what breaks it?
+5. **First tournament scope** — run tournament #1 with punishment enabled, or as an all-grace event to test the format first? (30-day data: 519 solo games, 331 distinct players, but only **32 played 3+ games** — that's the realistic pool for a multi-week commitment.)
 
 ---
 
@@ -50,7 +60,8 @@ The 3 games do not have to be played in one session. The bot tracks per-game sco
 - No maximum (open field — byes handle odd numbers)
 - Players are shown their registration confirmation via whisper
 - `!tournament` shows current registrations and time remaining in the sign-up window
-- **Players must be friended with the bot** to receive tournament announcements (round assignments, results, early-start votes, display time reminders). Bot whispers a friend request prompt at registration if not already friended.
+- **Players must be mutually friended with the bot** to receive tournament beeps (round assignments, results, early-start votes, display time reminders). BC's friend list is mutual-gated: the player adds the bot *and* the bot adds them back (BD already does this via `!friend` / `handleFriendRequest`). Bot prompts at registration if not already friended.
+- **Beeps are best-effort and online-only.** BC delivers a beep only if the target is logged in — an offline player simply never gets it. Nothing in the tournament may depend on a beep arriving: every notification must also be recoverable by the player on demand (`!tournament`) and re-delivered by whisper when they next enter the room. Beeps are a convenience, never the source of truth.
 - When a registered player enters the room during an active tournament, the bot whispers them their current round status (opponent, games completed, time remaining).
 
 ---
@@ -132,10 +143,12 @@ When an odd number of players share the same record, one receives a bye:
 | 1st loss (Round 2+) | 15 min on display | Must be fully served before playing next round match |
 | 2nd loss (elimination) | 1 hour on display | Served after elimination; BD locked until complete |
 
-- **On display** means the player is put on display in the room and listed as a prize for others to interact with.
+- **"On display" means bound in the room and in prize mode** — the loser stays in the bondage the game already put them in, and is listed as claimable so anyone in the room can `!claim` them, take the leash, and move them around. It is not a separate display mechanic; it reuses the existing bondage + prize/claim machinery. Longer punishments are exactly when being grabbable matters most.
 - Display time does **not** need to be served consecutively — a player can leave and return, and the bot tracks remaining time.
 - **BD is locked** for the player until their display time is fully served. They cannot start or join a BD game while time is outstanding.
 - The 15-minute serve requirement before the next match creates real time pressure — a player who loses early in a round must finish their display time within the round window to stay competitive.
+
+**Reuse note:** a Survive game already ends with the player naked and, unless they beat the daily record, already applies themed/preset bondage on a timed lock (`SOLO_BASE_PENALTY_MINUTES`, currently 10 min +2 per repeat loss). Tournament punishment is therefore mostly a *duration change plus a claimable flag* on machinery that already exists — not a new subsystem. What is genuinely new: the claim registry must accept "claimable by anyone in the room" entries (today's `prizePasswords` is scoped to that game's winners via `claimableBy`), and remaining time must survive a bot restart.
 
 ### Implementation notes
 - Bot tracks `displayTimeRemainingMs` per player in `tournament.json`.
@@ -310,7 +323,9 @@ Persists all tournament state across bot restarts. Structure (approximate):
 ## Implementation Notes
 
 - Build after WD feature work is settled
-- Solo game flow changes needed: tournament mode flag to lock bracket at 6, record per-game scores, suppress normal solo end announcements in favor of tournament-specific ones
+- **Tournament games reuse the existing Survive flow.** A tournament game *is* a solo Survive game — same rolls, same removal detection, same end-of-game bondage. The tournament layer adds a flag on the solo game that: locks the bracket at 6, reports the final score back to the tournament manager, and swaps the normal end-of-game messaging for tournament wording. Everything else (dice chain, wardrobe watching, lock+verify) is shared code, untouched.
+- **Decisions the shared flow forces** (see Open Questions): whether tournament games feed the daily/all-time records and the `attemptsToday` ladder — that ladder escalates the penalty by +2 min per loss per day, and a 3-game match means it ramps fast.
+- **Beep plumbing exists as of the tournament branch**: `BCConnection.beep()` + `onAccountBeep()`, ported from SlaveParking/WinnersDice, with `!testbeep <memberNumber|name> [message]` for admins to verify delivery (and to confirm the offline case fails silently).
 - Swiss pairing logic: sort active players by W-L record, pair top of each group against next, handle odd groups with byes
 - Round advancement: timestamp check on activity events (no external scheduler needed)
 - Dispute commands require admin to be in-room (same pattern as existing admin commands)

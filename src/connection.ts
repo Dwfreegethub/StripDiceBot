@@ -296,4 +296,24 @@ export class BCConnection {
         log(`Unfriended #${memberNumber} (${this.friendList.length} total).`);
         return true;
     }
+
+    // Sends a beep (optionally carrying a text message) to a member. BC
+    // delivers it wherever the target is, so it's the only way to reach
+    // someone who isn't in the room — but it only lands if they're ONLINE.
+    // Treat every beep as best-effort: never make correctness depend on one
+    // arriving. Same emit shape as SlaveParking and WinnersDice.
+    public beep(memberNumber: number, message?: string): void {
+        this.socket.emit("AccountBeep", {
+            MemberNumber: memberNumber,
+            BeepType: "",
+            Message: message ?? "",
+        });
+        log(`Beeped #${memberNumber}${message ? `: "${message}"` : ""}.`);
+    }
+
+    // Incoming beeps (including replies to a beep we sent). listenAll already
+    // logs the raw event; this lets game logic act on it too.
+    public onAccountBeep(handler: (data: any) => void): void {
+        this.socket.on("AccountBeep", handler);
+    }
 }
