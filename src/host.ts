@@ -12,7 +12,7 @@
 import { BCConnection } from "./connection";
 import { BotStorage } from "./storage";
 import { FeedbackManager } from "./feedback";
-import { BondageItem, BondageOutfit, PendingLockApplyCheck } from "./types";
+import { BondageItem, BondageOutfit, PendingLockApplyCheck, TournamentGameContext } from "./types";
 
 export interface GameHost {
     readonly bot: BCConnection;
@@ -60,6 +60,22 @@ export interface GameHost {
 
     // Sets the feedbackGiven flag on a player's persistent record.
     markFeedbackGiven(memberNumber: number): void;
+
+    // ---- tournament bridge -------------------------------------------------
+    // The tournament and solo managers never import each other; they meet
+    // here. The tournament asks the game to start a solo game in tournament
+    // mode, and the solo game reports the finished score back the same way.
+
+    // Starts a tournament-mode solo game. Returns null on success, or a
+    // player-facing reason it couldn't start (already playing, etc).
+    startTournamentGame(memberNumber: number, name: string, ctx: TournamentGameContext): string | null;
+
+    // Reports a finished tournament game. durationMs is wall-clock length,
+    // which feeds the hidden time tiebreaker.
+    reportTournamentGame(memberNumber: number, score: number, durationMs: number): void;
+
+    // Punishment time this member still owes, in ms. Used to gate BD play.
+    tournamentPunishMs(memberNumber: number): number;
 
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;

@@ -10,10 +10,11 @@
 import { log, logGameEvent } from "./logger";
 import { GameHost } from "./host";
 import {
-    TournamentConfig, TournamentPlayer, TournamentState,
+    TournamentConfig, TournamentGameContext, TournamentMatch, TournamentPlayer, TournamentState,
 } from "./types";
 import {
-    activePlayers, findPlayer, isActive, matchFor, punishRemaining, rankPlayers,
+    activePlayers, applyResult, evaluateField, findPlayer, isActive, matchFor,
+    pairRound, punishRemaining, punishmentForLoss, rankPlayers, recordPairing, resolveMatch,
 } from "./tournamentLogic";
 import { formatDuration, parseDuration, parseWhen } from "./util";
 import {
@@ -518,6 +519,397 @@ export class TournamentManager {
         logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) withdrew in round ${this.state.currentRound}`);
         this.host.bot.whisper(memberNumber, "You've withdrawn from the tournament. Any punishment time you already owe still stands.");
         this.host.bot.sendChat(`🏆 ${player.name} has withdrawn from the tournament.`);
+    }
+
+    // ---- scheduling ---------------------------------------------------------
+
+    // Called on room activity (joins, game ends) rather than from a timer:
+    // there is no external scheduler, so the tournament advances whenever
+    // something happens. A dead-quiet room means rounds sit until someone
+    // shows up, which is fine — nobody is waiting on them in an empty room.
+    public checkSchedule(now: number = Date.now()): void {
+        if (!this.state) return;
+        if (this.state.status === "paused" || this.state.status === "frozen") return;
+
+        if (this.state.status === "registration") {
+            const closes = Date.parse(this.state.config.signUpDeadline);
+            const starts = Date.parse(this.state.config.firstRoundStart);
+            if (now >= closes && now >= starts) this.beginTournament(now);
+            return;
+        }
+
+        if (this.state.status !== "active" || !this.state.roundDeadline) return;
+        if (now >= Date.parse(this.state.roundDeadline)) this.finalizeRound(now);
+    }
+
+    private beginTournament(now: number): void {
+        if (!this.state) return;
+
+        const field = this.state.players.length;
+        if (field < 2) {
+            this.state.status = "cancelled";
+            this.save();
+            this.host.bot.sendChat(
+                `🏆 The tournament has been called off — only ${field} player${field === 1 ? "" : "s"} registered.`);
+            logGameEvent(`[TOURNAMENT] auto-cancelled: only ${field} registered`);
+            return;
+        }
+
+        // minPlayers is advisory: a short field still runs (so a rehearsal
+        // with 2-3 people works), it just gets called out.
+        if (field < this.state.config.minPlayers) {
+            this.host.bot.sendChat(
+                `🏆 Starting with ${field} players (below the usual ${this.state.config.minPlayers}) — let's go anyway!`);
+        }
+
+        this.state.status = "active";
+        this.save();
+        this.startRound(1, now);
+    }
+
+    private startRound(round: number, now: number): void {
+        if (!this.state) return;
+
+        const matches = pairRound(this.state, round);
+        if (matches.length === 0) {
+            this.freeze("no matches could be paired for the next round");
+            return;
+        }
+
+        for (const match of matches) {
+            recordPairing(this.state, match);
+            this.state.matches.push(match);
+            // A bye resolves the moment it's created — there's nothing to play.
+            if (match.playerB === null) {
+                const result = resolveMatch(match, this.state.config.gamesPerMatch, true)!;
+                match.result = result;
+                const player = findPlayer(this.state, match.playerA);
+                if (player) player.byesUsed++;
+                applyResult(this.state, match, result);
+            }
+        }
+
+        this.state.currentRound = round;
+        this.state.roundDeadline = new Date(now + this.state.config.roundLengthMs).toISOString();
+        this.save();
+
+        const graceNote = round <= this.state.config.graceRounds
+            ? " This is a grace round — losing costs nothing."
+            : "";
+        this.host.bot.sendChat(
+            `🏆 Tournament Round ${round} begins! ${formatDuration(this.state.config.roundLengthMs)} to play ` +
+            `your ${this.state.config.gamesPerMatch} games. Whisper !tournament play to start.${graceNote}`);
+
+        logGameEvent(`[TOURNAMENT] round ${round} started with ${matches.length} match(es), ` +
+            `deadline ${this.state.roundDeadline}`);
+
+        for (const match of matches) {
+            if (match.playerB === null) {
+                this.notify(match.playerA,
+                    `🎟️ Round ${round}: you have a BYE — an automatic win, nothing to play.`);
+                continue;
+            }
+            const aName = this.nameOf(match.playerA);
+            const bName = this.nameOf(match.playerB);
+            this.notify(match.playerA,
+                `🏆 Round ${round}: you're up against ${bName}. ` +
+                `Whisper !tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
+            this.notify(match.playerB,
+                `🏆 Round ${round}: you're up against ${aName}. ` +
+                `Whisper !tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
+        }
+    }
+
+    // Round deadline passed: force-resolve everything outstanding (unplayed
+    // games score as losses), apply punishment, then advance or finish.
+    private finalizeRound(now: number): void {
+        if (!this.state) return;
+        const round = this.state.currentRound;
+
+        for (const match of this.state.matches.filter(m => m.round === round && m.result === null)) {
+            const result = resolveMatch(match, this.state.config.gamesPerMatch, true);
+            if (!result) {
+                // Dead heat on points, rolls AND time — no rule can call it.
+                this.freeze(`match ${match.id} is tied on every tiebreaker and needs a ruling`);
+                return;
+            }
+            match.result = result;
+            const eliminated = applyResult(this.state, match, result);
+
+            const winnerName = result.winner !== null ? this.nameOf(result.winner) : null;
+            const loserName = result.loser !== null ? this.nameOf(result.loser) : null;
+            this.host.storage.appendTournamentLog(
+                `[${new Date(now).toISOString()}] round ${round} ${match.id} RESOLVED-AT-DEADLINE ` +
+                `winner=${winnerName ?? "none"} loser=${loserName ?? "none"} by=${result.decidedBy}`);
+
+            if (result.decidedBy === "double-forfeit") {
+                this.host.bot.sendChat(`🏆 Round ${round}: neither ${this.nameOf(match.playerA)} nor ` +
+                    `${this.nameOf(match.playerB!)} played — both take a loss.`);
+            } else if (winnerName && loserName) {
+                this.host.bot.sendChat(`🏆 Round ${round}: ${winnerName} beats ${loserName} (time ran out).`);
+            }
+            for (const mn of eliminated) {
+                this.host.bot.sendChat(`🏆 ${this.nameOf(mn)} has been eliminated from the tournament.`);
+            }
+        }
+
+        this.applyRoundPunishments(round);
+        this.save();
+
+        const field = evaluateField(this.state);
+        switch (field.kind) {
+            case "decided":
+                this.completeTournament(field.champion, field.runnerUp);
+                return;
+            case "empty":
+                // Everyone left standing forfeited — no champion to crown, and
+                // no rule DW wants applied automatically. Freeze for a ruling.
+                this.freeze("the last active players all forfeited, so there's no winner to declare");
+                return;
+            case "final":
+                this.host.bot.sendChat(
+                    `🏆 Down to two — ${this.nameOf(field.players[0])} vs ${this.nameOf(field.players[1])} in the GRAND FINAL!`);
+                this.startRound(round + 1, now);
+                return;
+            default:
+                this.startRound(round + 1, now);
+        }
+    }
+
+    // Credits punishment time for losses taken this round. Actually binding
+    // the player (bondage + claimable) happens when they next present
+    // themselves to serve it — see the serving commands.
+    private applyRoundPunishments(round: number): void {
+        if (!this.state) return;
+        if (round <= this.state.config.graceRounds) return;
+
+        for (const match of this.state.matches.filter(m => m.round === round)) {
+            const losers: number[] = [];
+            if (match.result?.decidedBy === "double-forfeit") {
+                losers.push(match.playerA);
+                if (match.playerB !== null) losers.push(match.playerB);
+            } else if (match.result?.loser != null) {
+                losers.push(match.result.loser);
+            }
+
+            for (const mn of losers) {
+                const player = findPlayer(this.state, mn);
+                if (!player) continue;
+                const ms = punishmentForLoss(this.state, player.losses, round);
+                if (ms <= 0) continue;
+                player.punishMsRemaining += ms;
+                this.notify(mn,
+                    `⛓️ That loss costs you ${formatDuration(ms)} bound and claimable in the room. ` +
+                    `You owe ${formatDuration(player.punishMsRemaining)} in total, and you can't play ` +
+                    `your next match until it's served.`);
+            }
+        }
+    }
+
+    private completeTournament(champion: number, runnerUp: number | null): void {
+        if (!this.state) return;
+        this.state.status = "complete";
+        this.state.champion = champion;
+        this.state.runnerUp = runnerUp;
+
+        // Champion and runner-up walk away free, whatever they'd racked up.
+        for (const mn of [champion, runnerUp]) {
+            if (mn === null) continue;
+            const player = findPlayer(this.state, mn);
+            if (player) {
+                player.punishMsRemaining = 0;
+                player.serving = false;
+                player.servingSince = null;
+            }
+        }
+        this.save();
+
+        logGameEvent(`[TOURNAMENT] complete — champion #${champion}, runner-up ${runnerUp ?? "none"}`);
+        this.host.bot.sendChat(
+            `🏆🏆 The tournament is over — ${this.nameOf(champion)} is the CHAMPION! ` +
+            `${runnerUp !== null ? `${this.nameOf(runnerUp)} takes runner-up. ` : ""}` +
+            `Both walk away with no punishment time. Congratulations!`);
+        this.notify(champion, "🏆 You won the tournament! Champion — and no punishment time at all. Congratulations!");
+        if (runnerUp !== null) this.notify(runnerUp, "🏆 Runner-up! A great run — and you walk away free too.");
+    }
+
+    // ---- playing -----------------------------------------------------------
+
+    public handlePlay(memberNumber: number, name: string): void {
+        if (!this.state) {
+            this.host.bot.whisper(memberNumber, "There's no tournament running.");
+            return;
+        }
+        if (this.state.status === "registration") {
+            this.host.bot.whisper(memberNumber,
+                `The tournament hasn't started yet — Round 1 begins ${new Date(this.state.config.firstRoundStart).toUTCString()}.`);
+            return;
+        }
+        if (this.state.status === "paused" || this.state.status === "frozen") {
+            this.host.bot.whisper(memberNumber, `The tournament is ${this.state.status} right now — hold tight.`);
+            return;
+        }
+        if (this.state.status !== "active") {
+            this.host.bot.whisper(memberNumber, "This tournament isn't running.");
+            return;
+        }
+
+        const player = findPlayer(this.state, memberNumber);
+        if (!player) {
+            this.host.bot.whisper(memberNumber, "You're not registered for this tournament.");
+            return;
+        }
+        if (player.withdrew) {
+            this.host.bot.whisper(memberNumber, "You've withdrawn from this tournament.");
+            return;
+        }
+        if (player.eliminated) {
+            this.host.bot.whisper(memberNumber, `You were eliminated with ${player.wins}W/${player.losses}L — no more games to play.`);
+            return;
+        }
+
+        // Owing punishment time blocks play. This is the whole point of the
+        // "serve it before your next match" rule.
+        const owed = punishRemaining(player, Date.now());
+        if (owed > 0) {
+            this.host.bot.whisper(memberNumber,
+                `⛓️ You still owe ${formatDuration(owed)} bound & claimable before you can play again.`);
+            return;
+        }
+
+        const match = matchFor(this.state, memberNumber, this.state.currentRound);
+        if (!match) {
+            this.host.bot.whisper(memberNumber, "You don't have a match this round.");
+            return;
+        }
+        if (match.playerB === null) {
+            this.host.bot.whisper(memberNumber, "🎟️ You have a bye this round — no games to play. Enjoy the free win!");
+            return;
+        }
+        if (match.result !== null) {
+            this.host.bot.whisper(memberNumber, "Your match this round is already decided.");
+            return;
+        }
+
+        const isA = match.playerA === memberNumber;
+        const mine = isA ? match.gamesA : match.gamesB;
+        const total = this.state.config.gamesPerMatch;
+        if (mine.length >= total) {
+            this.host.bot.whisper(memberNumber,
+                `You've already played all ${total} of your games this round. Waiting on your opponent / the round to close.`);
+            return;
+        }
+
+        const opponent = isA ? match.playerB : match.playerA;
+        const ctx: TournamentGameContext = {
+            round: this.state.currentRound,
+            matchId: match.id,
+            opponentName: this.nameOf(opponent),
+            gameNumber: mine.length + 1,
+            totalGames: total,
+            requiredClothing: this.state.config.clothingCount,
+            allowBondage: false,
+        };
+
+        const error = this.host.startTournamentGame(memberNumber, name, ctx);
+        if (error) this.host.bot.whisper(memberNumber, error);
+    }
+
+    // Called (via GameHost) when a tournament game finishes. Records the score,
+    // resolves the match if both players are done, and keeps the room posted.
+    public recordGameResult(memberNumber: number, score: number, durationMs: number): void {
+        if (!this.state) return;
+        const player = findPlayer(this.state, memberNumber);
+        if (!player) return;
+
+        const match = matchFor(this.state, memberNumber, this.state.currentRound);
+        if (!match || match.result !== null || match.playerB === null) return;
+
+        const isA = match.playerA === memberNumber;
+        const mine = isA ? match.gamesA : match.gamesB;
+        const total = this.state.config.gamesPerMatch;
+        if (mine.length >= total) return; // already complete; ignore a stray report
+
+        mine.push({ score, durationMs, playedAt: new Date().toISOString() });
+        this.save();
+
+        this.host.storage.appendTournamentLog(
+            `[${new Date().toISOString()}] round ${this.state.currentRound} ${match.id} ` +
+            `${player.name}(#${memberNumber}) game ${mine.length}/${total} score=${score} durationMs=${durationMs}`);
+
+        const opponent = isA ? match.playerB : match.playerA;
+        const theirs = isA ? match.gamesB : match.gamesA;
+        const played = mine.length;
+
+        // Room commentary: where they stand, without leaking anything the
+        // opponent hasn't already earned by playing.
+        const mineTotal = mine.reduce((s, g) => s + g.score, 0);
+        const theirTotal = theirs.reduce((s, g) => s + g.score, 0);
+        let standing = "";
+        if (theirs.length > 0) {
+            standing = mineTotal > theirTotal
+                ? ` They're ahead of ${this.nameOf(opponent)} on total rolls (${mineTotal} vs ${theirTotal}).`
+                : mineTotal < theirTotal
+                ? ` ${this.nameOf(opponent)} still leads on total rolls (${theirTotal} vs ${mineTotal}).`
+                : ` That's dead level with ${this.nameOf(opponent)} on ${mineTotal} rolls each!`;
+        }
+
+        this.host.bot.sendChat(
+            `🏆 ${player.name} survived ${score} roll${score === 1 ? "" : "s"} — ` +
+            `game ${played} of ${total} against ${this.nameOf(opponent)} done.${standing}`);
+
+        if (played < total) {
+            this.host.bot.whisper(memberNumber,
+                `${total - played} game${total - played === 1 ? "" : "s"} left this round — whisper !tournament play when you're ready.`);
+        } else {
+            this.host.bot.whisper(memberNumber,
+                `✅ That's all ${total} of your games for Round ${this.state.currentRound}. ` +
+                `Total: ${mineTotal} rolls. I'll let you know how the match went once ${this.nameOf(opponent)} finishes.`);
+        }
+
+        this.tryResolveMatch(match);
+    }
+
+    // Resolves a match once both sides have played everything, credits the
+    // records, and announces. Rounds closing on the deadline force-resolve
+    // elsewhere; this is the "finished early" path.
+    private tryResolveMatch(match: TournamentMatch): void {
+        if (!this.state || match.result !== null) return;
+        const result = resolveMatch(match, this.state.config.gamesPerMatch, false);
+        if (!result) return;
+
+        match.result = result;
+        const eliminated = applyResult(this.state, match, result);
+        this.save();
+
+        const winnerName = result.winner !== null ? this.nameOf(result.winner) : null;
+        const loserName = result.loser !== null ? this.nameOf(result.loser) : null;
+
+        this.host.storage.appendTournamentLog(
+            `[${new Date().toISOString()}] round ${match.round} ${match.id} RESOLVED ` +
+            `winner=${winnerName ?? "none"} loser=${loserName ?? "none"} ` +
+            `points=${result.pointsA}-${result.pointsB} by=${result.decidedBy}`);
+        logGameEvent(`[TOURNAMENT] ${match.id} resolved: ${winnerName ?? "none"} beat ${loserName ?? "none"} (${result.decidedBy})`);
+
+        if (winnerName && loserName) {
+            // The time tiebreaker is deliberately unadvertised — mention it
+            // only when it actually decided something, so nobody starts
+            // playing against the clock.
+            const how = result.decidedBy === "rolls" ? " (decided on total rolls)"
+                : result.decidedBy === "time" ? " (points and rolls were tied — decided by total time taken, fastest wins)"
+                : result.decidedBy === "forfeit" ? " (by forfeit)"
+                : "";
+            this.host.bot.sendChat(`🏆 Round ${match.round}: ${winnerName} beats ${loserName}${how}.`);
+            this.notify(result.winner!, `🏆 You won your Round ${match.round} match against ${loserName}${how}.`);
+            this.notify(result.loser!, `Round ${match.round}: you lost to ${winnerName}${how}.`);
+        } else if (result.decidedBy === "double-forfeit") {
+            this.host.bot.sendChat(`🏆 Round ${match.round}: neither player showed up — both take a loss.`);
+        }
+
+        for (const mn of eliminated) {
+            this.host.bot.sendChat(`🏆 ${this.nameOf(mn)} has been eliminated from the tournament.`);
+            this.notify(mn, "You've been eliminated from the tournament (2 losses). Thanks for playing!");
+        }
     }
 
     // ---- status / standings --------------------------------------------------

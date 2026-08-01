@@ -6,7 +6,7 @@
 // ============================================================
 import { log, logGameEvent } from "./logger";
 import { GameHost } from "./host";
-import { BondageItem, SoloGameState, SoloMode, SoloRecordEntry, SoloRecordsData } from "./types";
+import { BondageItem, SoloGameState, SoloMode, SoloRecordEntry, SoloRecordsData, TournamentGameContext } from "./types";
 import {
     ClothingPath, clothingSlotsFor, LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES,
     REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS,
@@ -128,7 +128,7 @@ const SOLO_THEME_OFFER_TIMEOUT_MS = 30 * 1000;
 
 export class SoloGameManager {
     private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
+    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[]; tournamentCtx: TournamentGameContext | null }> = new Map();
     // Players who finished a solo game and are awaiting a yes/no to the prize question.
     private pendingSoloPrizeQuestion: Map<number, string> = new Map(); // memberNumber → name
     // Players who said yes to the prize question and are now describing what it means to them.
@@ -224,9 +224,31 @@ export class SoloGameManager {
             return;
         }
         const clothingPath = this.host.resolveClothingPath(memberNumber);
-        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [] });
+        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [], tournamentCtx: null });
         this.host.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
         this.askClothingQuestion(memberNumber);
+    }
+
+    // Starts a solo game that counts toward a tournament match. Always Survive
+    // mode. Returns null on success, or a player-facing reason it can't start.
+    // The clothing count is enforced rather than free-form: everyone in a
+    // tournament plays the same bracket or the scores aren't comparable.
+    public startTournamentGame(memberNumber: number, name: string, ctx: TournamentGameContext): string | null {
+        if (this.soloGames.has(memberNumber)) {
+            return "You already have a solo game in progress — finish it first (!roll), or whisper !solo_reset to an admin.";
+        }
+        const clothingPath = this.host.resolveClothingPath(memberNumber);
+        this.pendingSoloSetup.set(memberNumber, {
+            mode: "survive", name, clothingPath,
+            clothingQuestionIndex: 0, pendingClothing: [], tournamentCtx: ctx,
+        });
+        this.host.sendLongWhisper(memberNumber,
+            `🏆 Tournament — Round ${ctx.round}, game ${ctx.gameNumber} of ${ctx.totalGames}` +
+            `${ctx.opponentName ? ` vs ${ctx.opponentName}` : ""}.\n` +
+            `You need exactly ${ctx.requiredClothing} clothing items for this one. ` +
+            `Let's go through your outfit — yes or no for each item.`);
+        this.askClothingQuestion(memberNumber);
+        return null;
     }
 
     private askClothingQuestion(memberNumber: number): void {
@@ -236,14 +258,29 @@ export class SoloGameManager {
 
         if (idx >= slots.length) {
             const clothing = slots.filter(slot => pending.pendingClothing.includes(slot));
-            if (clothing.length < SOLO_BRACKET_MIN) {
+
+            // Tournament games are a fixed bracket so every score is comparable.
+            // Wrong count aborts rather than looping the questions — the player
+            // has to actually change clothes, which they can't do mid-Q&A.
+            if (pending.tournamentCtx) {
+                const required = pending.tournamentCtx.requiredClothing;
+                if (clothing.length !== required) {
+                    this.pendingSoloSetup.delete(memberNumber);
+                    this.host.sendLongWhisper(memberNumber,
+                        `⚠️ Tournament games need exactly ${required} clothing items — you declared ${clothing.length}` +
+                        `${clothing.length > 0 ? ` (${clothing.join(", ")})` : ""}.\n` +
+                        `Adjust what you're wearing, then whisper !tournament play to try again.`);
+                    return;
+                }
+            } else if (clothing.length < SOLO_BRACKET_MIN) {
                 this.host.bot.whisper(memberNumber, `You need at least ${SOLO_BRACKET_MIN} items to start — let's try again.`);
                 pending.clothingQuestionIndex = 0;
                 pending.pendingClothing = [];
                 this.askClothingQuestion(memberNumber);
                 return;
             }
-            this.startGame(memberNumber, pending.mode, pending.name, clothing);
+
+            this.startGame(memberNumber, pending.mode, pending.name, clothing, pending.tournamentCtx);
             return;
         }
 
@@ -267,7 +304,7 @@ export class SoloGameManager {
         this.askClothingQuestion(memberNumber);
     }
 
-    private startGame(memberNumber: number, mode: SoloMode, name: string, clothing: string[]): void {
+    private startGame(memberNumber: number, mode: SoloMode, name: string, clothing: string[], tournamentCtx: TournamentGameContext | null = null): void {
         this.pendingSoloSetup.delete(memberNumber);
 
         const bracket = clothing.length;
@@ -284,12 +321,23 @@ export class SoloGameManager {
             startTime: new Date().toISOString(),
             awaitingRemoval: false,
             inactivityTimer: null,
+            tournamentCtx,
         };
         this.soloGames.set(memberNumber, solo);
         this.host.saveBotState();
-        logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
 
-        this.host.bot.sendChat(`🎲 ${name} is playing a solo game — good luck!`);
+        if (tournamentCtx) {
+            logGameEvent(`[TOURNAMENT GAME START] round ${tournamentCtx.round} ${tournamentCtx.matchId} | ` +
+                `game ${tournamentCtx.gameNumber}/${tournamentCtx.totalGames} | ` +
+                `player: ${name} (#${memberNumber}) vs ${tournamentCtx.opponentName ?? "?"}`);
+            this.host.bot.sendChat(
+                `🏆 ${name} is playing Round ${tournamentCtx.round} of the tournament` +
+                `${tournamentCtx.opponentName ? ` against ${tournamentCtx.opponentName}` : ""} — ` +
+                `game ${tournamentCtx.gameNumber} of ${tournamentCtx.totalGames}. Good luck!`);
+        } else {
+            logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
+            this.host.bot.sendChat(`🎲 ${name} is playing a solo game — good luck!`);
+        }
 
         const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
         const objective = mode === "race"
@@ -416,6 +464,14 @@ export class SoloGameManager {
         this.soloGames.delete(memberNumber);
         this.host.saveBotState();
 
+        // Tournament games are scored, not judged: no daily/all-time records,
+        // no attempts ladder, no penalty bondage. The only consequence is the
+        // match result, which the tournament manager works out from the score.
+        if (solo.tournamentCtx) {
+            this.finishTournamentGame(memberNumber, solo, solo.tournamentCtx);
+            return;
+        }
+
         const records = this.host.storage.loadSoloRecords();
         const bracketKey = String(solo.bracket);
         const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
@@ -505,6 +561,44 @@ export class SoloGameManager {
         if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
         records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
         this.host.storage.saveSoloRecords(records);
+    }
+
+    // Ends a tournament game: report the score and get out of the way. No
+    // records, no attempts, no bondage — a match is three of these back to
+    // back, so applying the usual solo penalty after each would leave a player
+    // locked three times over before their match even resolved. If bondage is
+    // ever wanted here (as a way to add rolls), flip ctx.allowBondage and
+    // branch below; the suppression is deliberately in one place.
+    private finishTournamentGame(memberNumber: number, solo: SoloGameState, ctx: TournamentGameContext): void {
+        const score = solo.totalRolls;
+        const durationMs = Math.max(0, Date.now() - Date.parse(solo.startTime));
+
+        logGameEvent(`[TOURNAMENT GAME END] round ${ctx.round} ${ctx.matchId} | ` +
+            `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
+            `score: ${score} rolls | duration: ${Math.round(durationMs / 1000)}s`);
+
+        this.host.storage.appendGameLog({
+            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
+            players: [`${solo.name}(#${memberNumber})`], outcome: "tournament", score,
+        });
+
+        this.host.bot.whisper(memberNumber,
+            `🏆 Game ${ctx.gameNumber} of ${ctx.totalGames} complete — you survived ${score} roll${score === 1 ? "" : "s"}.`);
+
+        if (ctx.allowBondage) {
+            // Not used yet — see the comment above. Kept as an explicit branch
+            // so enabling it later is a one-line change rather than a rewrite.
+            const attemptsToday = 0;
+            setTimeout(() => this.offerThemeBondage(memberNumber, SOLO_BASE_PENALTY_MINUTES + attemptsToday), SOLO_BONDAGE_DELAY_MS);
+        } else {
+            // Clear whatever they stripped out of, same as a record-beating
+            // solo run — the tournament's own punishment is applied separately.
+            this.host.removeAllItems(memberNumber);
+        }
+
+        // Hand the score to the tournament manager, which decides whether the
+        // match is now resolvable and announces standings.
+        this.host.reportTournamentGame(memberNumber, score, durationMs);
     }
 
     // Applies a random eligible bondage outfit (or just its first `itemCap`
@@ -702,6 +796,24 @@ export class SoloGameManager {
         this.clearInactivityTimer(solo);
         this.soloGames.delete(memberNumber);
         this.host.saveBotState();
+
+        // A tournament game that's walked away from still counts, at whatever
+        // score it had reached. Discarding it instead would let a player bail
+        // out of a bad run and replay it — undetectable, and fatal to a
+        // competition. No bondage either way; the match result is the stake.
+        if (solo.tournamentCtx) {
+            const ctx = solo.tournamentCtx;
+            const durationMs = Math.max(0, Date.now() - Date.parse(solo.startTime));
+            logGameEvent(`[TOURNAMENT GAME END] round ${ctx.round} ${ctx.matchId} | ` +
+                `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
+                `score: ${solo.totalRolls} rolls | outcome: abandoned (left the room)`);
+            this.host.storage.appendGameLog({
+                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
+                players: [`${solo.name}(#${memberNumber})`], outcome: "tournament-abandoned", score: solo.totalRolls,
+            });
+            this.host.reportTournamentGame(memberNumber, solo.totalRolls, durationMs);
+            return;
+        }
 
         logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | outcome: abandoned`);
         this.host.storage.appendGameLog({

@@ -7,7 +7,7 @@ import { readPendingUpdate, getSeenVersion, markVersionSeen } from "./pendingUpd
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
-    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry,
+    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry, TournamentGameContext,
 } from "./types";
 import {
     TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
@@ -267,6 +267,11 @@ export class StripDiceGame implements GameHost {
         this.seedItemStateCacheFromCharacter(character);
         if (character) this.cacheCharacterData(character);
         if (memberNumber === this.bot.getMemberNumber()) return;
+
+        // No external scheduler — the tournament advances on room activity.
+        // Someone arriving is the most common trigger, and also the moment
+        // they'd want to be told about their round.
+        this.tournament.checkSchedule();
 
         const player = this.players.get(memberNumber);
         if (player?.pendingReturn) {
@@ -598,6 +603,7 @@ export class StripDiceGame implements GameHost {
         "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn) },
         "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn) },
         "!tournament status": { handler: (mn) => this.tournament.handleStatus(mn) },
+        "!tournament play": { handler: (mn, name) => this.tournament.handlePlay(mn, name) },
         "!tournament rules": { handler: (mn) => this.tournament.handleRules(mn) },
         "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
     };
@@ -6558,6 +6564,23 @@ export class StripDiceGame implements GameHost {
         if (this.turnOrder.length === 0) return undefined;
         const memberNumber = this.turnOrder[this.currentTurnIndex];
         return this.players.get(memberNumber);
+    }
+
+    // GameHost: tournament ⇄ solo bridge. The two managers never import each
+    // other; the game owns both and passes messages between them.
+    public startTournamentGame(memberNumber: number, name: string, ctx: TournamentGameContext): string | null {
+        return this.solo.startTournamentGame(memberNumber, name, ctx);
+    }
+
+    public reportTournamentGame(memberNumber: number, score: number, durationMs: number): void {
+        this.tournament.recordGameResult(memberNumber, score, durationMs);
+        // A finished game is also an activity tick — it may be the thing that
+        // closes out a round whose deadline quietly passed.
+        this.tournament.checkSchedule();
+    }
+
+    public tournamentPunishMs(memberNumber: number): number {
+        return this.tournament.punishMsFor(memberNumber);
     }
 
     // GameHost: is this member currently in the room? Tournament messaging is

@@ -219,6 +219,9 @@ export interface SoloGameState {
     startTime: string;        // ISO timestamp when this solo game began
     awaitingRemoval: boolean; // true after losing an item, until the player confirms it's off
     inactivityTimer: NodeJS.Timeout | null; // soft nudge if the player goes quiet
+    // Set when this game counts toward a tournament match; null for a normal
+    // solo game. See TournamentGameContext for what it changes.
+    tournamentCtx: TournamentGameContext | null;
 }
 
 // One line of game_log.json (newline-delimited JSON), appended on every
@@ -297,6 +300,23 @@ export interface TournamentPlayer {
     serving: boolean;
     // Epoch ms when the current serving stretch began; null when not serving.
     servingSince: number | null;
+}
+
+// Attached to a solo game that is being played as part of a tournament match.
+// Its presence is what makes the solo flow behave differently: fixed clothing
+// count, no solo records, no attempts ladder, no end-of-game bondage, and
+// tournament-flavoured room announcements instead of the usual solo ones.
+export interface TournamentGameContext {
+    round: number;
+    matchId: string;
+    opponentName: string | null; // null on a bye (shouldn't happen — byes play no games)
+    gameNumber: number;          // 1-based: which game of the match this is
+    totalGames: number;
+    requiredClothing: number;
+    // Reserved: DW may later want bondage during tournament games as a way to
+    // add rolls. Kept as a flag so turning it on is a config change, not a
+    // rewrite of the suppression logic.
+    allowBondage: boolean;
 }
 
 // One completed tournament game. durationMs feeds the hidden time tiebreaker.

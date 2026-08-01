@@ -518,6 +518,101 @@ function testSetupInterview(): void {
     console.log("  30 assertions");
 }
 
+// ---- end-to-end through the real manager --------------------------------
+
+// Drives TournamentManager the way the bot does — setup, register, schedule
+// tick, !tournament play, score reports — so the wiring between the manager,
+// the solo bridge and the bracket logic is exercised, not just the maths.
+function testEndToEnd(): void {
+    console.log("\nEnd-to-end tournament");
+    const ADMIN = 999;
+    const { host, getSaved } = makeStubHost([ADMIN]);
+
+    // Capture what the manager asks the solo game to start, and let the test
+    // "play" it by feeding a score straight back.
+    let lastCtx: any = null;
+    let startCalls = 0;
+    host.startTournamentGame = (_mn: number, _name: string, ctx: any) => {
+        lastCtx = ctx; startCalls++; return null;
+    };
+    host.reportTournamentGame = () => { /* the test calls recordGameResult itself */ };
+
+    const manager = new TournamentManager(host);
+    manager.handleSetup(ADMIN);
+    // Registration opens now, closes immediately, round 1 starts immediately,
+    // 1-hour rounds, no grace round so punishment is exercised from round 1.
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes"]) {
+        manager.handleSetupAnswer(ADMIN, a);
+    }
+    manager.handleSetupAnswer(ADMIN, "yes");
+
+    const players = [[301, "Ana"], [302, "Bo"], [303, "Cy"], [304, "Di"]] as [number, string][];
+    for (const [mn, name] of players) manager.handleRegister(mn, name);
+    check(getSaved()!.players.length === 4, "four players registered");
+
+    // Playing before the round starts must be refused.
+    manager.handlePlay(301, "Ana");
+    check(startCalls === 0, "cannot play before Round 1 starts", `${startCalls} starts`);
+
+    // Advance past sign-up close + round 1 start.
+    const afterStart = Date.now() + 2 * 60 * 1000;
+    manager.checkSchedule(afterStart);
+    let state = getSaved()!;
+    check(state.status === "active", "tournament becomes active", state.status);
+    check(state.currentRound === 1, "round 1 started", String(state.currentRound));
+    check(state.matches.filter(m => m.round === 1).length === 2, "4 players → 2 matches",
+        String(state.matches.filter(m => m.round === 1).length));
+
+    // Someone not registered can't play.
+    manager.handlePlay(888, "Nobody");
+    check(startCalls === 0, "unregistered player cannot play");
+
+    // A registered player can, and gets the right context.
+    manager.handlePlay(301, "Ana");
+    check(startCalls === 1, "registered player starts a game");
+    check(lastCtx?.requiredClothing === 6, "clothing count comes from config", String(lastCtx?.requiredClothing));
+    check(lastCtx?.gameNumber === 1, "first game is game 1", String(lastCtx?.gameNumber));
+    check(lastCtx?.allowBondage === false, "bondage suppressed for tournament games");
+    check(lastCtx?.totalGames === 3, "three games per match", String(lastCtx?.totalGames));
+
+    // Play out round 1: player A of each match scores well, player B badly.
+    for (const match of getSaved()!.matches.filter(m => m.round === 1 && m.playerB !== null)) {
+        for (let g = 0; g < 3; g++) manager.recordGameResult(match.playerA, 30, 60_000);
+        for (let g = 0; g < 3; g++) manager.recordGameResult(match.playerB!, 10, 60_000);
+    }
+
+    state = getSaved()!;
+    const r1 = state.matches.filter(m => m.round === 1);
+    check(r1.every(m => m.result !== null), "all round 1 matches resolved once both sides finish");
+    check(r1.every(m => m.result!.winner === m.playerA), "higher scores won", "unexpected winner");
+
+    // Extra reports after a match is complete must be ignored, not appended.
+    const before = r1[0].gamesA.length;
+    manager.recordGameResult(r1[0].playerA, 99, 1000);
+    check(getSaved()!.matches.filter(m => m.round === 1)[0].gamesA.length === before,
+        "scores are ignored once the match is done");
+
+    // Losers should owe punishment (grace rounds are 0 here). Punishment is
+    // credited at round finalisation, so tick the deadline first.
+    manager.checkSchedule(afterStart + 61 * 60 * 1000);
+    state = getSaved()!;
+    const losers = r1.map(m => m.result!.loser!).filter(n => n !== null);
+    for (const mn of losers) {
+        const p = state.players.find(pp => pp.memberNumber === mn)!;
+        check(p.punishMsRemaining === 5 * 60 * 1000,
+            `loser #${mn} owes the configured first-loss time`, `${p.punishMsRemaining}ms`);
+    }
+    check(state.currentRound === 2, "round 2 started after the deadline", String(state.currentRound));
+
+    // Owing punishment blocks play.
+    startCalls = 0;
+    manager.handlePlay(losers[0], "loser");
+    check(startCalls === 0, "a player owing punishment time cannot play");
+    check(manager.punishMsFor(losers[0]) === 5 * 60 * 1000, "punishMsFor reports the debt");
+
+    console.log("  18 assertions");
+}
+
 // ---- main ----------------------------------------------------------------
 
 function main(): void {
@@ -527,6 +622,7 @@ function main(): void {
     testMatchResolution();
     testPunishment();
     testSetupInterview();
+    testEndToEnd();
 
     console.log("\nFull tournaments");
     const fieldSizes = [2, 3, 4, 5, 6, 7, 8, 11, 16, 23, 32];
