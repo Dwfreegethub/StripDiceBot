@@ -299,3 +299,6 @@ export const TOURNAMENT_DEFAULT_MIN_PLAYERS = 6;   // below this the tournament 
 export const TOURNAMENT_DEFAULT_GRACE_ROUNDS = 1;  // rounds where losing costs nothing
 // How long an admin has to answer each !tournament setup question.
 export const TOURNAMENT_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
+// How long the bot holds a tournament registration open while waiting for the
+// player to send the friend request that completes it.
+export const TOURNAMENT_FRIEND_WAIT_MS = 10 * 60 * 1000;

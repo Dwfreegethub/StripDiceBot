@@ -379,7 +379,7 @@ function testPunishment(): void {
 // Minimal stand-in for GameHost so the manager can be driven without a bot,
 // a room, or touching tournament.json. Records everything it was told to say
 // so the interview's behaviour can be asserted.
-function makeStubHost(adminNumbers: number[]) {
+function makeStubHost(adminNumbers: number[], friends: Set<number> = new Set()) {
     const said: string[] = [];
     let saved: TournamentState | null = null;
 
@@ -388,7 +388,9 @@ function makeStubHost(adminNumbers: number[]) {
             whisper: (_mn: number, text: string) => said.push(text),
             sendChat: (text: string) => said.push(`[chat] ${text}`),
             beep: (_mn: number, text: string) => said.push(`[beep] ${text}`),
-            isFriend: () => true,
+            // Empty `friends` means "friends with everyone" so existing tests
+            // keep their old behaviour; pass a set to exercise the friend gate.
+            isFriend: (mn: number) => friends.size === 0 || friends.has(mn),
             getMemberNumber: () => 1,
         },
         storage: {
@@ -426,7 +428,9 @@ function testSetupInterview(): void {
     check(!manager2.isSettingUp(1234), "non-admins cannot start setup");
 
     // Walk the interview with short, test-run style values.
-    const answers = ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "yes"];
+    // Order: reg opens, sign-up length, round 1 start, round length,
+    //        first-loss punish, elimination punish, grace rounds, withdrawals.
+    const answers = ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "0", "yes"];
     for (const answer of answers) {
         const consumed = manager.handleSetupAnswer(ADMIN, answer);
         check(consumed, `answer "${answer}" consumed`);
@@ -445,6 +449,8 @@ function testSetupInterview(): void {
     check(state?.config.eliminationPunishMs === 15 * 60 * 1000, "15-minute elimination punishment stored",
         String(state?.config.eliminationPunishMs));
     check(state?.config.allowsWithdrawal === true, "withdrawal answer stored");
+    check(state?.config.graceRounds === 0, "grace rounds configurable to zero",
+        String(state?.config.graceRounds));
     check(!manager.isSettingUp(ADMIN), "setup ends after creation");
 
     // Bad input is rejected and re-asked rather than guessed at.
@@ -473,7 +479,43 @@ function testSetupInterview(): void {
         `${getSaved()!.players.length} players`);
 
     check(manager.punishMsFor(101) === 0, "no punishment owed before playing");
-    console.log("  22 assertions");
+
+    // ---- friend-gated registration ----
+    // Registration must not complete until the mutual friend link exists,
+    // because rounds run for hours and an unreachable player misses theirs.
+    const friends = new Set<number>([ADMIN]);
+    const { host: fHost, getSaved: fSaved } = makeStubHost([ADMIN], friends);
+    const fManager = new TournamentManager(fHost);
+    fManager.handleSetup(ADMIN);
+    for (const answer of ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "1", "yes"]) {
+        fManager.handleSetupAnswer(ADMIN, answer);
+    }
+    fManager.handleSetupAnswer(ADMIN, "yes");
+
+    fManager.handleRegister(201, "Cara");
+    check(fSaved()!.players.length === 0, "registration is held until the friend link exists",
+        `${fSaved()!.players.length} players`);
+
+    // Player adds the bot; the bot adds back and the registration completes.
+    friends.add(201);
+    fManager.onFriendAdded(201, "Cara");
+    check(fSaved()!.players.length === 1, "friending completes the pending registration",
+        `${fSaved()!.players.length} players`);
+    check(fSaved()!.players[0].name === "Cara", "the pending registrant's name is kept");
+
+    // A friend event for someone who never registered must do nothing.
+    friends.add(202);
+    fManager.onFriendAdded(202, "Dana");
+    check(fSaved()!.players.length === 1, "friending alone does not register anyone",
+        `${fSaved()!.players.length} players`);
+
+    // Already-friended players skip the handshake entirely.
+    friends.add(203);
+    fManager.handleRegister(203, "Elle");
+    check(fSaved()!.players.length === 2, "already-friended players register immediately",
+        `${fSaved()!.players.length} players`);
+
+    console.log("  30 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

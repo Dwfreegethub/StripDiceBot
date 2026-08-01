@@ -587,13 +587,16 @@ export class StripDiceGame implements GameHost {
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
         "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
         // Tournament — longer forms first so "!tournament register" isn't
-        // swallowed by the bare "!tournament" status command.
+        // swallowed by the bare "!tournament" status command. All of these work
+        // from room chat as well as whisper (replies are always whispered);
+        // only `setup` is whisper-only, because its follow-up answers are
+        // free text and would be noise in chat.
         "!tournament setup": { handler: (mn) => this.tournament.handleSetup(mn), whisperOnly: true },
-        "!tournament register": { handler: (mn, name) => this.tournament.handleRegister(mn, name), whisperOnly: true },
-        "!tournament withdraw": { handler: (mn) => this.tournament.handleWithdraw(mn), whisperOnly: true },
-        "!tournament resume": { handler: (mn) => this.tournament.handleResume(mn), whisperOnly: true },
-        "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn), whisperOnly: true },
-        "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn), whisperOnly: true },
+        "!tournament register": { handler: (mn, name) => this.tournament.handleRegister(mn, name) },
+        "!tournament withdraw": { handler: (mn) => this.tournament.handleWithdraw(mn) },
+        "!tournament resume": { handler: (mn) => this.tournament.handleResume(mn) },
+        "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn) },
+        "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn) },
         "!tournament status": { handler: (mn) => this.tournament.handleStatus(mn) },
         "!tournament rules": { handler: (mn) => this.tournament.handleRules(mn) },
         "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
@@ -621,6 +624,9 @@ export class StripDiceGame implements GameHost {
                 `You're already on my friend list! If you can't see me, add me from your own ` +
                 `friend list too — BC only shows us to each other when we've both added.`
             );
+            // Already friends but possibly mid-registration (e.g. they whispered
+            // !friend twice) — let the tournament finish its handshake anyway.
+            this.tournament.onFriendAdded(memberNumber, name);
             return;
         }
 
@@ -632,6 +638,9 @@ export class StripDiceGame implements GameHost {
             `when a game is running. If you haven't added me on your side yet, do that and ` +
             `I'll appear. Whisper !unfriend any time to undo this.`
         );
+
+        // Completes a tournament registration that was waiting on this link.
+        this.tournament.onFriendAdded(memberNumber, name);
     }
 
     private handleUnfriend(memberNumber: number): void {

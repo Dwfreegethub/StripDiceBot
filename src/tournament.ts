@@ -19,7 +19,7 @@ import { formatDuration, parseDuration, parseWhen } from "./util";
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
-    TOURNAMENT_SETUP_TIMEOUT_MS,
+    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_SETUP_TIMEOUT_MS,
 } from "./constants";
 
 // One question in the admin setup interview. `apply` stores the parsed answer;
@@ -33,7 +33,7 @@ interface SetupStep {
 const SETUP_STEPS: SetupStep[] = [
     {
         key: "registrationOpensAt",
-        prompt: "1/7 — When does registration open?\nAnswer with `now`, a delay like `3 days`, or a date like `2026-08-10`.",
+        prompt: "1/8 — When does registration open?\nAnswer with `now`, a delay like `3 days`, or a date like `2026-08-10`.",
         apply: (draft, answer, now) => {
             const when = parseWhen(answer, now);
             if (when === null) return "I couldn't read that as a time.";
@@ -43,7 +43,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "signUpLength",
-        prompt: "2/7 — How long is the sign-up window?\ne.g. `1 week`, `2 days`, `2 hours` (short values are fine for a test run).",
+        prompt: "2/8 — How long is the sign-up window?\ne.g. `1 week`, `2 days`, `2 hours` (short values are fine for a test run).",
         apply: (draft, answer, _now) => {
             const length = parseDuration(answer);
             if (length === null) return "I couldn't read that as a length of time.";
@@ -54,7 +54,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "firstRoundStart",
-        prompt: "3/7 — When does Round 1 begin?\n`now`, a delay like `1 hour`, or a date. It can't be before sign-ups close.",
+        prompt: "3/8 — When does Round 1 begin?\n`now`, a delay like `1 hour`, or a date. It can't be before sign-ups close.",
         apply: (draft, answer, now) => {
             const when = parseWhen(answer, now);
             if (when === null) return "I couldn't read that as a time.";
@@ -68,7 +68,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "roundLength",
-        prompt: "4/7 — How long is each round?\ne.g. `48 hours`, `3 days`, or `1 hour` for testing.",
+        prompt: "4/8 — How long is each round?\ne.g. `48 hours`, `3 days`, or `1 hour` for testing.",
         apply: (draft, answer) => {
             const length = parseDuration(answer);
             if (length === null) return "I couldn't read that as a length of time.";
@@ -78,7 +78,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "firstLossPunish",
-        prompt: "5/7 — How long bound and claimable for a FIRST loss?\ne.g. `15 minutes`, or `0` for none.",
+        prompt: "5/8 — How long bound and claimable for a FIRST loss?\ne.g. `15 minutes`, or `0` for none.",
         apply: (draft, answer) => {
             if (answer.trim() === "0" || answer.trim().toLowerCase() === "none") {
                 draft.firstLossPunishMs = 0;
@@ -92,7 +92,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "eliminationPunish",
-        prompt: "6/7 — How long bound and claimable when ELIMINATED (2nd loss)?\ne.g. `1 hour`, or `0` for none.",
+        prompt: "6/8 — How long bound and claimable when ELIMINATED (2nd loss)?\ne.g. `1 hour`, or `0` for none.",
         apply: (draft, answer) => {
             if (answer.trim() === "0" || answer.trim().toLowerCase() === "none") {
                 draft.eliminationPunishMs = 0;
@@ -105,8 +105,19 @@ const SETUP_STEPS: SetupStep[] = [
         },
     },
     {
+        key: "graceRounds",
+        prompt: "7/8 — How many opening rounds are grace rounds (losing costs nothing)?\n" +
+            "`1` is the usual answer. `0` means punishment applies from Round 1.",
+        apply: (draft, answer) => {
+            const n = parseInt(answer.trim(), 10);
+            if (isNaN(n) || n < 0) return "Please answer with a whole number (0 or more).";
+            draft.graceRounds = n;
+            return null;
+        },
+    },
+    {
         key: "allowsWithdrawal",
-        prompt: "7/7 — Can players withdraw between rounds? (yes / no)",
+        prompt: "8/8 — Can players withdraw between rounds? (yes / no)",
         apply: (draft, answer) => {
             const a = answer.trim().toLowerCase();
             if (a === "yes" || a === "y") { draft.allowsWithdrawal = true; return null; }
@@ -118,6 +129,12 @@ const SETUP_STEPS: SetupStep[] = [
 
 export class TournamentManager {
     private state: TournamentState | null = null;
+
+    // Players who ran !tournament register but aren't mutually friended yet.
+    // Registration finishes the moment the friend link completes (see
+    // onFriendAdded). In-memory only: if the bot restarts mid-handshake they
+    // simply run !tournament register again.
+    private pendingFriendRegistration: Map<number, { name: string; timeout: NodeJS.Timeout }> = new Map();
 
     // Admin partway through !tournament setup. Only one at a time.
     private setup: {
@@ -282,11 +299,11 @@ export class TournamentManager {
             `Round length: ${formatDuration(draft.roundLengthMs ?? 0)}\n` +
             `First loss: ${punish(draft.firstLossPunishMs)} bound & claimable\n` +
             `Elimination: ${punish(draft.eliminationPunishMs)} bound & claimable\n` +
+            `Grace rounds: ${draft.graceRounds === 0 ? "none — punishment from Round 1" : `${draft.graceRounds} (no punishment)`}\n` +
             `Withdrawals: ${draft.allowsWithdrawal ? "allowed between rounds" : "not allowed"}\n` +
             `Format: best of ${TOURNAMENT_DEFAULT_GAMES_PER_MATCH} Survive games, ` +
-            `${TOURNAMENT_DEFAULT_CLOTHING} clothing items, ` +
-            `${TOURNAMENT_DEFAULT_GRACE_ROUNDS} grace round(s), ` +
-            `minimum ${TOURNAMENT_DEFAULT_MIN_PLAYERS} players`;
+            `${TOURNAMENT_DEFAULT_CLOTHING} clothing items\n` +
+            `Target field: ${TOURNAMENT_DEFAULT_MIN_PLAYERS} players (advisory — a smaller field still runs)`;
     }
 
     private createFromDraft(adminMemberNumber: number): void {
@@ -302,8 +319,10 @@ export class TournamentManager {
             roundLengthMs: draft.roundLengthMs!,
             gamesPerMatch: TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
             clothingCount: TOURNAMENT_DEFAULT_CLOTHING,
+            // Advisory only: below this the bot warns but still runs, so a
+            // two-player rehearsal works without special-casing anything.
             minPlayers: TOURNAMENT_DEFAULT_MIN_PLAYERS,
-            graceRounds: TOURNAMENT_DEFAULT_GRACE_ROUNDS,
+            graceRounds: draft.graceRounds!,
             firstLossPunishMs: draft.firstLossPunishMs!,
             eliminationPunishMs: draft.eliminationPunishMs!,
             allowsWithdrawal: draft.allowsWithdrawal!,
@@ -377,6 +396,61 @@ export class TournamentManager {
             return;
         }
 
+        // Friending is required, not just encouraged: rounds run for hours or
+        // days and a player who can't be beeped will simply miss theirs. BC's
+        // friend list is mutual, so the bot cannot do this unilaterally — the
+        // player adds the bot, BC sends a hidden ChatRoomFriendRequestAdd,
+        // the bot adds back, and onFriendAdded() finishes the registration.
+        if (!this.host.bot.isFriend(memberNumber)) {
+            const existing = this.pendingFriendRegistration.get(memberNumber);
+            if (existing) clearTimeout(existing.timeout);
+
+            const timeout = setTimeout(() => {
+                this.pendingFriendRegistration.delete(memberNumber);
+                this.host.bot.whisper(memberNumber,
+                    "Your tournament registration timed out waiting for the friend request. " +
+                    "Whisper !tournament register again whenever you're ready.");
+            }, TOURNAMENT_FRIEND_WAIT_MS);
+
+            this.pendingFriendRegistration.set(memberNumber, { name, timeout });
+            this.host.sendLongWhisper(memberNumber,
+                "🏆 Almost there — one step first.\n" +
+                "Tournament rounds run over hours or days, so I need to be able to reach you when " +
+                "your round starts. That needs us to be friends in BC (it only works both ways).\n\n" +
+                "Add me from your friend list now — I'll add you back automatically and finish your " +
+                "registration straight away. If your client doesn't send it, whisper !friend instead.\n" +
+                `I'll wait ${formatDuration(TOURNAMENT_FRIEND_WAIT_MS)}.`);
+            return;
+        }
+
+        this.completeRegistration(memberNumber, name);
+    }
+
+    // Called by game.ts when a friend link completes (either the player added
+    // the bot and it added back, or they used !friend). Finishes any
+    // registration that was waiting on it.
+    public onFriendAdded(memberNumber: number, name: string): void {
+        const pending = this.pendingFriendRegistration.get(memberNumber);
+        if (!pending) return;
+        clearTimeout(pending.timeout);
+        this.pendingFriendRegistration.delete(memberNumber);
+
+        if (!this.state || this.state.status !== "registration") {
+            this.host.bot.whisper(memberNumber,
+                "Thanks for the friend request! Registration has closed since you started, so I couldn't sign you up.");
+            return;
+        }
+        if (findPlayer(this.state, memberNumber)) return;
+
+        this.host.bot.whisper(memberNumber, "✅ Friends — finishing your tournament registration now.");
+        this.completeRegistration(memberNumber, pending.name || name);
+    }
+
+    private completeRegistration(memberNumber: number, name: string): void {
+        if (!this.state) return;
+        const closes = Date.parse(this.state.config.signUpDeadline);
+        const now = Date.now();
+
         this.state.players.push({
             memberNumber,
             name,
@@ -390,19 +464,12 @@ export class TournamentManager {
         this.save();
         logGameEvent(`[TOURNAMENT] ${name} (#${memberNumber}) registered (${this.state.players.length} total)`);
 
-        // Friending is mutual in BC and is what makes beeps possible. Without
-        // it a player can still play — they just have to check !tournament
-        // themselves rather than being told when something happens.
-        const friendNote = this.host.bot.isFriend(memberNumber)
-            ? "We're already friends, so I can beep you when rounds start. 👍"
-            : "⚠️ Add me as a friend (and whisper !friend so I add you back) — otherwise I can't beep you " +
-              "when your round starts. You can still play without it, just check !tournament yourself.";
-
         this.host.sendLongWhisper(memberNumber,
             `🏆 You're registered for the tournament! (${this.state.players.length} signed up)\n` +
             `Sign-ups close in ${formatDuration(Math.max(0, closes - now))}, and Round 1 begins ` +
             `${new Date(this.state.config.firstRoundStart).toUTCString()}.\n` +
-            `${friendNote}\n` +
+            `We're friends, so I'll beep you when your round starts — though beeps only reach you if ` +
+            `you're online, so check !tournament if you've been away.\n` +
             `Whisper !tournament rules for the full format, or !tournament any time for status.`);
 
         this.host.bot.sendChat(`🏆 ${name} has registered for the tournament! (${this.state.players.length} signed up)`);
