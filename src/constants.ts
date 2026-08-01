@@ -302,3 +302,11 @@ export const TOURNAMENT_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
 // How long the bot holds a tournament registration open while waiting for the
 // player to send the friend request that completes it.
 export const TOURNAMENT_FRIEND_WAIT_MS = 10 * 60 * 1000;
+// How long a tournament game is held open when its player leaves the room
+// mid-game. Return inside this window and the game resumes exactly where it
+// was; miss it and the game is discarded entirely (no score recorded) and
+// must be replayed from the start. Sized to cover an ordinary BC reconnect.
+export const TOURNAMENT_RESUME_GRACE_MS = 10 * 60 * 1000;
+// How long the "ready to serve your punishment?" prompt stays open when a
+// player who owes time enters the room.
+export const TOURNAMENT_SERVE_PROMPT_MS = 2 * 60 * 1000;

@@ -14741,6 +14741,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "189708": {
+    "memberNumber": 189708,
+    "name": "Doll",
+    "firstSeen": "2026-07-31T22:15:10.352-05:00",
+    "lastSeen": "2026-07-31T22:15:10.352-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "189715": {
     "memberNumber": 189715,
     "name": "Bianca",
@@ -25370,7 +25380,7 @@
     "memberNumber": 248972,
     "name": "Dog for play",
     "firstSeen": "2026-07-23T01:01:10.810-05:00",
-    "lastSeen": "2026-07-25T10:46:59.390-05:00",
+    "lastSeen": "2026-07-31T22:14:11.115-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,

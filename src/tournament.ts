@@ -20,7 +20,7 @@ import { formatDuration, parseDuration, parseWhen } from "./util";
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
-    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_SETUP_TIMEOUT_MS,
+    TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_SERVE_PROMPT_MS, TOURNAMENT_SETUP_TIMEOUT_MS,
 } from "./constants";
 
 // One question in the admin setup interview. `apply` stores the parsed answer;
@@ -136,6 +136,9 @@ export class TournamentManager {
     // onFriendAdded). In-memory only: if the bot restarts mid-handshake they
     // simply run !tournament register again.
     private pendingFriendRegistration: Map<number, { name: string; timeout: NodeJS.Timeout }> = new Map();
+
+    // Players asked "ready to serve?" on entering the room, awaiting a yes/no.
+    private pendingServePrompt: Map<number, NodeJS.Timeout> = new Map();
 
     // Admin partway through !tournament setup. Only one at a time.
     private setup: {
@@ -529,6 +532,10 @@ export class TournamentManager {
     // shows up, which is fine — nobody is waiting on them in an empty room.
     public checkSchedule(now: number = Date.now()): void {
         if (!this.state) return;
+        // Sentences complete on their own schedule, independent of whether the
+        // tournament itself is paused — nobody stays bound because an admin
+        // froze the bracket.
+        this.checkServingCompletions(now);
         if (this.state.status === "paused" || this.state.status === "frozen") return;
 
         if (this.state.status === "registration") {
@@ -910,6 +917,212 @@ export class TournamentManager {
             this.host.bot.sendChat(`🏆 ${this.nameOf(mn)} has been eliminated from the tournament.`);
             this.notify(mn, "You've been eliminated from the tournament (2 losses). Thanks for playing!");
         }
+    }
+
+    // ---- serving punishment ---------------------------------------------------
+
+    // Called when a member enters the room. Two different things happen
+    // depending on whether they were already mid-serve:
+    //  - already serving (they're still bound): the clock just resumes, no
+    //    questions — they never stopped serving, they only stepped out.
+    //  - owing time but not bound: ASK first. Nobody gets tied up for walking
+    //    into a room.
+    public onEnterRoom(memberNumber: number): void {
+        if (!this.state) return;
+        const player = findPlayer(this.state, memberNumber);
+        if (!player || player.punishMsRemaining <= 0) return;
+
+        if (player.serving) {
+            player.servingSince = Date.now();
+            this.save();
+            this.host.bot.whisper(memberNumber,
+                `⛓️ Welcome back — your punishment clock is running again. ` +
+                `${formatDuration(punishRemaining(player, Date.now()))} left.`);
+            return;
+        }
+
+        this.promptToServe(memberNumber, player);
+    }
+
+    private promptToServe(memberNumber: number, player: TournamentPlayer): void {
+        const existing = this.pendingServePrompt.get(memberNumber);
+        if (existing) clearTimeout(existing);
+
+        const timeout = setTimeout(() => {
+            this.pendingServePrompt.delete(memberNumber);
+        }, TOURNAMENT_SERVE_PROMPT_MS);
+        this.pendingServePrompt.set(memberNumber, timeout);
+
+        this.host.sendLongWhisper(memberNumber,
+            `⛓️ You still owe ${formatDuration(player.punishMsRemaining)} bound and claimable ` +
+            `from the tournament, and you can't play your next match until it's served.\n` +
+            `Ready to start now? Reply **yes**, or whisper !tournament serve whenever you are. ` +
+            `You can stop any time with !tournament stop and finish the rest later.`);
+    }
+
+    // Consumes a plain yes/no answering the serve prompt. Returns true if it
+    // was consumed.
+    public tryHandleServePrompt(memberNumber: number, msg: string): boolean {
+        const pending = this.pendingServePrompt.get(memberNumber);
+        if (!pending) return false;
+        if (msg !== "yes" && msg !== "y" && msg !== "no" && msg !== "n") return false;
+
+        clearTimeout(pending);
+        this.pendingServePrompt.delete(memberNumber);
+
+        if (msg === "no" || msg === "n") {
+            this.host.bot.whisper(memberNumber,
+                "No problem — whisper !tournament serve when you're ready. Your time stays owed until then.");
+            return true;
+        }
+        this.handleServe(memberNumber);
+        return true;
+    }
+
+    public handleServe(memberNumber: number): void {
+        if (!this.state) {
+            this.host.bot.whisper(memberNumber, "There's no tournament running.");
+            return;
+        }
+        const player = findPlayer(this.state, memberNumber);
+        if (!player) {
+            this.host.bot.whisper(memberNumber, "You're not in this tournament.");
+            return;
+        }
+
+        const owed = punishRemaining(player, Date.now());
+        if (owed <= 0) {
+            this.host.bot.whisper(memberNumber, "You don't owe any punishment time — nothing to serve.");
+            return;
+        }
+        if (player.serving) {
+            this.host.bot.whisper(memberNumber,
+                `You're already serving — ${formatDuration(owed)} left. Whisper !tournament stop to pause.`);
+            return;
+        }
+
+        const prompt = this.pendingServePrompt.get(memberNumber);
+        if (prompt) { clearTimeout(prompt); this.pendingServePrompt.delete(memberNumber); }
+
+        if (!this.host.isInRoom(memberNumber)) {
+            this.host.bot.whisper(memberNumber, "You need to be in the room to serve your time.");
+            return;
+        }
+
+        player.serving = true;
+        player.servingSince = Date.now();
+        this.save();
+
+        logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) began serving ${formatDuration(owed)}`);
+        this.applyPunishmentBondage(memberNumber, player, owed);
+
+        this.host.bot.sendChat(
+            `⛓️ ${player.name} is serving tournament punishment — bound and claimable for ` +
+            `${formatDuration(owed)}. Tournament players can whisper !claim to claim them.`);
+        this.host.sendLongWhisper(memberNumber,
+            `⛓️ Serving now — ${formatDuration(owed)} to go. The clock only runs while you're here and bound. ` +
+            `Whisper !tournament stop to pause and keep the remainder for later.`);
+    }
+
+    public handleStop(memberNumber: number): void {
+        if (!this.state) {
+            this.host.bot.whisper(memberNumber, "There's no tournament running.");
+            return;
+        }
+        const player = findPlayer(this.state, memberNumber);
+        if (!player || !player.serving) {
+            this.host.bot.whisper(memberNumber, "You're not serving right now.");
+            return;
+        }
+
+        this.bankServedTime(player);
+        this.save();
+
+        const left = player.punishMsRemaining;
+        logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) stopped serving, ${formatDuration(left)} remaining`);
+        this.releasePunishmentBondage(memberNumber);
+
+        if (left <= 0) {
+            this.host.bot.sendChat(`⛓️ ${player.name} has served their tournament punishment in full and is free.`);
+            this.host.bot.whisper(memberNumber, "✅ That's all of it — you're free, and clear to play your next match.");
+        } else {
+            this.host.bot.sendChat(`⛓️ ${player.name} has paused their punishment — ${formatDuration(left)} still owed.`);
+            this.host.bot.whisper(memberNumber,
+                `Paused with ${formatDuration(left)} left. Whisper !tournament serve to pick it up again — ` +
+                `you can't play your next match until it's done.`);
+        }
+    }
+
+    // Moves elapsed served time out of the running clock and into the balance.
+    // Kept separate so leaving the room, stopping, and finishing all use one
+    // path and can't drift apart.
+    private bankServedTime(player: TournamentPlayer): void {
+        const remaining = punishRemaining(player, Date.now());
+        player.punishMsRemaining = Math.max(0, remaining);
+        player.serving = false;
+        player.servingSince = null;
+    }
+
+    // Called when a member leaves the room. Leaving auto-pauses the clock —
+    // punishment only counts while they're actually present to be claimed.
+    public onLeaveRoom(memberNumber: number): void {
+        if (!this.state) return;
+        const player = findPlayer(this.state, memberNumber);
+        if (!player || !player.serving) return;
+
+        this.bankServedTime(player);
+        this.save();
+        logGameEvent(`[TOURNAMENT] ${player.name} (#${memberNumber}) left mid-serve, ` +
+            `${formatDuration(player.punishMsRemaining)} banked`);
+
+        if (player.punishMsRemaining <= 0) {
+            this.host.bot.sendChat(`⛓️ ${player.name} finished their tournament punishment.`);
+        }
+    }
+
+    // Checks every serving player for a completed sentence. Called on the same
+    // activity ticks as checkSchedule, since there's no timer loop.
+    private checkServingCompletions(now: number): void {
+        if (!this.state) return;
+        for (const player of this.state.players) {
+            if (!player.serving) continue;
+            if (punishRemaining(player, now) > 0) continue;
+
+            this.bankServedTime(player);
+            this.releasePunishmentBondage(player.memberNumber);
+            logGameEvent(`[TOURNAMENT] ${player.name} (#${player.memberNumber}) completed their punishment`);
+            this.host.bot.sendChat(`⛓️ ${player.name} has served their tournament punishment in full and is free.`);
+            this.notify(player.memberNumber, "✅ Punishment served — you're free, and clear to play your next match.");
+        }
+        this.save();
+    }
+
+    // Binds the player for their punishment. The exact look is still being
+    // decided (see design_tournament.md) — for now this reuses the solo themed
+    // bondage machinery via the host so the mechanic is real and testable, and
+    // swapping in a dedicated tournament outfit later means changing only this
+    // method and its release counterpart.
+    private applyPunishmentBondage(memberNumber: number, player: TournamentPlayer, durationMs: number): void {
+        this.host.applyTournamentPunishment(memberNumber, durationMs);
+    }
+
+    private releasePunishmentBondage(memberNumber: number): void {
+        this.host.releaseTournamentPunishment(memberNumber);
+    }
+
+    // True if this member may claim tournament prisoners. DW's call: only
+    // other players in the tournament, not the whole room — it keeps the
+    // stakes inside the competition.
+    public canClaim(memberNumber: number): boolean {
+        if (!this.state) return false;
+        const player = findPlayer(this.state, memberNumber);
+        return !!player && !player.withdrew;
+    }
+
+    // Everyone currently serving, for the claim list.
+    public servingPlayers(): TournamentPlayer[] {
+        if (!this.state) return [];
+        return this.state.players.filter(p => p.serving);
     }
 
     // ---- status / standings --------------------------------------------------

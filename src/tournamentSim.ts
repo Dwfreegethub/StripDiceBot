@@ -610,7 +610,48 @@ function testEndToEnd(): void {
     check(startCalls === 0, "a player owing punishment time cannot play");
     check(manager.punishMsFor(losers[0]) === 5 * 60 * 1000, "punishMsFor reports the debt");
 
-    console.log("  18 assertions");
+    // ---- serving the punishment ----
+    const convict = losers[0];
+    let bound = 0, released = 0;
+    host.applyTournamentPunishment = () => { bound++; };
+    host.releaseTournamentPunishment = () => { released++; };
+
+    // Entering the room must ASK, never bind unasked.
+    manager.onEnterRoom(convict);
+    check(bound === 0, "entering the room does not bind anyone automatically", `${bound} binds`);
+
+    // Declining leaves the debt intact.
+    manager.tryHandleServePrompt(convict, "no");
+    check(bound === 0, "declining the prompt doesn't bind");
+    check(manager.punishMsFor(convict) === 5 * 60 * 1000, "declining keeps the full debt");
+
+    // Accepting binds and starts the clock.
+    manager.onEnterRoom(convict);
+    const accepted = manager.tryHandleServePrompt(convict, "yes");
+    check(accepted, "yes is consumed by the serve prompt");
+    check(bound === 1, "accepting binds the player", `${bound} binds`);
+    check(getSaved()!.players.find(p => p.memberNumber === convict)!.serving === true, "player is marked serving");
+
+    // Stopping banks the remainder and releases.
+    manager.handleStop(convict);
+    const afterStop = getSaved()!.players.find(p => p.memberNumber === convict)!;
+    check(afterStop.serving === false, "stopping clears the serving flag");
+    check(released === 1, "stopping releases the bondage", `${released} releases`);
+    check(afterStop.punishMsRemaining > 0 && afterStop.punishMsRemaining <= 5 * 60 * 1000,
+        "stopping banks the remaining time", `${afterStop.punishMsRemaining}ms`);
+
+    // Leaving mid-serve auto-pauses rather than letting the clock run on.
+    manager.handleServe(convict);
+    check(getSaved()!.players.find(p => p.memberNumber === convict)!.serving === true, "serve resumes after a stop");
+    manager.onLeaveRoom(convict);
+    check(getSaved()!.players.find(p => p.memberNumber === convict)!.serving === false,
+        "leaving the room pauses the sentence");
+
+    // Only tournament players may claim.
+    check(manager.canClaim(302) === true, "a tournament player can claim");
+    check(manager.canClaim(888) === false, "someone outside the tournament cannot claim");
+
+    console.log("  31 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

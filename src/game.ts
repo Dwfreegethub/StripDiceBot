@@ -272,6 +272,12 @@ export class StripDiceGame implements GameHost {
         // Someone arriving is the most common trigger, and also the moment
         // they'd want to be told about their round.
         this.tournament.checkSchedule();
+        // A tournament game they walked out of mid-play is held for a grace
+        // window; getting back in time picks it up exactly where it was.
+        this.solo.resumeParkedGame(memberNumber);
+        // Owed punishment: resumes the clock if they're still bound, otherwise
+        // asks whether they're ready to start (never binds unasked).
+        this.tournament.onEnterRoom(memberNumber);
 
         const player = this.players.get(memberNumber);
         if (player?.pendingReturn) {
@@ -294,6 +300,9 @@ export class StripDiceGame implements GameHost {
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
+        // Punishment only counts while they're here to be claimed — leaving
+        // banks whatever they've served so far.
+        this.tournament.onLeaveRoom(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
 
         // If the team game host leaves during setup (before joining a team), auto-cancel.
@@ -604,6 +613,8 @@ export class StripDiceGame implements GameHost {
         "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn) },
         "!tournament status": { handler: (mn) => this.tournament.handleStatus(mn) },
         "!tournament play": { handler: (mn, name) => this.tournament.handlePlay(mn, name) },
+        "!tournament serve": { handler: (mn) => this.tournament.handleServe(mn) },
+        "!tournament stop": { handler: (mn) => this.tournament.handleStop(mn) },
         "!tournament rules": { handler: (mn) => this.tournament.handleRules(mn) },
         "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
     };
@@ -724,6 +735,9 @@ export class StripDiceGame implements GameHost {
         if (this.tournament.isSettingUp(memberNumber) && !msg.startsWith("!")) {
             if (this.tournament.handleSetupAnswer(memberNumber, message)) return;
         }
+
+        // "Ready to serve your punishment?" yes/no, asked on entering the room.
+        if (this.tournament.tryHandleServePrompt(memberNumber, msg)) return;
 
         // Winner's 69 bonus assignment phase (before the lock-time vote) —
         // winner whispers a player name to give them 5 min, or "skip".
@@ -6581,6 +6595,20 @@ export class StripDiceGame implements GameHost {
 
     public tournamentPunishMs(memberNumber: number): number {
         return this.tournament.punishMsFor(memberNumber);
+    }
+
+    // GameHost: bind a player for tournament punishment. The final look is
+    // still undecided (design_tournament.md), so this reuses the solo themed
+    // bondage sets for now — one random theme, locked for the sentence. When
+    // a dedicated tournament outfit exists, only this method changes.
+    public applyTournamentPunishment(memberNumber: number, durationMs: number): void {
+        const minutes = Math.max(1, Math.ceil(durationMs / 60000));
+        this.solo.applyTournamentBondage(memberNumber, minutes);
+    }
+
+    // GameHost: free a player from tournament punishment.
+    public releaseTournamentPunishment(memberNumber: number): void {
+        this.removeAllItems(memberNumber);
     }
 
     // GameHost: is this member currently in the room? Tournament messaging is

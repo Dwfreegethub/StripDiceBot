@@ -12,7 +12,9 @@ import {
     REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS,
     SOLO_BASE_PENALTY_MINUTES, SOLO_BONDAGE_DELAY_MS, SOLO_BRACKET_MAX, SOLO_BRACKET_MIN,
     SOLO_DEFAULT_TARGET, SOLO_DICE_MAX, SOLO_INACTIVITY_TIMEOUT_MS, SOLO_REMOVAL_REMINDER_MS,
+    TOURNAMENT_RESUME_GRACE_MS,
 } from "./constants";
+import { formatDuration } from "./util";
 
 // ============================================================
 // SOLO THEMED BONDAGE - path-based bondage applied after a solo
@@ -135,6 +137,9 @@ export class SoloGameManager {
     private pendingSoloPrizeDescription: Map<number, string> = new Map(); // memberNumber → name
     // Players who were offered a themed bondage path after losing and haven't replied yet.
     private pendingThemeOffer: Map<number, { theme: SoloTheme; penaltyMinutes: number; timer: ReturnType<typeof setTimeout> }> = new Map();
+    // Tournament games whose player left the room mid-game. Held (not scored,
+    // not discarded) until they return or the grace window expires.
+    private parkedTournamentGames: Map<number, { solo: SoloGameState; ctx: TournamentGameContext; timer: NodeJS.Timeout }> = new Map();
 
     constructor(private readonly host: GameHost) {}
 
@@ -563,6 +568,79 @@ export class SoloGameManager {
         this.host.storage.saveSoloRecords(records);
     }
 
+    // Applies a random themed bondage set, locked for `minutes`, as tournament
+    // punishment. Exposed so the tournament manager can reuse the machinery
+    // without owning any bondage code. Deliberately reuses the solo themes
+    // until a dedicated tournament look is decided — swap the theme choice
+    // here and nothing else changes.
+    public applyTournamentBondage(memberNumber: number, minutes: number): void {
+        const theme = SOLO_THEMES[Math.floor(Math.random() * SOLO_THEMES.length)];
+        log(`Tournament punishment for #${memberNumber}: ${theme.name}, ${minutes} min`);
+        this.applyThemePenalty(memberNumber, theme, minutes);
+    }
+
+    // ---- parked tournament games (left the room mid-game) ------------------
+
+    // Holds an in-progress tournament game while its player is out of the
+    // room. Nothing is scored yet — that only happens if they come back.
+    private parkTournamentGame(memberNumber: number, solo: SoloGameState, ctx: TournamentGameContext): void {
+        const existing = this.parkedTournamentGames.get(memberNumber);
+        if (existing) clearTimeout(existing.timer);
+
+        const timer = setTimeout(() => {
+            this.parkedTournamentGames.delete(memberNumber);
+            logGameEvent(`[TOURNAMENT GAME VOID] round ${ctx.round} ${ctx.matchId} | ` +
+                `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
+                `did not return within ${formatDuration(TOURNAMENT_RESUME_GRACE_MS)} — game discarded, no score`);
+            this.host.storage.appendGameLog({
+                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
+                players: [`${solo.name}(#${memberNumber})`], outcome: "tournament-void",
+            });
+            // Best-effort heads-up; they're out of the room by definition.
+            if (this.host.bot.isFriend(memberNumber)) {
+                this.host.bot.beep(memberNumber,
+                    `Your tournament game was cancelled — you didn't get back in time. Whisper !tournament play to start it again.`);
+            }
+        }, TOURNAMENT_RESUME_GRACE_MS);
+
+        this.parkedTournamentGames.set(memberNumber, { solo, ctx, timer });
+        logGameEvent(`[TOURNAMENT GAME PARKED] round ${ctx.round} ${ctx.matchId} | ` +
+            `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
+            `${solo.totalRolls} rolls so far | ${formatDuration(TOURNAMENT_RESUME_GRACE_MS)} to return`);
+    }
+
+    // Called when a member enters the room. Restores a parked tournament game
+    // if they made it back in time. Returns true if one was resumed.
+    public resumeParkedGame(memberNumber: number): boolean {
+        const parked = this.parkedTournamentGames.get(memberNumber);
+        if (!parked) return false;
+
+        clearTimeout(parked.timer);
+        this.parkedTournamentGames.delete(memberNumber);
+
+        const { solo, ctx } = parked;
+        this.soloGames.set(memberNumber, solo);
+        this.host.saveBotState();
+
+        logGameEvent(`[TOURNAMENT GAME RESUMED] round ${ctx.round} ${ctx.matchId} | ` +
+            `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
+            `${solo.totalRolls} rolls so far`);
+
+        const next = solo.awaitingRemoval
+            ? `You still need to remove your ${solo.clothingLost[solo.clothingLost.length - 1]} — then !roll.`
+            : `You're at ${solo.currentMax} — !roll when ready.`;
+        this.host.sendLongWhisper(memberNumber,
+            `🏆 Welcome back — your tournament game is still going (Round ${ctx.round}, ` +
+            `game ${ctx.gameNumber} of ${ctx.totalGames}, ${solo.totalRolls} rolls so far).\n${next}`);
+        this.startInactivityTimer(memberNumber);
+        return true;
+    }
+
+    // True if this member has a tournament game waiting for them to return.
+    public hasParkedGame(memberNumber: number): boolean {
+        return this.parkedTournamentGames.has(memberNumber);
+    }
+
     // Ends a tournament game: report the score and get out of the way. No
     // records, no attempts, no bondage — a match is three of these back to
     // back, so applying the usual solo penalty after each would leave a player
@@ -797,21 +875,14 @@ export class SoloGameManager {
         this.soloGames.delete(memberNumber);
         this.host.saveBotState();
 
-        // A tournament game that's walked away from still counts, at whatever
-        // score it had reached. Discarding it instead would let a player bail
-        // out of a bad run and replay it — undetectable, and fatal to a
-        // competition. No bondage either way; the match result is the stake.
+        // A tournament game isn't scored or thrown away the instant someone
+        // drops out of the room — BC disconnects are ordinary. The game is
+        // parked: come back inside the grace window and it resumes exactly
+        // where it was; miss the window and it's discarded with no score, and
+        // has to be replayed from scratch. That keeps a disconnect from being
+        // punished while still costing a rage-quitter their whole run.
         if (solo.tournamentCtx) {
-            const ctx = solo.tournamentCtx;
-            const durationMs = Math.max(0, Date.now() - Date.parse(solo.startTime));
-            logGameEvent(`[TOURNAMENT GAME END] round ${ctx.round} ${ctx.matchId} | ` +
-                `game ${ctx.gameNumber}/${ctx.totalGames} | player: ${solo.name} (#${memberNumber}) | ` +
-                `score: ${solo.totalRolls} rolls | outcome: abandoned (left the room)`);
-            this.host.storage.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
-                players: [`${solo.name}(#${memberNumber})`], outcome: "tournament-abandoned", score: solo.totalRolls,
-            });
-            this.host.reportTournamentGame(memberNumber, solo.totalRolls, durationMs);
+            this.parkTournamentGame(memberNumber, solo, solo.tournamentCtx);
             return;
         }
 

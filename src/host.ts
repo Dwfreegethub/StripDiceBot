@@ -77,6 +77,14 @@ export interface GameHost {
     // Punishment time this member still owes, in ms. Used to gate BD play.
     tournamentPunishMs(memberNumber: number): number;
 
+    // Binds a player for tournament punishment, locked for `durationMs`, and
+    // makes them claimable. The look is not final — see design_tournament.md;
+    // it currently reuses the themed bondage sets.
+    applyTournamentPunishment(memberNumber: number, durationMs: number): void;
+    // Frees a player from tournament punishment early (served in full, or
+    // paused via !tournament stop).
+    releaseTournamentPunishment(memberNumber: number): void;
+
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;
     getEligibleOutfits(memberNumber: number): BondageOutfit[];
