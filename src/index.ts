@@ -1,9 +1,8 @@
-import * as fs from "fs";
-import * as path from "path";
 import { BCConnection } from "./connection";
 import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 import { decodeMessage } from "./decodeMessage";
+import { readPendingUpdate, getSeenVersion, markVersionSeen, PendingUpdate } from "./pendingUpdate";
 
 process.on("uncaughtException", (err: Error) => {
     logError(`Uncaught exception: ${err.stack || err.message || err}`);
@@ -17,16 +16,15 @@ process.on("unhandledRejection", (reason: any) => {
 });
 
 async function main() {
-    const pendingUpdatePath = path.join(__dirname, "..", "pending_update.txt");
-    let updateNote: string | null = null;
-    if (fs.existsSync(pendingUpdatePath)) {
-        try {
-            updateNote = fs.readFileSync(pendingUpdatePath, "utf8").trim();
-        } catch {
-            updateNote = "";
-        }
-        fs.unlinkSync(pendingUpdatePath);
-        log(`Removed pending_update.txt from previous restart (note: "${updateNote}").`);
+    // Only set when this restart carries an update the bot hasn't shipped
+    // before. It drives both the (deliberately short) room announcement and
+    // the changelog entry that !changelog reads back later.
+    let newUpdate: PendingUpdate | null = null;
+    const startupUpdate = readPendingUpdate();
+    if (startupUpdate && startupUpdate.version !== getSeenVersion()) {
+        newUpdate = startupUpdate;
+        markVersionSeen(startupUpdate.version);
+        log(`Picked up pending update (version ${startupUpdate.version}${startupUpdate.headline ? `: ${startupUpdate.headline}` : ""}).`);
     }
     let restartAnnounced = false;
 
@@ -34,6 +32,15 @@ async function main() {
 
     const bot = new BCConnection();
     const game = new StripDiceGame(bot);
+
+    if (newUpdate) {
+        game.recordUpdate({
+            version: newUpdate.version,
+            headline: newUpdate.headline,
+            detail: newUpdate.detail,
+            major: newUpdate.major,
+        });
+    }
 
     // Strip OOC wrappers: (!roll) or [!roll] -> !roll. Applied repeatedly so
     // doubled/tripled wrapping like "((yes))" or "(((yes)))" -> "yes" too,
@@ -94,6 +101,15 @@ async function main() {
             }
         }
 
+        // BC has no friend-request event. Its "Add friend with notification"
+        // option makes the adder's client send a Hidden chat message targeted
+        // at us instead, which is the only signal we get that someone friended
+        // the bot. Friend them back so the pairing becomes mutual — that is
+        // what puts the bot, the room name and the headcount on their list.
+        if (data.Type === "Hidden" && data.Content === "ChatRoomFriendRequestAdd") {
+            game.handleFriendRequest(memberNumber, name);
+        }
+
         // BC fires a ChatRoomMessage with Type "Action" and Content matching a
         // Safeword pattern when a player uses their in-game safeword. Trigger
         // the full-stop handler only if they're in the active multiplayer game.
@@ -121,12 +137,14 @@ async function main() {
 
         bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
 
+        // Room chat gets the headline only, and only for updates marked major.
+        // Everything else lives behind !changelog so the room stays readable.
         if (!restartAnnounced) {
             restartAnnounced = true;
-            if (updateNote !== null) {
-                bot.sendChat(updateNote
-                    ? `⚙️ Update applied — ${updateNote}. Back online!`
-                    : `⚙️ Update applied. Back online!`);
+            if (newUpdate && newUpdate.major && newUpdate.headline) {
+                bot.sendChat(`⚙️ Update applied — ${newUpdate.headline} Whisper !changelog for details.`);
+            } else if (newUpdate) {
+                bot.sendChat("Back online! Whisper !changelog to see what's new.");
             } else {
                 bot.sendChat("Sorry for the interruption — I'm back!");
             }

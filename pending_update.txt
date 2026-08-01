@@ -1,1 +1,5 @@
-end-game lock-time vote, fixed lock password/duration bugs, smarter clothing-removal detection (no more wrongful kicks), end-game locks now preserve manual recolors/item swaps, longer roll timer, returning 69/streak roll commentary
+2026-07-31T23:00:00
+Feedback now reaches us the moment you send it.
+Your feedback used to sit in a file until someone thought to go and read it. Now, if a keeper is in the room when you whisper !feedback, it lands in front of them immediately — so replies and fixes come faster.
+After a game finishes you may occasionally get a one-line nudge asking what you thought. It's random and only after a completed game, so it won't pester you every round — and !feedback still works any time without waiting to be asked.
+Behind the scenes: the admin !setstatus command can now set every feedback status, including "declined". Two statuses were missing from the list, so those updates could never be recorded — and therefore never whispered back to you — without hand-editing the file. If you sent something that quietly went nowhere, that's why; it should get a proper answer now.

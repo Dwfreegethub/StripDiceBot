@@ -1,639 +1,43 @@
 import { BCConnection } from "./connection";
-import { log, centralTimestamp } from "./logger";
+import { log, centralTimestamp, logGameEvent } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
-import * as LZString from "lz-string";
-import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./messages";
-
-const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
-// Structured game-activity log line, written with a full timestamp (unlike
-// log()'s HH:MM:SS-only prefix) so game start/end events can be correlated
-// against game_log.json entries.
-function logGameEvent(message: string): void {
-    console.log(`[${centralTimestamp()}] ${message}`);
-}
-
-// ============================================================
-// TEST MODE - set to false for production
-// ============================================================
-const TEST_MODE = false;
-const TEST_PASSWORD = "TEST1234";
-const DEFAULT_LOCK_MINUTES = 10;
-const JOIN_CONFIRMATION_WINDOW_MS = 60 * 1000;
-const STARTING_DICE_MAX = 100;
-
-// How long a missed player has to roll during their end-of-round second chance.
-const SECOND_CHANCE_TIMER_MS = 30 * 1000;
-
-// How long a mid-game join pause can run before the game resumes without the
-// joining player (they can still join the rotation later via !ready).
-const JOIN_PAUSE_TIMEOUT_MS = 60 * 1000;
-
-// Minimum time a player who left mid-game gets before they're actually
-// removed, even if their 2-round skip allowance runs out sooner (e.g. other
-// players resolve their turns quickly).
-const MIN_RETURN_WINDOW_MS = 90 * 1000;
-
-// How long players get to answer the pre-game toys consent question (or a
-// late joiner has to answer the same question) before being treated as "no".
-const TOYS_CONSENT_TIMEOUT_MS = 60 * 1000;
-
-// How long an admin has to confirm a proxied !feedback (submitted on behalf
-// of another room member) before it's auto-cancelled.
-const ADMIN_FEEDBACK_PROXY_TIMEOUT_MS = 60 * 1000;
-
-// ============================================================
-// SOLO GAME MODE
-// ============================================================
-const SOLO_BRACKET_MIN = 3;
-const SOLO_BRACKET_MAX = 7; // 7 = CLOTHING_SLOTS.length (shoes, socks, jacket, top, bottom, bra, panties)
-const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
-const SOLO_BASE_PENALTY_MINUTES = 5;
-const SOLO_DICE_MAX = 100;
-const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
-// How long to wait for the player to close their Wardrobe (detected via
-// handleWardrobe) before nudging them with the !removed fallback.
-const SOLO_REMOVAL_REMINDER_MS = 60 * 1000;
-// Brief pause after wardrobe-close before applying the end-of-game bondage penalty.
-const SOLO_BONDAGE_DELAY_MS = 10 * 1000;
-
-// ============================================================
-// ITEM REMOVAL - end-of-game bondage cleanup
-// ============================================================
-const REMOVAL_SLOTS = [
-    "ItemFeet",
-    "ItemBoots",
-    "ItemLegs",
-    "ItemPelvis",
-    "ItemBreast",
-    "ItemTorso",
-    "ItemTorso2",
-    "ItemArms",
-    "ItemHands",
-    "ItemNeck",
-    "ItemNeckRestraints",
-    "ItemMouth",
-    "ItemMouth2",
-    "ItemMouth3",
-    "ItemHead",
-    "ItemHood",
-    "ItemNipples",
-];
-const REMOVAL_SLOT_DELAY_MS = 1000; // Stagger between each slot's removal attempt
-const REMOVAL_UNLOCK_GAP_MS = 750; // Gap between unlocking an item and removing it
-const REMOVAL_RETRY_DELAY_MS = 1000;
-const MAX_REMOVAL_ATTEMPTS = 5;
-
-// ============================================================
-// SAFEWORD / !free - retry logic for removing locked bondage items
-// ============================================================
-const SAFEWORD_VERIFY_DELAY_MS = 500; // Delay before checking if a removal landed
-const SAFEWORD_RETRY_DELAYS_MS = [500, 1000, 1500];
-
-// ============================================================
-// END-GAME LOCK VERIFICATION - confirm the 10-minute timer refresh landed
-// ============================================================
-const LOCK_VERIFY_DELAY_MS = 1500;
-const MAX_END_GAME_LOCK_RETRIES = 2;
-
-// ============================================================
-// END-GAME LOCK BURST PACING - every emit in the end-game burst (winner's
-// item removal + each bound player's lock application) shares one staggered
-// timeline so the combined burst stays well under the BC server's per-second
-// rate limit. Baseline ~125ms (~8/sec, 40% of the 20/sec limit) x1.5 safety
-// margin.
-// ============================================================
-const END_GAME_EMIT_STAGGER_MS = 1000;
-
-// Pause between games so players have time to confirm their end-game locks
-// released/applied correctly before the next bondage phase begins.
-const GAME_COOLDOWN_MS = 5 * 60 * 1000;
-
-// ============================================================
-// CLOTHING SLOTS - ordered loss sequence
-// ============================================================
-const CLOTHING_SLOTS = ["shoes", "socks", "jacket", "top", "bottom", "bra", "panties"];
-
-const CLOTHING_ALIASES: Record<string, string> = {
-    // jacket
-    "coat": "jacket", "cardigan": "jacket", "blazer": "jacket",
-    // top
-    "shirt": "top", "tshirt": "top", "t-shirt": "top", "blouse": "top",
-    "tank": "top", "tanktop": "top", "tank-top": "top", "sweater": "top",
-    "hoodie": "top", "dress": "top", "corset": "top",
-    // bottom
-    "shorts": "bottom", "pants": "bottom", "jeans": "bottom", "skirt": "bottom",
-    "leggings": "bottom", "trousers": "bottom",
-    // shoes
-    "shoe": "shoes", "heels": "shoes", "boots": "shoes", "sneakers": "shoes",
-    "sandals": "shoes", "flats": "shoes",
-    // socks
-    "sock": "socks", "stockings": "socks", "tights": "socks",
-    // bra
-    "bikini": "bra", "bralette": "bra",
-    // panties
-    "underwear": "panties", "thong": "panties", "panty": "panties",
-    "knickers": "panties", "briefs": "panties",
-};
-
-// ============================================================
-// BONDAGE OUTFITS - multiple sets, one is randomly chosen per
-// player when they start receiving bondage items.
-// Add more outfits here as we confirm asset names.
-// ============================================================
-interface BondageItem {
-    group: string;
-    name: string;
-    color: string | string[];
-    property: any;
-}
-
-interface BondageOutfit {
-    name: string;
-    items: BondageItem[];
-}
-
-// Raw shape of an entry in outfits.json. Either a curated "items" array,
-// or a BC appearance share code plus the list of item groups to extract from it.
-interface OutfitDefinition {
-    name: string;
-    items?: BondageItem[];
-    code?: string;
-    groups?: string[];
-}
-
-// BC sends each character's body/appearance as an array of items keyed by
-// "Group". There's no explicit IsMale/BodyType flag, but the "Pronouns"
-// group ("HeHim" / "SheHer" / "TheyThem") reflects how the player has set
-// up their character and is the closest available signal for tailoring
-// outfit selection.
-function extractPronouns(character: any): string | undefined {
-    return character?.Appearance?.find((a: any) => a.Group === "Pronouns")?.Name;
-}
-
-// Strips owner/lock-specific fields from a decoded appearance item's Property
-// so the bot can apply its own lock on top of it.
-function cleanDecodedProperty(property: any): any {
-    if (!property) return {};
-    const {
-        LockedBy, LockMemberNumber, LockMemberName, Password, Hint, LockSet,
-        RemoveItem, ShowTimer, EnableRandomInput, MemberNumberList, RemoveTimer,
-        ...rest
-    } = property;
-    if (Array.isArray(rest.Effect)) {
-        rest.Effect = rest.Effect.filter((e: string) => e !== "Lock");
-    }
-    return rest;
-}
-
-function loadBondageOutfits(): BondageOutfit[] {
-    try {
-        const filePath = path.join(__dirname, "..", "outfits.json");
-        const raw = fs.readFileSync(filePath, "utf8");
-        const data: { outfits: OutfitDefinition[] } = JSON.parse(raw);
-
-        const outfits: BondageOutfit[] = [];
-
-        for (const def of data.outfits) {
-            if (def.code && def.groups) {
-                const decompressed = LZString.decompressFromBase64(def.code);
-                if (!decompressed) {
-                    log(`Outfit "${def.name}": failed to decompress appearance code, skipping.`);
-                    continue;
-                }
-                const appearance: any[] = JSON.parse(decompressed);
-                const items: BondageItem[] = def.groups.map(group => {
-                    const entry = appearance.find(e => e.Group === group);
-                    if (!entry) {
-                        throw new Error(`Outfit "${def.name}": group "${group}" not found in appearance code`);
-                    }
-                    return {
-                        group: entry.Group,
-                        name: entry.Name,
-                        color: entry.Color,
-                        property: cleanDecodedProperty(entry.Property)
-                    };
-                });
-                outfits.push({ name: def.name, items });
-            } else if (def.items) {
-                outfits.push({ name: def.name, items: def.items });
-            } else {
-                throw new Error(`Outfit "${def.name}" has neither "items" nor "code"+"groups"`);
-            }
-        }
-
-        return outfits;
-    } catch (err) {
-        log(`FATAL: Could not load outfits.json — check the file exists and is valid JSON: ${err}`);
-        process.exit(1);
-    }
-}
-
-const BONDAGE_OUTFITS: BondageOutfit[] = loadBondageOutfits();
-
-// ============================================================
-// PLAYER-PICK BONDAGE MODE - a designated picker chooses items
-// slot-by-slot from the BC catalog instead of a preset outfit.
-// ============================================================
-type BondageMode = "outfit" | "player-pick";
-
-// Picker-facing display names mapped to BC item groups.
-const PICK_SLOTS: { display: string; group: string }[] = [
-    { display: "Arms", group: "ItemArms" },
-    { display: "Legs", group: "ItemLegs" },
-    { display: "Feet", group: "ItemFeet" },
-    { display: "Torso", group: "ItemTorso" },
-    { display: "Torso (upper)", group: "ItemTorso2" },
-    { display: "Hands", group: "ItemHands" },
-    { display: "Head", group: "ItemHead" },
-    { display: "Hood", group: "ItemHood" },
-    { display: "Neck", group: "ItemNeck" },
-    { display: "Mouth", group: "ItemMouth" },
-    { display: "Boots", group: "ItemBoots" },
-    { display: "Nipples", group: "ItemNipples" },
-    { display: "Breast", group: "ItemBreast" },
-    { display: "Pelvis", group: "ItemPelvis" },
-];
-
-// Consent tiers. Tier 1 is on by default; tier 2 requires explicit consent.
-// Tier 3 (Vulva, Butt) additionally requires the higher-stakes game mode,
-// which is not built yet — the constant exists as a code hook only.
-const TIER1_SLOT_GROUPS = [
-    "ItemArms", "ItemLegs", "ItemFeet", "ItemTorso", "ItemTorso2",
-    "ItemHands", "ItemHead", "ItemHood", "ItemNeck", "ItemMouth", "ItemBoots",
-];
-const TIER2_SLOT_GROUPS = ["ItemNipples", "ItemBreast", "ItemPelvis"];
-const TIER3_SLOT_GROUPS = ["ItemVulva", "ItemButt"]; // code hook — not selectable yet
-
-// ItemMouth2/ItemMouth3 are overflow layers of Mouth: used automatically when
-// ItemMouth is already filled, never exposed as separate picker options.
-const MOUTH_OVERFLOW_GROUPS = ["ItemMouth", "ItemMouth2", "ItemMouth3"];
-
-// Consent-answer token -> BC groups it grants. "torso" covers both layers.
-const CONSENT_TOKEN_GROUPS: Record<string, string[]> = {
-    arms: ["ItemArms"],
-    legs: ["ItemLegs"],
-    feet: ["ItemFeet"],
-    torso: ["ItemTorso", "ItemTorso2"],
-    hands: ["ItemHands"],
-    head: ["ItemHead"],
-    hood: ["ItemHood"],
-    neck: ["ItemNeck"],
-    mouth: ["ItemMouth"],
-    boots: ["ItemBoots"],
-    nipples: ["ItemNipples"],
-    breast: ["ItemBreast"],
-    breasts: ["ItemBreast"],
-    pelvis: ["ItemPelvis"],
-};
-
-// Game ends for a player-pick player once this many items are applied.
-// 7 = median item count of the outfits in outfits.json (6/8/7/8/6).
-const DEFAULT_BONDAGE_ITEM_LIMIT = 7;
-// How many popular items to list per slot (plus one random wildcard).
-const PICK_LIST_TOP_N = 9;
-// Minimum distinct areas a player-pick player must consent to (Mouth counts
-// as one area even though it holds up to 3 gag layers).
-const MIN_CONSENT_AREAS = 6;
-const BONDAGE_MODE_TIMEOUT_MS = 60 * 1000;   // mode question window; unanswered = outfit
-const PICKER_RESPONSE_TIMEOUT_MS = 60 * 1000; // picker slot/item window; then bot picks randomly
-const VETO_TIMEOUT_MS = 30 * 1000;            // target's veto window; then auto-accept
-
-// Full BC item catalog (group -> item names), shared read-only reference that
-// lives one level above the repo. Missing/invalid file disables player-pick
-// mode (everyone silently gets outfit mode) rather than crashing the bot.
-function loadBcItemCatalog(): Map<string, string[]> {
-    const catalog = new Map<string, string[]>();
-    try {
-        const filePath = path.join(__dirname, "..", "..", "bc_items.json");
-        const raw = fs.readFileSync(filePath, "utf8");
-        const data: { group: string; items: string[] }[] = JSON.parse(raw);
-        for (const entry of data) {
-            if (entry?.group && Array.isArray(entry.items)) {
-                catalog.set(entry.group, entry.items);
-            }
-        }
-    } catch (err) {
-        log(`WARNING: Could not load bc_items.json — player-pick bondage mode disabled: ${err}`);
-    }
-    return catalog;
-}
-
-const BC_ITEM_CATALOG: Map<string, string[]> = loadBcItemCatalog();
-
-// One in-flight player-pick selection. Only one can be active at a time —
-// the game sits in WaitingBondage until it resolves.
-interface PendingBondagePick {
-    pickerNumber: number;
-    targetNumber: number;
-    stage: "slot" | "item" | "veto";
-    slotDisplay: string | null;  // picker-facing name, e.g. "Mouth"
-    slotGroup: string | null;    // actual BC group applied, e.g. "ItemMouth2"
-    options: string[];           // current numbered item list
-    chosenItem: string | null;
-    vetoedItems: { group: string; item: string }[]; // vetoed during this pick session, scoped per group
-    timer: NodeJS.Timeout | null; // picker-response or veto timer
-}
-
-// ============================================================
-// ITEM SETTINGS LIBRARY - learned per-item configurations.
-// Many typed items (cuffs especially) are non-restraining in their default
-// mode; the mode lives in Property (TypeRecord + Effect). The bot learns
-// configurations by watching players adjust items in the room, tracks how
-// often each distinct configuration is seen, and applies the most popular
-// one when a picked item lands. Seeded from outfits.json properties.
-// ============================================================
-interface ItemSettingVariant {
-    property: any;
-    count: number;
-}
-type ItemSettingsLibrary = Record<string, ItemSettingVariant[]>; // "Group:ItemName" -> observed configs
-
-const MAX_SETTING_VARIANTS_PER_ITEM = 10; // keep the most popular N configs per item
-// How to choose among learned settings when applying a picked item:
-// "popular" = most-seen config (ties random); "random" = any learned config;
-// "weighted" = random, biased by popularity.
-const ITEM_SETTING_STRATEGY: "popular" | "random" | "weighted" = "popular";
-
-// A property is worth learning if it selects a mode (TypeRecord) or carries
-// active effects — bare default-mode applications teach us nothing.
-function isLearnableProperty(property: any): boolean {
-    if (!property || typeof property !== "object") return false;
-    if (property.TypeRecord && typeof property.TypeRecord === "object" && Object.keys(property.TypeRecord).length > 0) return true;
-    return Array.isArray(property.Effect) && property.Effect.length > 0;
-}
-
-// Stable JSON (sorted keys, recursive) so identical configs dedupe regardless
-// of key order in the incoming payload.
-function canonicalJson(value: any): string {
-    if (Array.isArray(value)) {
-        return `[${value.map(canonicalJson).join(",")}]`;
-    }
-    if (value && typeof value === "object") {
-        const keys = Object.keys(value).sort();
-        return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
-    }
-    return JSON.stringify(value);
-}
-
-function deepClone<T>(value: T): T {
-    return value === undefined ? value : JSON.parse(JSON.stringify(value));
-}
-
-// ============================================================
-// GAME STATES
-// ============================================================
-enum GameState {
-    Idle,           // No game running, waiting for players to join
-    TeamSetup,      // Team mode lobby: picking team size and !join team1/team2
-    Registration,   // Players joining, declaring clothing
-    Countdown,      // All players joined, 30 second countdown
-    Rolling,        // Active game, waiting for current player to roll
-    WaitingRemove,  // Player lost, waiting for !removed
-    WaitingBondage, // Player naked, bot applying bondage
-    SafewordPause,  // A player called safeword, waiting for !continue or timeout
-    PausedForJoin,  // Briefly paused so a mid-game joiner can get into rotation
-    GameOver        // All players bound, applying locks
-}
-
-// ============================================================
-// PLAYER DATA
-// ============================================================
-interface Player {
-    memberNumber: number;
-    name: string;
-    clothing: string[];         // Their declared clothing items in order
-    clothingRemoved: number;    // How many clothing items removed so far
-    bondageApplied: number;     // How many bondage items applied so far
-    isNaked: boolean;
-    isFullyBound: boolean;
-    missedTurnPending: boolean;  // Missed regular turn; second chance not yet given
-    missedSecondChance: boolean; // Missed second chance too; penalty fires on next regular turn
-    ready: boolean;             // Has declared clothing and said !ready
-    midGameJoin: boolean;       // Joined while a game was already in progress
-    clothingQuestionIndex: number | null; // Position in guided !wearing Q&A, null if not active
-    pendingClothing: string[];  // Items collected so far during guided Q&A
-    bondageOutfit: BondageOutfit | null; // Outfit assigned once this player starts receiving bondage
-    pendingReturn: boolean;     // Left the room mid-game; in grace period to return
-    leaveRoundsRemaining: number; // Rounds left to return before removal, while pendingReturn
-    leaveTime: number | null;   // Date.now() when they left; gates removal behind a 90s minimum (MIN_RETURN_WINDOW_MS), reset on rejoin
-    freePass: boolean;          // Rolled 100 on the D100 - skips their next roll automatically
-    pendingPenaltySteps: number; // Extra penalty steps still owed from a double-penalty (rolled 1 on the D100)
-    removalWarned: boolean;      // First 15s expired without response — second 10s window now active
-    pendingRemovalKick: boolean; // Both windows missed — next turn gives 15s before removal from game
-    toysConsent: boolean | null; // null = unanswered, true/false = answered the pre-game toys question
-    bondageMode: BondageMode | null; // null = unanswered pre-game mode question; resolved to "outfit" on timeout
-    allowedSlots: string[];      // BC group names this player consented to for player-pick mode
-    appliedBondageItems: { slot: string; item: string }[]; // player-pick selections applied this game
-    lastLossSeq: number;         // lossSeqCounter value when they last rolled a 1; 0 = never lost this game
-    teamId: 1 | 2 | null;        // which team in team mode; null outside team mode
-    isGhost: boolean;            // true = auto-rolls 1 every turn (safeworded out but still counted for team win condition)
-    ghostReason?: "safeword" | "disconnect";
-    // Appearance.length captured (see markAwaitingRemoval) the moment this
-    // player was told to remove an item — null when no removal is
-    // outstanding. Compared against fresh ChatRoomSyncSingle snapshots in
-    // onSyncSingle to auto-detect the removal the instant BC confirms it,
-    // instead of waiting on !removed or a wardrobe close/open pair.
-    pendingRemovalBaselineCount: number | null;
-}
-
-// Snapshot of a player's lock-application state, captured when the post-lock
-// "did everything apply?" verification whisper is sent. Captured rather than
-// read live because resetGame() clears `players` well before the 60s
-// response window elapses.
-interface PendingLockVerification {
-    name: string;
-    bondageApplied: number;
-    bondageOutfit: BondageOutfit | null;
-    lockDurationMinutes: number;
-    lockEndTime: number;
-    timeout: NodeJS.Timeout;
-}
-
-// Tracks an end-game lock apply awaiting confirmation. BC's server never
-// echoes a ChatRoomSyncItem back to the sender for their own item updates,
-// so silence during the verification window means the lock was accepted.
-// A ChatRoomSyncSingle arriving for this member+group during the window,
-// showing the lock missing, means the server rejected it.
-interface PendingLockApplyCheck {
-    itemName: string;
-    onResult: (rejected: boolean) => void;
-}
-
-// ============================================================
-// FEEDBACK STATUS TRACKING
-// ============================================================
-type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "researching" | "implemented" | "declined" | "partly_implemented";
-
-interface FeedbackItem {
-    timestamp: string;
-    text: string;
-    status: FeedbackItemStatus;
-    // Resolved statuses (implemented/declined/partly_implemented) are only
-    // whispered to the submitter once; this flag is set after that whisper
-    // so the entry isn't repeated on later joins. Pending entries are never
-    // marked shown.
-    statusShown?: boolean;
-}
-
-interface FeedbackStatusEntry {
-    name: string;
-    items: FeedbackItem[];
-    // ISO timestamp of the last time this player was sent the bundled
-    // "we're reviewing it" ack. A new ack is only sent if a reviewing/pending/
-    // researching/testing item with a newer timestamp arrives.
-    reviewingAckDate?: string;
-}
-
-const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
-    pending: "⏳ Pending review",
-    reviewing: "🔍 Reviewing",
-    testing: "🧪 Testing",
-    researching: "🔬 Researching — we're looking into this!",
-    implemented: "✅ Implemented",
-    declined: "❌ Declined",
-    partly_implemented: "🔧 Partly implemented",
-};
-
-// Statuses that count as "resolved" - shown to the submitter only once.
-const RESOLVED_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new Set([
-    "implemented",
-    "declined",
-    "partly_implemented",
-]);
-
-// Statuses that are still "in progress" - covered by the single bundled
-// "we're reviewing it" ack rather than a per-item whisper.
-const REVIEWING_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new Set([
-    "pending",
-    "reviewing",
-    "researching",
-    "testing",
-]);
-
-// ============================================================
-// PLAYER TRACKING
-// ============================================================
-interface PlayerRecord {
-    memberNumber: number;
-    name: string;
-    firstSeen: string;
-    lastSeen: string;
-    gamesPlayed: number;
-    gamesWon: number;
-    gamesLost: number;
-    feedbackGiven: boolean;
-}
-
-// ============================================================
-// SOLO GAME MODE - types and records persistence
-// ============================================================
-type SoloMode = "race" | "survive";
-
-// Active solo game state, isolated per player. Solo games run alongside an
-// active multiplayer game without interference; all interaction is whispered.
-interface SoloGameState {
-    memberNumber: number;
-    name: string;
-    mode: SoloMode;
-    bracket: number;          // Starting clothing item count
-    currentMax: number;       // Current dice ceiling for the shrinking-dice chain; resets to 100 at the start of each item's chain
-    totalRolls: number;       // Running roll count across the whole game
-    rollsThisItem: number;    // Rolls taken in the current chain (for display)
-    clothingRemaining: string[]; // Items still to lose, in loss order
-    clothingLost: string[];      // Items already removed
-    startTime: string;        // ISO timestamp when this solo game began
-    awaitingRemoval: boolean; // true after losing an item, until the player confirms it's off
-    inactivityTimer: NodeJS.Timeout | null; // soft nudge if the player goes quiet
-}
-
-// One line of game_log.json (newline-delimited JSON), appended on every
-// multiplayer/solo game end.
-interface GameLogEntry {
-    type: "multiplayer" | "solo";
-    mode: SoloMode | null;
-    startTime: string;
-    endTime: string;
-    players: string[];
-    outcome: string;
-    winner?: string;
-    score?: number;
-    penaltyMin?: number;
-}
-
-interface SoloRecordEntry {
-    memberNumber: number;
-    name: string;
-    rolls: number;
-}
-
-type SoloBracketRecords = Record<string, SoloRecordEntry>; // bracket -> record
-type SoloAttemptCounts = Record<string, number>;           // memberNumber -> attempts today
-
-interface SoloRecordsData {
-    date: string; // UTC date (YYYY-MM-DD) the daily records/attempts were last reset
-    daily: Record<SoloMode, SoloBracketRecords>;
-    allTime: Record<SoloMode, SoloBracketRecords>;
-    attempts: Record<SoloMode, Record<string, SoloAttemptCounts>>; // bracket -> memberNumber -> count
-}
-
-function utcDateString(): string {
-    return new Date().toISOString().slice(0, 10);
-}
-
-function emptySoloRecordsData(): SoloRecordsData {
-    return {
-        date: utcDateString(),
-        daily: { race: {}, survive: {} },
-        allTime: { race: {}, survive: {} },
-        attempts: { race: {}, survive: {} },
-    };
-}
-
-// Player-submitted outfit idea, stored for admin review and possible future
-// use as a bondage penalty outfit.
-interface OutfitSuggestion {
-    memberNumber: number;
-    name: string;
-    description: string;
-    timestamp: string;
-}
-
-// ============================================================
-// PASSWORD GENERATOR
-// ============================================================
-// Letters-only (no digits) — BC's TimerPasswordPadlock appears to
-// reject/silently fail to save a password that starts with a digit,
-// confirmed via live testing. Nobody's ever shown this password (it's
-// never whispered to a player, only logged), so it doesn't need to be
-// memorable — just needs to actually save.
-function generatePassword(): string {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-    let result = "";
-    for (let i = 0; i < 8; i++) {
-        result += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return result;
-}
-
-// ============================================================
-// COMMAND DISPATCH TABLE
-// ============================================================
-type CommandHandler = (memberNumber: number, name: string, msg: string, message: string) => void;
-
-interface CommandDef {
-    handler: CommandHandler;
-    whisperOnly?: boolean; // Only dispatched from handleWhisper
-    chatOnly?: boolean;    // Only dispatched from handleChat
-    prefix?: boolean;      // Match if msg starts with the command string, instead of equals
-}
+import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES, TEAM_69_MESSAGES, TEAM_69_CAP_MESSAGES } from "./messages";
+import { readPendingUpdate, getSeenVersion, markVersionSeen } from "./pendingUpdate";
+import {
+    GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
+    ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
+    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry,
+} from "./types";
+import {
+    TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
+    JOIN_CONFIRMATION_WINDOW_MS, STARTING_DICE_MAX, SECOND_CHANCE_TIMER_MS,
+    JOIN_PAUSE_TIMEOUT_MS, MIN_RETURN_WINDOW_MS, TOYS_CONSENT_TIMEOUT_MS,
+    REMOVAL_SLOTS, REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS, REMOVAL_RETRY_DELAY_MS,
+    MAX_REMOVAL_ATTEMPTS, SAFEWORD_VERIFY_DELAY_MS, SAFEWORD_RETRY_DELAYS_MS,
+    LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES, END_GAME_EMIT_STAGGER_MS, GAME_COOLDOWN_MS,
+    ClothingPath, clothingSlotsFor, clothingAliasesFor,
+    PICK_SLOTS, TIER1_SLOT_GROUPS, TIER2_SLOT_GROUPS, MOUTH_OVERFLOW_GROUPS,
+    CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, NEW_ITEMS, MIN_CONSENT_AREAS,
+    BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
+    MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY, CHANGELOG_ENTRIES_SHOWN,
+} from "./constants";
+import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
+import { secrets } from "./secrets";
+import {
+    extractPronouns, cleanDecodedProperty, isLearnableProperty, canonicalJson,
+    deepClone, generatePassword,
+} from "./util";
+import { GameHost } from "./host";
+import { BotStorage } from "./storage";
+import { SoloGameManager } from "./soloGame";
+import { FeedbackManager } from "./feedback";
 
 // ============================================================
 // GAME CLASS
 // ============================================================
-export class StripDiceGame {
-    private bot: BCConnection;
+export class StripDiceGame implements GameHost {
+    public readonly bot: BCConnection;
     private state: GameState = GameState.Idle;
     private players: Map<number, Player> = new Map();
     private turnOrder: number[] = [];
@@ -650,14 +54,33 @@ export class StripDiceGame {
     private pendingLockTimeVote: {
         winners: Player[] | undefined;
         boundPlayers: Player[];
-        // The greater of lockDurationMinutes (host's pre-game setting, now
-        // treated as a floor) or playerCount + 5 — the number actually
-        // whispered to voters and adjusted by the vote (see
-        // startEndGameLockVote). Kept separate from lockDurationMinutes so
-        // the vote always starts from this computed baseline, not whatever
-        // lockDurationMinutes was left at by a previous round's vote.
+        // All voters = boundPlayers + winners (winner gets equal vote weight).
+        allVoters: Player[];
+        // Base + finisher bonus — the number whispered to voters and adjusted
+        // by the majority-vote outcome. Kept separate from lockDurationMinutes
+        // so the vote always starts from this computed baseline.
         suggestedMinutes: number;
         votes: Map<number, 1 | 2 | 3>;
+        timeout: NodeJS.Timeout;
+    } | null = null;
+    // Per-player 69-roll bonus minutes accumulated during this multiplayer
+    // game. Losers' bonuses are added to their individual lock duration;
+    // winners distribute their bonus to bound players before the lock vote.
+    private sixtyNineBonuses: Map<number, number> = new Map();
+    // Team-mode 69-roll pool: every 69 rolled adds to this shared pool (capped
+    // at 30 min). Applied flat to every losing player at end game — not split.
+    private static readonly TEAM_69_CAP = 30;
+    private teamSixtyNineBonus: number = 0;
+    // Count of players who "finished" this game (reached isFullyBound or won).
+    // Adds 2 min per finisher to the end-game lock baseline.
+    private finisherCount: number = 0;
+    // Winner's 69 bonus assignment phase — runs before startEndGameLockVote
+    // if the winner accumulated bonus minutes from 69 rolls.
+    private pendingWinner69Assignment: {
+        winners: Player[] | undefined;
+        winnerNumber: number;
+        remainingMinutes: number;
+        boundPlayers: Player[];
         timeout: NodeJS.Timeout;
     } | null = null;
     private roomMembers: Set<number> = new Set();
@@ -666,36 +89,23 @@ export class StripDiceGame {
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
     private safewordMember: number | null = null;
+    private prePauseState: GameState | null = null;
     private allowMidGameJoin: boolean = true;
     private bondagePhaseStarted: boolean = false; // True once the first bondage outfit is assigned this game
     private pendingLockConfirmations: Map<number, { name: string; items: string[] }> = new Map();
+    // Maps memberNumber → lock release timestamp for each currently-locked player.
+    // Used to block pending_update.txt restarts while players are still locked.
+    private activeLockEndTimes: Map<number, number> = new Map();
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
-    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null }> = new Map();
+    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null; toysConsent: boolean }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
-    // Admin proxy-feedback confirmation, keyed by admin member number. Set
-    // when an admin runs "!feedback <room member name> <text>" so a follow-up
-    // yes/no whisper can confirm logging it under the target player's name.
-    private pendingAdminFeedbackProxy: Map<number, { targetMemberNumber: number; targetName: string; text: string; timeout: NodeJS.Timeout }> = new Map();
     // Deferred removal timers for players whose 2-round grace period expired
     // before the 90s minimum return window did. Cleared on rejoin or once the
     // timer fires and actually removes them.
     private pendingLeaveRemovalTimers: Map<number, NodeJS.Timeout> = new Map();
     private itemStateCache: Map<string, any> = new Map();
-    private pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
-    private feedbackStatus: Record<string, FeedbackStatusEntry> = {};
-    private feedbackNotified: Set<number> = new Set();
-    private readonly feedbackStatusPath = path.join(__dirname, "..", "feedback_status.json");
+    public readonly pendingLockApplyChecks: Map<string, PendingLockApplyCheck> = new Map();
     private playerRecords: Record<string, PlayerRecord> = {};
-    private readonly playerRecordsPath = path.join(__dirname, "..", "players.json");
-    private feedbackMemberNumbers: Set<number> = new Set();
-    private pendingFeedbackRequest: Set<number> = new Set();
-    private readonly outfitSuggestionsPath = path.join(__dirname, "..", "outfit_suggestions.json");
-    private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
-    private readonly soloRecordsPath = path.join(__dirname, "..", "solo_records.json");
-    private readonly gameLogPath = path.join(__dirname, "..", "game_log.json");
-    private readonly botStatePath = path.join(__dirname, "..", "bot_state.json");
-    private readonly gameCountsPath = path.join(__dirname, "..", "game_counts.json");
     private activeMultiplayer: boolean = false;
     private gameStartTime: string | null = null;
     private gameEndLogged: boolean = false;
@@ -711,7 +121,12 @@ export class StripDiceGame {
     private joinPauseTimer: NodeJS.Timeout | null = null;
     private pendingTurnResume: (() => void) | null = null;
     private characterDataCache: Map<number, any> = new Map();
-    private botGameVersion: string | null = null;
+    // Which clothing slot list (male/female) each member is using — set on
+    // first resolution (auto-detected or explicit !clothes) and then sticky
+    // for the rest of the session, so it doesn't flip mid-declaration if BC
+    // sync data changes. Keyed by memberNumber (not Player) so it works for
+    // solo-only players too, who never join the multiplayer roster.
+    private clothingPathOverrides: Map<number, ClothingPath> = new Map();
     private debugNextRoll: number | null = null;
     // Bonus flavor-commentary tracking (streak comments, 69 easter egg) —
     // purely cosmetic, doesn't affect game state/scoring/flow.
@@ -731,6 +146,35 @@ export class StripDiceGame {
     private toysAllowed: boolean = false;
     private awaitingToysConsent: boolean = false;
     private toysConsentTimer: NodeJS.Timeout | null = null;
+    // Set once resolveToysConsent() has run for this game — lets checkAllReady()
+    // resume the pregame pipeline from the next unresolved stage instead of
+    // restarting from toys consent every time a player un-readies and re-readies.
+    private toysConsentResolved: boolean = false;
+    // Prize consent: willing non-winners get a timed leash lock at game end;
+    // winner can request lock passwords via !claim.
+    private awaitingPrizeConsent: boolean = false;
+    private prizeConsentTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the prize-consent stage.
+    private prizeConsentResolved: boolean = false;
+    private prizeWillingPlayers: Set<number> = new Set(); // member numbers who opted in as prizes (non-winners)
+    private lastWinners: Set<number> = new Set();         // set at game end, gates !claim (all winners in team mode)
+    private prizePasswords: Map<number, { name: string; password: string; lockEndTime: number; claimableBy: number[] }> = new Map(); // memberNumber → {name, password, lockEndTime, claimableBy}
+    // Team mode: which teams had unanimous prize consent (1, 2, or both).
+    // Used in Phase 3 to decide if the losing team's players become prizes.
+    private prizeConsentTeams: Set<1 | 2> = new Set();
+    // Pending team swap during pre-game prize consent resolution.
+    private pendingPrizeSwap: {
+        player1: { memberNumber: number; fromTeam: 1 | 2 };
+        player2: { memberNumber: number; fromTeam: 1 | 2 };
+        confirmed: Set<number>;
+        timeout: NodeJS.Timeout;
+    } | null = null;
+    // Late joiners (mid-game join, or Registration-phase join after the
+    // original roster's own prize question already resolved) get their own
+    // individual prize question — it's a personal opt-in, not a
+    // group-decided policy, so unlike toys there's nothing to just verify.
+    private awaitingLatePrizeConsent: Set<number> = new Set();
+    private latePrizeConsentTimers: Map<number, NodeJS.Timeout> = new Map();
     // Mid-game joiners being asked the toys consent question before their join
     // completes (only used when toysAllowed is true for the current game).
     private pendingLateJoinToysConsent: Map<number, { onAccept: () => void; onDecline: () => void; timeout: NodeJS.Timeout }> = new Map();
@@ -743,6 +187,8 @@ export class StripDiceGame {
     private gameBondageMode: "outfit" | "player-pick" | "mixed" = "outfit";
     private awaitingBondageMode: boolean = false;
     private bondageModeTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the bondage-mode stage.
+    private bondageModeResolved: boolean = false;
     // Late joiners (mid-game join once clothing is confirmed, or naked join
     // after bondage phase started) are asked the same mode question
     // individually, since the group question has already resolved.
@@ -750,13 +196,29 @@ export class StripDiceGame {
     private lateBondageModeTimers: Map<number, NodeJS.Timeout> = new Map();
     private awaitingSlotConsent: boolean = false;
     private slotConsentTimer: NodeJS.Timeout | null = null;
+    // Mirrors toysConsentResolved, for the slot-consent stage. Also set true
+    // when the stage isn't applicable (no player-pick players, or catalog
+    // unavailable) so checkAllReady's resume chain can't re-enter it.
+    private slotConsentResolved: boolean = false;
+    // True once the original roster's toys/bondage-mode Q&A has started this
+    // game (set in beginToysConsent). Anyone who !joins afterward — still
+    // possible since state stays Registration through this whole sequence —
+    // is flagged joinedAfterPregameStart and skipped by the group asks below,
+    // then given their own individual toys/bondage-mode questions in
+    // handleReady once they're ready, instead of restarting the group's Q&A.
+    private pregameFlowStarted: boolean = false;
     private pendingBondagePick: PendingBondagePick | null = null;
     private pendingSlotConsent: Set<number> = new Set(); // players yet to answer the slot-consent whisper
     private bondageUsage: Record<string, Record<string, number>> = {};
-    private readonly bondageUsagePath = path.join(__dirname, "..", "bondage_usage.json");
-    private readonly outfitCandidatesPath = path.join(__dirname, "..", "outfit_candidates.json");
     private itemSettings: ItemSettingsLibrary = {};
-    private readonly itemSettingsPath = path.join(__dirname, "..", "item_settings.json");
+
+    // ============================================================
+    // SUBSYSTEMS - each owns its own state and reaches shared
+    // machinery through the GameHost interface (see host.ts).
+    // ============================================================
+    public readonly storage: BotStorage = new BotStorage();
+    public readonly solo: SoloGameManager;
+    public readonly feedback: FeedbackManager;
 
     // ============================================================
     // TEAM MODE (2v2 / 3v3)
@@ -774,29 +236,24 @@ export class StripDiceGame {
 
     constructor(bot: BCConnection) {
         this.bot = bot;
-        this.loadBondageUsage();
-        this.loadItemSettings();
+        this.solo = new SoloGameManager(this);
+        this.feedback = new FeedbackManager(this);
+        this.bondageUsage = this.storage.loadBondageUsage();
+        this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
-        this.loadFeedbackStatus();
-        this.feedbackMemberNumbers = this.loadFeedbackMemberNumbers();
         this.loadPlayerRecords();
-        this.pruneGameLog();
+        this.storage.pruneGameLog();
     }
 
     // ============================================================
     // PUBLIC - room events
     // ============================================================
 
-    // Caches character data for permission pre-flight checks. Also captures
-    // the bot's own GameVersion the first time it appears in a sync.
+    // Caches character data for permission pre-flight checks.
     private cacheCharacterData(character: any): void {
         const memberNumber = character?.MemberNumber;
         if (typeof memberNumber !== "number") return;
         this.characterDataCache.set(memberNumber, character);
-        if (memberNumber === this.bot.getMemberNumber() && !this.botGameVersion) {
-            const v = character?.OnlineSharedSettings?.GameVersion;
-            if (v) this.botGameVersion = v;
-        }
     }
 
     public onMemberJoin(memberNumber: number, name: string, character?: any): void {
@@ -819,15 +276,30 @@ export class StripDiceGame {
             return;
         }
 
+        const isNewPlayer = !this.playerRecords[String(memberNumber)];
         this.recordPlayerSeen(memberNumber, name);
         this.sendWelcomeWhisper(memberNumber, name);
-        this.notifyFeedbackStatus(memberNumber, name);
+        this.nudgeChangelogIfBehind(memberNumber, isNewPlayer);
+        this.feedback.notifyStatus(memberNumber, name);
     }
 
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
-        this.cleanupSoloOnLeave(memberNumber);
+        this.solo.cleanupOnLeave(memberNumber);
+
+        // If the team game host leaves during setup (before joining a team), auto-cancel.
+        if (this.state === GameState.TeamSetup && memberNumber === this.hostMemberNumber) {
+            this.isTeamMode = false;
+            this.teamRoster = { 1: [], 2: [] };
+            this.awaitingTeamSizeReply = false;
+            this.hostMemberNumber = null;
+            this.players.clear();
+            this.state = GameState.Idle;
+            this.bot.sendChat("Team game cancelled — the host left the room.");
+            return;
+        }
+
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const player = this.players.get(memberNumber)!;
@@ -850,7 +322,8 @@ export class StripDiceGame {
 
         const activeGameplay = this.state === GameState.Rolling ||
             this.state === GameState.WaitingRemove ||
-            this.state === GameState.WaitingBondage;
+            this.state === GameState.WaitingBondage ||
+            this.state === GameState.Paused;
 
         if (activeGameplay) {
             player.pendingReturn = true;
@@ -939,7 +412,8 @@ export class StripDiceGame {
 
         const activeGameplay = this.state === GameState.Rolling ||
             this.state === GameState.WaitingRemove ||
-            this.state === GameState.WaitingBondage;
+            this.state === GameState.WaitingBondage ||
+            this.state === GameState.Paused;
 
         if (currentPlayerNewlyAbsent && activeGameplay) {
             this.clearTurnTimer();
@@ -1040,13 +514,20 @@ export class StripDiceGame {
     // come before broader prefixes (e.g. "!feedback ").
     private readonly commandTable: Record<string, CommandDef> = {
         "!roll": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!r": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!rool": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!rol": { handler: (mn, name) => this.handleRoll(mn, name) },
+        "!oll": { handler: (mn, name) => this.handleRoll(mn, name) },
         "!teamgame": { handler: (mn, name) => this.handleTeamGame(mn, name) },
         "!teams": { handler: (mn) => this.handleTeams(mn) },
         "!join": { handler: (mn, name, _msg, message) => this.handleJoin(mn, name, message), prefix: true },
         "!start": { handler: (mn) => this.handleStart(mn) },
         "!cancel": { handler: (mn) => this.handleCancel(mn) },
+        "!players ": { handler: (mn, _name, _msg, message) => this.handlePlayersCommand(mn, message), prefix: true },
         "!wearing": { handler: (mn) => this.startGuidedClothing(mn) },
         "!wearing ": { handler: (mn, _name, _msg, message) => this.handleWearing(mn, message), prefix: true },
+        "!clothes": { handler: (mn) => this.handleClothes(mn, "") },
+        "!clothes ": { handler: (mn, _name, _msg, message) => this.handleClothes(mn, message), prefix: true },
         "!naked": { handler: (mn) => this.handleNoWearing(mn) },
         "!same": { handler: (mn) => this.handleSame(mn) },
         "!ready": { handler: (mn) => this.handleReady(mn) },
@@ -1056,14 +537,19 @@ export class StripDiceGame {
         "!lock20": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
         "!midgamejoin ": { handler: (mn, _name, _msg, message) => this.handleMidGameJoinToggle(mn, message), whisperOnly: true, prefix: true },
         "!testoutfit ": { handler: (mn, _name, _msg, message) => this.handleTestOutfit(mn, message), whisperOnly: true, prefix: true },
-        "!setstatus ": { handler: (mn, _name, _msg, message) => this.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
+        "!setstatus ": { handler: (mn, _name, _msg, message) => this.feedback.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!kick ": { handler: (mn, _name, _msg, message) => this.handleKick(mn, message), whisperOnly: true, prefix: true },
-        "!feedback list": { handler: (mn) => this.handleFeedbackList(mn), whisperOnly: true },
-        "!feedback": { handler: (mn) => this.handleFeedbackPrompt(mn), whisperOnly: true },
+        "!feedback list": { handler: (mn) => this.feedback.handleList(mn), whisperOnly: true },
+        "!feedback": { handler: (mn) => this.feedback.handlePrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },
         "!outfits": { handler: (mn) => this.handleOutfitsList(mn), whisperOnly: true },
+        "!claim ": { handler: (mn, _name, _msg, message) => this.handleClaim(mn, message), whisperOnly: true, prefix: true },
+        "!claim": { handler: (mn) => this.handleClaim(mn, ""), whisperOnly: true },
+        "!swap": { handler: (mn) => this.handleSwap(mn), whisperOnly: true },
         "!safeword": { handler: (mn, name) => this.handleSafeword(mn, name) },
+        "!pause": { handler: (mn, name) => this.handlePause(mn, name) },
+        "!resume": { handler: (mn) => this.handleResume(mn) },
         "!reset": { handler: (mn) => this.handleReset(mn), whisperOnly: true },
         "!released": { handler: (mn) => this.handleLockReleaseConfirmation(mn, true) },
         "!stuck": { handler: (mn) => this.handleLockReleaseConfirmation(mn, false) },
@@ -1075,20 +561,23 @@ export class StripDiceGame {
         "!help admin": { handler: (mn) => this.handleHelpAdmin(mn) },
         "!help": { handler: (mn) => this.handleHelp(mn) },
         "!about": { handler: (mn) => this.handleAbout(mn) },
-        "!solo race": { handler: (mn, name) => this.handleSoloStart(mn, name, "race"), whisperOnly: true },
-        "!solo survive": { handler: (mn, name) => this.handleSoloStart(mn, name, "survive"), whisperOnly: true },
+        "!solo race": { handler: (mn, name) => this.solo.start(mn, name, "race"), whisperOnly: true },
+        "!solo survive": { handler: (mn, name) => this.solo.start(mn, name, "survive"), whisperOnly: true },
         "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
-        "!solo_reset ": { handler: (mn, _name, _msg, message) => this.handleSoloReset(mn, message), whisperOnly: true, prefix: true },
-        "!solo_reset": { handler: (mn) => this.handleSoloReset(mn, ""), whisperOnly: true },
+        "!solo_reset ": { handler: (mn, _name, _msg, message) => this.solo.handleReset(mn, message), whisperOnly: true, prefix: true },
+        "!solo_reset": { handler: (mn) => this.solo.handleReset(mn, ""), whisperOnly: true },
         "!gamestats": { handler: (mn) => this.handleGameStats(mn), whisperOnly: true },
-        "!scores me": { handler: (mn) => this.handleScoresMe(mn) },
-        "!scores race": { handler: (mn) => this.handleScores(mn, "race") },
-        "!scores survive": { handler: (mn) => this.handleScores(mn, "survive") },
-        "!scores": { handler: (mn) => this.handleScores(mn) },
+        "!scores me": { handler: (mn) => this.solo.handleScoresMe(mn) },
+        "!scores race": { handler: (mn) => this.solo.handleScores(mn, "race") },
+        "!scores survive": { handler: (mn) => this.solo.handleScores(mn, "survive") },
+        "!scores": { handler: (mn) => this.solo.handleScores(mn) },
         "!leaderboard": { handler: (mn) => this.handleLeaderboard(mn) },
         "!lb": { handler: (mn) => this.handleLeaderboard(mn) },
-        "!feedback ": { handler: (mn, name, _msg, message) => this.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
+        "!feedback ": { handler: (mn, name, _msg, message) => this.feedback.handleFeedback(mn, name, message), whisperOnly: true, prefix: true },
         "!removed": { handler: (mn, name) => this.handleRemoved(mn, name) },
+        "!changelog": { handler: (mn) => this.handleChangelog(mn) },
+        "!friend": { handler: (mn, name) => this.handleFriendRequest(mn, name) },
+        "!unfriend": { handler: (mn) => this.handleUnfriend(mn) },
         "!veto": { handler: (mn) => this.handleVeto(mn), whisperOnly: true },
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
@@ -1106,18 +595,60 @@ export class StripDiceGame {
         }
     }
 
+    // Reciprocate a friending so the player can see the room on their friend
+    // list. BC has no friend-request event: picking "Add friend with
+    // notification" makes their client send a Hidden ChatRoomFriendRequestAdd
+    // chat message, which index.ts routes here. The silent option sends
+    // nothing at all, so !friend exists as the manual path to the same place.
+    public handleFriendRequest(memberNumber: number, name: string): void {
+        if (this.bot.isFriend(memberNumber)) {
+            this.bot.whisper(memberNumber,
+                `You're already on my friend list! If you can't see me, add me from your own ` +
+                `friend list too — BC only shows us to each other when we've both added.`
+            );
+            return;
+        }
+
+        this.bot.addFriend(memberNumber);
+        logGameEvent(`Friend request from ${name} (#${memberNumber}) — added back.`);
+        this.bot.whisper(memberNumber,
+            `Added you back! 🎲 I'll now show up on your friend list whenever I'm online, ` +
+            `with the room name and how many players are in it — so you can tell at a glance ` +
+            `when a game is running. If you haven't added me on your side yet, do that and ` +
+            `I'll appear. Whisper !unfriend any time to undo this.`
+        );
+    }
+
+    private handleUnfriend(memberNumber: number): void {
+        if (!this.bot.removeFriend(memberNumber)) {
+            this.bot.whisper(memberNumber, "You weren't on my friend list to begin with.");
+            return;
+        }
+        this.bot.whisper(memberNumber,
+            `Removed you from my friend list — I won't show up there any more. ` +
+            `Whisper !friend if you ever want me back.`
+        );
+    }
+
     // Yes/No confirmation for a pending !join. Shared by handleWhisper and
     // handleChat so a player can confirm from either channel. Returns true
     // if the message was consumed as a yes/no answer.
     private tryHandleYesNoJoin(memberNumber: number, name: string, msg: string): boolean {
         if (!this.pendingYesNoJoin.has(memberNumber)) return false;
+        const pending = this.pendingYesNoJoin.get(memberNumber)!;
+
         if (msg === "yes" || msg === "y") {
-            const pending = this.pendingYesNoJoin.get(memberNumber)!;
             this.pendingYesNoJoin.delete(memberNumber);
-            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax);
+            pending.toysConsent = true;
+            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, pending.toysConsent);
             return true;
         }
-        if (msg === "no" || msg === "n") {
+        if (msg === "no toys" || msg === "notoys" || msg === "no toy") {
+            this.pendingYesNoJoin.delete(memberNumber);
+            this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, false);
+            return true;
+        }
+        if (msg === "no" || msg === "n" || msg === "cancel") {
             this.pendingYesNoJoin.delete(memberNumber);
             this.bot.whisper(memberNumber, "No problem! Come back anytime.");
             return true;
@@ -1125,26 +656,43 @@ export class StripDiceGame {
         return false;
     }
 
+    // Strips one layer of enclosing parens so BC's out-of-character
+    // convention — e.g. "(!claim)" or "(help)" — parses the same as the
+    // bare command. Only affects what the bot reads internally; the
+    // player's own message still displays with the parens intact to
+    // everyone else in the room. Ported from WD, which already had this —
+    // BD never did, and it silently ate commands wrapped in parens (found
+    // via a real !claim failure: a winner's "(!claim)" whisper never
+    // matched the command table at all).
+    private stripOocParens(text: string): string {
+        const trimmed = text.trim();
+        const match = trimmed.match(/^\(([\s\S]*)\)$/);
+        return match ? match[1].trim() : trimmed;
+    }
+
     public handleWhisper(memberNumber: number, name: string, message: string): void {
-        const msg = message.trim().toLowerCase();
+        message = this.stripOocParens(message);
+        const msg = message.toLowerCase();
 
         // Bare "!feedback" prompts the player to whisper their feedback next.
         // Their following whisper is collected as feedback unless it's itself
         // a command (starts with "!"), in which case it's processed normally.
-        if (this.pendingFeedbackRequest.has(memberNumber)) {
-            this.pendingFeedbackRequest.delete(memberNumber);
+        if (this.feedback.consumePendingRequest(memberNumber)) {
             if (!msg.startsWith("!")) {
-                this.handleFeedback(memberNumber, name, "!feedback " + message);
+                this.feedback.handleFeedback(memberNumber, name, "!feedback " + message);
                 return;
             }
         }
 
         // Yes/No confirmation for a pending admin proxy-feedback submission.
-        if (this.tryHandleAdminFeedbackProxyYesNo(memberNumber, msg)) return;
+        if (this.feedback.tryHandleProxyYesNo(memberNumber, msg)) return;
+
+        // Winner's 69 bonus assignment phase (before the lock-time vote) —
+        // winner whispers a player name to give them 5 min, or "skip".
+        if (this.tryHandleWinner69Assignment(memberNumber, msg)) return;
 
         // Pending lock-time vote (after a win/game-over, before end-game
-        // locks go on) — only accepts 1/2/3 replies from the bound players
-        // being polled.
+        // locks go on) — accepts 1/2/3 from bound players and winner.
         if (this.tryHandleEndGameLockVote(memberNumber, msg)) return;
 
         // Guided clothing Q&A takes priority over other commands while active
@@ -1160,31 +708,89 @@ export class StripDiceGame {
             return;
         }
 
+        // Pre-game prize opt-in question, while this player hasn't answered yet.
+        if (this.awaitingPrizeConsent && player?.prizeConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.recordPrizeConsentAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
+        // Individual prize opt-in question for a late joiner, while pending.
+        if (this.awaitingLatePrizeConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.handleLatePrizeConsentAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
         // Toys consent question for a mid-game joiner, while pending.
         if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.handleLateJoinToysConsentAnswer(memberNumber, msg === "yes" || msg === "y");
             return;
         }
 
+        // Themed bondage offer after a solo loss — !yes applies it, !no falls back to preset.
+        if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
+            const accepted = msg === "!yes" || msg === "yes";
+            if (accepted) this.solo.acceptThemeOffer(memberNumber);
+            else this.solo.declineThemeOffer(memberNumber);
+            return;
+        }
+
         // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
-        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.handleSoloClothingAnswer(memberNumber, msg);
+        if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.solo.handleClothingAnswer(memberNumber, msg);
             return;
         }
 
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so it never interferes with multiplayer turn order.
-        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
-            this.handleSoloRoll(memberNumber);
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.solo.hasGame(memberNumber)) {
+            this.solo.handleRoll(memberNumber);
             return;
         }
 
         // Solo item-removal confirmation, while waiting on it. Only intercepts
         // when the solo game is actually pausing for it, so multiplayer's
         // !removed keeps working for players also in solo.
-        if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (msg === "!removed" && this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
+        }
+
+        // Solo prize question: yes/no after a solo game finishes.
+        if (this.solo.isAwaitingPrizeQuestion(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.solo.handlePrizeQuestion(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
+        // Solo prize description: free-form whisper captured as feedback.
+        if (this.solo.isAwaitingPrizeDescription(memberNumber)) {
+            this.solo.handlePrizeDescription(memberNumber, message);
+            return;
+        }
+
+        // Returning player outfit choice: "same/1" or "new/2" reply to the
+        // "same outfit this time?" whisper sent at join. Cleared once answered,
+        // or implicitly bypassed if they use !wearing/!naked/!same directly.
+        if (player?.awaitingOutfitChoice) {
+            if (msg === "1" || msg === "same") {
+                player.awaitingOutfitChoice = false;
+                this.handleSame(memberNumber);
+                return;
+            }
+            if (msg === "2" || msg === "new") {
+                player.awaitingOutfitChoice = false;
+                this.bot.whisper(memberNumber,
+                    `Declare your outfit:\n` +
+                    `!wearing - go through it one item at a time (yes/no)\n` +
+                    `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
+                    `!naked - if you have nothing on\n` +
+                    `Whisper !ready when done.`
+                );
+                return;
+            }
+            // Any outfit command clears the flag and falls through normally.
+            if (msg === "!wearing" || msg.startsWith("!wearing ") || msg === "!naked" || msg === "!same") {
+                player.awaitingOutfitChoice = false;
+            }
         }
 
         // Yes/No confirmation for pending !join
@@ -1256,7 +862,8 @@ export class StripDiceGame {
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
-        const msg = message.trim().toLowerCase();
+        message = this.stripOocParens(message);
+        const msg = message.toLowerCase();
 
         // Guided clothing Q&A (!wearing) is whisper-only — nudge the player
         // to whisper instead of silently dropping their yes/no.
@@ -1278,8 +885,16 @@ export class StripDiceGame {
             return;
         }
 
+        // Theme offer yes/no — accept from chat same as whisper (not sensitive).
+        if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
+            const accepted = msg === "!yes" || msg === "yes";
+            if (accepted) this.solo.acceptThemeOffer(memberNumber);
+            else this.solo.declineThemeOffer(memberNumber);
+            return;
+        }
+
         // Solo game setup clothing Q&A is whisper-only — same nudge.
-        if (this.pendingSoloSetup.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+        if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (The solo game is just between us.)");
             return;
         }
@@ -1287,14 +902,14 @@ export class StripDiceGame {
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so a roll typed in room chat (instead of whispered) still counts and
         // doesn't get silently swallowed by the multiplayer roll handler.
-        if (msg === "!roll" && this.soloGames.has(memberNumber)) {
-            this.handleSoloRoll(memberNumber);
+        if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.solo.hasGame(memberNumber)) {
+            this.solo.handleRoll(memberNumber);
             return;
         }
 
         // Solo item-removal confirmation, while waiting on it (see handleWhisper).
-        if (msg === "!removed" && this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (msg === "!removed" && this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
         }
 
@@ -1347,12 +962,6 @@ export class StripDiceGame {
     // ============================================================
     // COMMAND HANDLERS
     // ============================================================
-
-    // Extracts the major release number from a BC version string like "R108" or "R108Beta1".
-    private parseBCVersion(v: string): number {
-        const m = v.match(/R(\d+)/i);
-        return m ? parseInt(m[1], 10) : 0;
-    }
 
     // Returns true if the player's permissions allow the bot to apply items.
     // On any failure, whispers the player a specific remediation message and
@@ -1409,7 +1018,7 @@ export class StripDiceGame {
         }
 
         const gameInProgress = this.state !== GameState.Idle && this.state !== GameState.Registration && this.state !== GameState.Countdown;
-        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin;
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin || this.state === GameState.Paused;
 
         if (gameInProgress && (!this.allowMidGameJoin || !midGame)) {
             this.bot.whisper(memberNumber, "Sorry, a game is already in progress. Wait for the next round!");
@@ -1445,31 +1054,32 @@ export class StripDiceGame {
             if (!isNaN(n2)) { inlineMax = n2; }
         }
 
-        this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax });
+        this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax, toysConsent: true });
         this.bot.whisper(memberNumber,
-            `You may be bound at the end of the game if you lose everything — ${this.lockDurationMinutes} minutes is proposed, but the time can vary a bit (everyone locked gets a vote to nudge it up or down before it's applied). Do you understand? Reply **Yes** to join or **No** to cancel.`
+            `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end (everyone locked gets a small vote on the time). The winner may also add toys as a prize. ` +
+            `Reply **yes** to join with the full experience, **no toys** to join but skip the toys option, or **cancel** to pass.`
         );
     }
 
-    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null): void {
+    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, toysConsent: boolean = true): void {
         if (!this.checkPlayerPermissions(memberNumber, name)) {
             return;
         }
 
-        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin;
+        const midGame = this.state === GameState.Rolling || this.state === GameState.WaitingRemove || this.state === GameState.WaitingBondage || this.state === GameState.PausedForJoin || this.state === GameState.Paused;
 
         if (midGame && this.toysAllowed) {
             this.gateLateJoinOnToysConsent(memberNumber,
-                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame),
+                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent),
                 () => {} // declined — cancellation whisper already sent, don't add them as a player
             );
             return;
         }
 
-        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame);
+        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent);
     }
 
-    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean): void {
+    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean, toysConsent: boolean = true): void {
         const player: Player = {
             memberNumber,
             name,
@@ -1482,6 +1092,7 @@ export class StripDiceGame {
             missedSecondChance: false,
             ready: false,
             midGameJoin: midGame,
+            joinedAfterPregameStart: !midGame && this.pregameFlowStarted,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1492,14 +1103,16 @@ export class StripDiceGame {
             pendingPenaltySteps: 0,
             removalWarned: false,
             pendingRemovalKick: false,
-            toysConsent: null,
+            toysConsent: toysConsent,
+            prizeConsent: null,
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: null,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
 
@@ -1533,19 +1146,13 @@ export class StripDiceGame {
                     }
                     this.minPlayers = inlineMin;
                     this.maxPlayers = inlineMax;
-                    this.announceGameStart(name);
-                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
-                    if (onlyOneInRoom) {
-                        this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
-                    }
-                } else {
-                    this.awaitingMinMaxReply = true;
-                    const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
-                    let prompt = "How many players? Reply with min and max (e.g. '2 6') or just a number for both.";
-                    if (onlyOneInRoom) {
-                        prompt += "\n\nYou're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.";
-                    }
-                    this.bot.whisper(memberNumber, prompt);
+                }
+                // Always announce immediately — defaults are 2 min / 6 max.
+                // Use !players [min] [max] to adjust before the game starts.
+                this.announceGameStart(name);
+                const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
+                if (onlyOneInRoom) {
+                    this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
                 }
             } else {
                 this.bot.sendChat(`${name} has joined the game! (${this.players.size}/${this.maxPlayers})`);
@@ -1555,32 +1162,52 @@ export class StripDiceGame {
 
         const last = this.lastClothing.get(memberNumber);
         if (last && last.length > 0) {
+            player.awaitingOutfitChoice = true;
             this.bot.whisper(memberNumber,
-                `Welcome back to Strip Dice! 🎲\n` +
-                `Last time you wore: ${last.join(", ")}\n` +
-                `Whisper !same to use the same outfit, or:\n` +
-                `!wearing - go through your outfit one item at a time (yes/no)\n` +
-                `!wearing [items] to declare a new outfit directly\n` +
-                `!naked if you have nothing on\n` +
-                `Then whisper !ready when done.`
+                `Welcome back! 🎲 Last game you wore: ${last.join(", ")}.\n` +
+                `Same outfit this time? Reply **1** or **same** — or **2** or **new** to declare a different one.`
             );
         } else {
             this.bot.whisper(memberNumber,
                 `Welcome to Strip Dice! 🎲\n` +
                 `Whisper !wearing and I'll ask about your outfit one item at a time (yes/no).\n` +
-                `Or declare it all at once:\n` +
-                `!wearing shoes socks top bottom bra panties\n` +
-                `(only include items you actually have on)\n` +
-                `Examples:\n` +
-                `  !wearing shoes socks top bottom panties\n` +
-                `  !wearing shoes top bottom (no socks, no underwear)\n` +
-                `  !wearing shoes socks top bottom bra panties\n` +
+                `Or declare it all at once: !wearing shoes socks top bottom bra panties\n` +
                 `Or whisper !naked if you have nothing on.\n` +
+                `(Wrong clothing list? Whisper !clothes male or !clothes female to switch.)\n` +
                 `Whisper !ready when done.`
             );
         }
 
         if (!midGame) this.checkAllJoined();
+    }
+
+    // Pre-game host command: !players [min] [max] or !players [exact]
+    // Adjusts the player count for the current lobby without restarting it.
+    private handlePlayersCommand(memberNumber: number, message: string): void {
+        if (memberNumber !== this.hostMemberNumber) {
+            this.bot.whisper(memberNumber, "Only the game host can adjust the player count.");
+            return;
+        }
+        if (this.state !== GameState.Registration && this.state !== GameState.Countdown) {
+            this.bot.whisper(memberNumber, "Player count can only be adjusted before the game starts.");
+            return;
+        }
+        const parts = message.trim().replace(/^!players\s*/i, "").split(/\s+/);
+        const n1 = parseInt(parts[0], 10);
+        const n2 = parts.length >= 2 ? parseInt(parts[1], 10) : n1;
+        if (isNaN(n1)) {
+            this.bot.whisper(memberNumber, "Usage: !players [min] [max] — e.g. !players 2 6 or !players 4");
+            return;
+        }
+        const error = this.validateMinMax(n1, n2);
+        if (error) {
+            this.bot.whisper(memberNumber, `${error} Try again — e.g. !players 2 6`);
+            return;
+        }
+        this.minPlayers = n1;
+        this.maxPlayers = n2;
+        this.bot.sendChat(`Player count updated: ${n1 === n2 ? `exactly ${n1}` : `${n1}–${n2}`} players.`);
+        this.checkAllJoined();
     }
 
     private validateMinMax(min: number, max: number): string | null {
@@ -1593,7 +1220,7 @@ export class StripDiceGame {
 
     private announceGameStart(hostName: string): void {
         this.bot.sendChat(
-            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers}–${this.maxPlayers} players. Type !join to join!`
+            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers === this.maxPlayers ? `exactly ${this.minPlayers}` : `${this.minPlayers}–${this.maxPlayers}`} players. Type !join to join!`
         );
         this.bot.sendChat(
             `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
@@ -1652,6 +1279,7 @@ export class StripDiceGame {
             missedSecondChance: false,
             ready: true,
             midGameJoin: false,
+            joinedAfterPregameStart: false,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1663,26 +1291,33 @@ export class StripDiceGame {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            prizeConsent: null,
             bondageMode: null, // resolved right after registering, via askLateBondageMode below
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: null,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
         this.turnOrder.push(memberNumber);
 
         this.bot.sendChat(`${name} has joined the game naked — brave!`);
+        this.askLatePrizeConsent(player);
         this.askLateBondageMode(player);
     }
 
-    // Gate shared by both mid-game join paths (clothed mid-game join and the
-    // naked late join). If toys are allowed for the current game, asks the
-    // joiner to opt in before letting them in; otherwise lets them straight
-    // through. onDecline is only invoked for an explicit "no" or a timeout —
-    // the "removed from queue" whisper is sent here either way.
+    // Gate shared by both true mid-game join paths (clothed mid-game join and
+    // the naked late join) and by Registration-phase joiners who arrive after
+    // the original roster's own toys vote already resolved. If toys are
+    // allowed for the current game, asks the joiner to verify they're OK
+    // with it before letting them in; otherwise lets them straight through —
+    // this never re-opens the toys vote itself, just checks this one player
+    // against whatever the roster already decided. onDecline is only invoked
+    // for an explicit "no" or a timeout — the "removed from queue" whisper is
+    // sent here either way.
     private gateLateJoinOnToysConsent(memberNumber: number, onAccept: () => void, onDecline: () => void): void {
         if (!this.toysAllowed) {
             onAccept();
@@ -1799,6 +1434,7 @@ export class StripDiceGame {
             missedSecondChance: false,
             ready: false,
             midGameJoin: false,
+            joinedAfterPregameStart: false,
             clothingQuestionIndex: null,
             pendingClothing: [],
             bondageOutfit: null,
@@ -1810,13 +1446,15 @@ export class StripDiceGame {
             removalWarned: false,
             pendingRemovalKick: false,
             toysConsent: null,
+            prizeConsent: null,
             bondageMode: null,
             allowedSlots: [...TIER1_SLOT_GROUPS],
             appliedBondageItems: [],
-            lastLossSeq: 0,
+            lastLossSeq: this.lossSeqCounter, // stamp on entry = "just lost"; 0 at game start (roster equal), current back-of-line value for mid-game joiners so they can't instantly become the picker
             teamId: team,
             isGhost: false,
             pendingRemovalBaselineCount: null,
+            awaitingOutfitChoice: false,
         };
         this.players.set(memberNumber, player);
         this.teamRoster[team].push(memberNumber);
@@ -1865,7 +1503,25 @@ export class StripDiceGame {
             this.bot.whisper(memberNumber, `Teams aren't full yet — Team 1 needs ${need1} more, Team 2 needs ${need2} more.`);
             return;
         }
-        if (this.state !== GameState.Registration && this.state !== GameState.Countdown) {
+        if (this.state === GameState.Registration) {
+            // Tailored to the sender — telling an already-ready player to
+            // "whisper your clothing declaration" made them think their
+            // declaration hadn't registered (found live 2026-07-18).
+            const sender = this.players.get(memberNumber);
+            const others = [...this.players.values()]
+                .filter(p => !p.ready && p.memberNumber !== memberNumber)
+                .map(p => p.name);
+            if (sender && !sender.ready) {
+                const also = others.length > 0 ? ` (Also waiting on: ${others.join(", ")}.)` : "";
+                this.bot.whisper(memberNumber, `The game has already started — finish declaring your outfit and whisper !ready to join in!${also}`);
+            } else if (others.length > 0) {
+                this.bot.whisper(memberNumber, `The game has already started — waiting on ${others.join(", ")} to finish declaring.`);
+            } else {
+                this.bot.whisper(memberNumber, `Everyone's declared — the game should be starting shortly.`);
+            }
+            return;
+        }
+        if (this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No game is waiting to start.");
             return;
         }
@@ -1889,6 +1545,22 @@ export class StripDiceGame {
             return;
         }
 
+        if (this.state === GameState.TeamSetup) {
+            const isHost = memberNumber === this.hostMemberNumber;
+            if (!isHost && !this.isAdmin(memberNumber)) {
+                this.bot.whisper(memberNumber, "Only the person who started the team game (or an admin) can cancel it.");
+                return;
+            }
+            this.isTeamMode = false;
+            this.teamRoster = { 1: [], 2: [] };
+            this.awaitingTeamSizeReply = false;
+            this.hostMemberNumber = null;
+            this.players.clear();
+            this.state = GameState.Idle;
+            this.bot.sendChat(`Team game cancelled by ${this.getPlayerName(memberNumber)}. Type !join to start a new game, or !teamgame for another team game.`);
+            return;
+        }
+
         if (this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No countdown is currently running.");
             return;
@@ -1898,32 +1570,95 @@ export class StripDiceGame {
         this.bot.sendChat(`Countdown cancelled by ${this.getPlayerName(memberNumber)}. Waiting for more players. Whisper !start when ready.`);
     }
 
+    // Auto-detects a member's clothing-question path from BC's Pronouns
+    // appearance item — HeHim -> male, everything else (SheHer, TheyThem,
+    // missing data) -> female, the pre-existing default. Deliberately does
+    // NOT look at body/genital appearance items (e.g. the Pussy group's
+    // Name, which can be "Penis") since this game supports hermaphrodite
+    // characters — body data can't reliably imply which clothing list a
+    // player wants.
+    private detectClothingPath(memberNumber: number): ClothingPath {
+        const char = this.characterDataCache.get(memberNumber);
+        return extractPronouns(char) === "HeHim" ? "male" : "female";
+    }
+
+    // Resolves (and caches in clothingPathOverrides on first use) which
+    // clothing list/aliases a member's !wearing/!clothes/!solo flow uses.
+    // Keyed by memberNumber rather than Player so solo-only players (never
+    // in the multiplayer roster) get the same resolution/override behavior.
+    // Part of the GameHost contract so soloGame.ts can call it too.
+    public resolveClothingPath(memberNumber: number): ClothingPath {
+        let path = this.clothingPathOverrides.get(memberNumber);
+        if (!path) {
+            path = this.detectClothingPath(memberNumber);
+            this.clothingPathOverrides.set(memberNumber, path);
+        }
+        return path;
+    }
+
+    private handleClothes(memberNumber: number, message: string): void {
+        const arg = message.trim().toLowerCase().split(/\s+/)[1] ?? "";
+        if (arg !== "male" && arg !== "female") {
+            const current = this.resolveClothingPath(memberNumber);
+            this.bot.whisper(memberNumber,
+                `You're currently on the ${current} clothing list. Whisper !clothes male or !clothes female to switch.`
+            );
+            return;
+        }
+
+        this.clothingPathOverrides.set(memberNumber, arg);
+
+        // Lists differ in length/items between paths, so any in-progress
+        // multiplayer declaration is no longer valid — clear it and have
+        // them redeclare. Solo mode always starts fresh via !solo, so there's
+        // nothing to clear there.
+        const player = this.players.get(memberNumber);
+        if (player) {
+            player.clothing = [];
+            player.pendingClothing = [];
+            player.clothingQuestionIndex = null;
+            player.isNaked = false;
+            player.ready = false;
+        }
+
+        this.bot.whisper(memberNumber, `Switched to the ${arg} clothing list. Whisper !wearing to declare your outfit.`);
+    }
+
     private handleWearing(memberNumber: number, message: string): void {
         const player = this.requirePlayer(memberNumber);
         if (!player) return;
 
+        const path = this.resolveClothingPath(memberNumber);
+        const slots = clothingSlotsFor(path);
+        const aliases = clothingAliasesFor(path);
         const parts = message.trim().toLowerCase().split(/\s+/).slice(1);
         const declared: string[] = [];
 
+        const unrecognized: string[] = [];
         for (const part of parts) {
-            const normalized = CLOTHING_ALIASES[part] ?? part;
-            if (CLOTHING_SLOTS.includes(normalized) && !declared.includes(normalized)) {
-                declared.push(normalized);
+            const normalized = aliases[part] ?? part;
+            if (slots.includes(normalized)) {
+                if (!declared.includes(normalized)) declared.push(normalized);
+            } else {
+                unrecognized.push(part);
             }
         }
 
         if (declared.length === 0) {
-            this.bot.whisper(memberNumber, `No valid items found. Valid items are: ${CLOTHING_SLOTS.join(", ")}`);
+            this.bot.whisper(memberNumber, `No valid items found. Valid items are: ${slots.join(", ")}`);
             return;
         }
 
         // Sort by game order
-        player.clothing = CLOTHING_SLOTS.filter(slot => declared.includes(slot));
+        player.clothing = slots.filter(slot => declared.includes(slot));
         player.isNaked = false;
         player.ready = false;
         player.clothingQuestionIndex = null;
+        const unknownNote = unrecognized.length > 0
+            ? `\n⚠️ Didn't recognize: ${unrecognized.join(", ")} — whisper !wearing to go through it one item at a time.`
+            : "";
         this.bot.whisper(memberNumber,
-            `Got it! Your clothing list in order: ${player.clothing.join(", ")}.\n` +
+            `Got it! Your clothing list in order: ${player.clothing.join(", ")}.${unknownNote}\n` +
             `Whisper !ready when done, or !wearing again to change.`
         );
     }
@@ -1940,10 +1675,12 @@ export class StripDiceGame {
 
     private askClothingQuestion(memberNumber: number): void {
         const player = this.players.get(memberNumber)!;
+        const path = this.resolveClothingPath(memberNumber);
+        const slots = clothingSlotsFor(path);
         const idx = player.clothingQuestionIndex!;
 
-        if (idx >= CLOTHING_SLOTS.length) {
-            player.clothing = CLOTHING_SLOTS.filter(slot => player.pendingClothing.includes(slot));
+        if (idx >= slots.length) {
+            player.clothing = slots.filter(slot => player.pendingClothing.includes(slot));
             player.isNaked = player.clothing.length === 0;
             player.clothingQuestionIndex = null;
             if (player.clothing.length > 0) {
@@ -1957,13 +1694,19 @@ export class StripDiceGame {
             return;
         }
 
-        this.bot.whisper(memberNumber, `Do you have ${CLOTHING_SLOTS[idx]} on? (yes/no)`);
+        // Note which list we're on only for the first question — no need to
+        // repeat it every time.
+        const prefix = idx === 0
+            ? `You're on the ${path} clothing list (whisper !clothes male or !clothes female to switch). `
+            : "";
+        this.bot.whisper(memberNumber, `${prefix}Do you have ${slots[idx]} on? (yes/no)`);
     }
 
     private handleGuidedAnswer(memberNumber: number, msg: string): void {
         const player = this.players.get(memberNumber)!;
+        const slots = clothingSlotsFor(this.resolveClothingPath(memberNumber));
         const idx = player.clothingQuestionIndex!;
-        const item = CLOTHING_SLOTS[idx];
+        const item = slots[idx];
 
         if (msg === "yes" || msg === "y") {
             player.pendingClothing.push(item);
@@ -2006,6 +1749,18 @@ export class StripDiceGame {
         if (!player) return;
 
         if (player.clothing.length === 0 && !player.isNaked) {
+            if (player.clothingQuestionIndex !== null) {
+                // Mid-guided-flow, not just unstarted — "declare first" reads
+                // as "you haven't done anything yet" and pushes people to
+                // restart via !wearing, throwing away answers they already
+                // gave (found live 2026-07-18: this is exactly what happened
+                // — a player one question short of finishing had to redeclare
+                // their whole outfit from scratch). Re-ask the pending
+                // question instead so they know they're almost done.
+                this.bot.whisper(memberNumber, "You're still declaring your outfit — I still need your answer to this one:");
+                this.askClothingQuestion(memberNumber);
+                return;
+            }
             this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
             return;
         }
@@ -2028,6 +1783,7 @@ export class StripDiceGame {
             player.midGameJoin = false;
             this.turnOrder.push(memberNumber);
             this.bot.whisper(memberNumber, "You're ready! You've been added to the turn rotation.");
+            this.askLatePrizeConsent(player);
             this.askLateBondageMode(player);
 
             if (this.joinPauseActive.has(memberNumber)) {
@@ -2042,19 +1798,38 @@ export class StripDiceGame {
             return;
         }
 
-        if (this.lobbyOpen && this.hostMemberNumber !== null) {
-            if (memberNumber === this.hostMemberNumber) {
-                this.bot.whisper(memberNumber, "You're set! You can type !start whenever the others are ready.");
-            } else {
-                const readyCount = [...this.players.values()].filter(p => p.ready).length;
-                const totalCount = this.players.size;
-                this.bot.whisper(this.hostMemberNumber, `${player.name} is ready. (${readyCount}/${totalCount} ready)`);
-                this.bot.whisper(memberNumber, "You're ready! Waiting for others...");
-            }
-        } else {
-            this.bot.whisper(memberNumber, "You're ready! Waiting for other players...");
+        if (player.joinedAfterPregameStart) {
+            // Joined during Registration after the original roster's own
+            // toys/prize/bondage-mode Q&A already began (or resolved) — give
+            // them their own individual versions instead of folding them
+            // into a group question that's already moved on. Toys is a
+            // verify against the already-decided answer (or skipped
+            // outright if toys aren't part of this game); prize and
+            // bondage mode always ask.
+            player.joinedAfterPregameStart = false;
+            this.bot.sendChat(`${player.name} is ready!`);
+            this.gateLateJoinOnToysConsent(memberNumber,
+                () => {
+                    this.askLatePrizeConsent(player);
+                    this.askLateBondageMode(player);
+                },
+                () => {
+                    this.players.delete(memberNumber);
+                    this.bot.sendChat(`${player.name} declined the toy consent question and has been removed from the game.`);
+                }
+            );
+            return;
         }
-        this.bot.sendChat(`${player.name} is ready!`);
+
+        // One public line covers everyone: it confirms to the player, shows
+        // the host the count, and tells the room who's still pending. (This
+        // used to also send a personal whisper and a separate host whisper
+        // with the same info — three messages for one event. The old host tip
+        // "type !start whenever the others are ready" is gone on purpose:
+        // !start no longer does anything during Registration, the game
+        // proceeds automatically once everyone is ready.)
+        const readyCount = [...this.players.values()].filter(p => p.ready).length;
+        this.bot.sendChat(`${player.name} is ready! (${readyCount}/${this.players.size})`);
         if (this.players.size === 1) {
             this.bot.sendChat(
                 `Waiting for a second player to join — the game will start automatically when they do! Or type !solo to play solo right now.`
@@ -2063,8 +1838,8 @@ export class StripDiceGame {
         this.checkAllReady();
     }
 
-    private isAdmin(memberNumber: number): boolean {
-        return memberNumber === 208543 || memberNumber === 247062 || memberNumber === this.bot.getMemberNumber();
+    public isAdmin(memberNumber: number): boolean {
+        return secrets.adminMemberNumbers.includes(memberNumber) || memberNumber === this.bot.getMemberNumber();
     }
 
     // Looks up a player, whispering the standard "not joined" message and
@@ -2080,7 +1855,7 @@ export class StripDiceGame {
 
     // Whispers the standard "admin only" message and returns false if the
     // given member is not the game admin.
-    private requireAdmin(memberNumber: number): boolean {
+    public requireAdmin(memberNumber: number): boolean {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can use this command.");
             return false;
@@ -2088,9 +1863,20 @@ export class StripDiceGame {
         return true;
     }
 
+    // GameHost: whisper every admin who's currently in the room. Only reaches
+    // admins who are present — there's no queue for absent ones, since the
+    // point is a live heads-up, and anything missed is still in !feedback list.
+    public notifyAdminsInRoom(text: string, except?: number): void {
+        for (const admin of secrets.adminMemberNumbers) {
+            if (admin === except) continue;
+            if (!this.roomMembers.has(admin)) continue;
+            this.bot.whisper(admin, text);
+        }
+    }
+
     private handleDebugRoll(memberNumber: number, message: string): void {
         if (!this.requireAdmin(memberNumber)) return;
-        const gameActive = this.state !== GameState.Idle || this.soloGames.size > 0;
+        const gameActive = this.state !== GameState.Idle || this.solo.activeCount() > 0;
         if (!gameActive) {
             this.bot.whisper(memberNumber, "No game in progress.");
             return;
@@ -2122,6 +1908,10 @@ export class StripDiceGame {
     }
 
     private handleLockPreset(memberNumber: number, name: string, msg: string): void {
+        if (!this.isAdmin(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the game admin can change the lock duration.");
+            return;
+        }
         if (this.state === GameState.Rolling || this.state === GameState.WaitingRemove ||
             this.state === GameState.WaitingBondage || this.state === GameState.SafewordPause ||
             this.state === GameState.GameOver) {
@@ -2164,8 +1954,90 @@ export class StripDiceGame {
             removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
         }
 
+        // Clear prize state immediately on admin reset (don't wait for resetGame)
+        this.awaitingPrizeConsent = false;
+        if (this.prizeConsentTimer) { clearTimeout(this.prizeConsentTimer); this.prizeConsentTimer = null; }
+        this.prizeWillingPlayers.clear();
+        this.prizePasswords.clear();
+        this.lastWinners.clear();
+        if (this.pendingPrizeSwap) { clearTimeout(this.pendingPrizeSwap.timeout); this.pendingPrizeSwap = null; }
+
         this.bot.sendChat(`🛑 The game has been reset by an admin.`);
         this.resetGame();
+    }
+
+    // Lets winners retrieve lock passwords for willing prize players.
+    // Team mode: any winner claiming delivers ALL passwords to ALL winners at once.
+    // Solo mode: !claim lists prizes; !claim 1 2 delivers passwords by index.
+    private handleClaim(memberNumber: number, message: string): void {
+        if (!this.lastWinners.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "Only the most recent winner(s) can use !claim.");
+            return;
+        }
+
+        // Purge expired prizes, then filter to only what this winner can claim.
+        const now = Date.now();
+        for (const [mn, entry] of this.prizePasswords.entries()) {
+            if (now > entry.lockEndTime) this.prizePasswords.delete(mn);
+        }
+
+        const myPrizes = [...this.prizePasswords.entries()].filter(([, e]) => e.claimableBy.includes(memberNumber));
+
+        if (myPrizes.length === 0) {
+            this.bot.whisper(memberNumber, "No claimable prizes available — either no one opted in, their locks have expired, or you weren't the winner for that game.");
+            return;
+        }
+
+        // Team mode: deliver every password to every winner on this winner's team simultaneously.
+        if (this.isTeamMode) {
+            const winnerNames = [...this.lastWinners]
+                .filter(n => myPrizes.some(([, e]) => e.claimableBy.includes(n)))
+                .map(n => this.nameCache.get(n) ?? "a winner")
+                .join(", ");
+            const teamWinners = [...this.lastWinners].filter(n => myPrizes.some(([, e]) => e.claimableBy.includes(n)));
+            for (const winner of teamWinners) {
+                for (const [, { name, password }] of myPrizes) {
+                    this.bot.whisper(winner, `🔑 ${name}'s lock password: ${password}`);
+                }
+            }
+            for (const [prizeMemberNumber] of myPrizes) {
+                this.bot.whisper(prizeMemberNumber, `🔑 The winning team (${winnerNames}) has received your lock password.`);
+                this.prizePasswords.delete(prizeMemberNumber);
+            }
+            return;
+        }
+
+        // Solo mode: list or select by index.
+        const args = message.trim().replace(/^!claim\s*/i, "").trim();
+        const entries = myPrizes;
+
+        if (!args) {
+            const lines = entries.map(([, { name, lockEndTime }], i) => {
+                const minsLeft = Math.max(0, Math.ceil((lockEndTime - Date.now()) / 60000));
+                return `${i + 1}. ${name} (${minsLeft} min remaining)`;
+            }).join("\n");
+            this.bot.whisper(memberNumber, `🏆 Claimable prizes:\n${lines}\nWhisper !claim 1 (or !claim 1 2) to receive their password.`);
+            return;
+        }
+
+        const indices = args.split(/\s+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+        if (indices.length === 0) {
+            this.bot.whisper(memberNumber, "Usage: !claim (list) or !claim 1 2 (get passwords by number).");
+            return;
+        }
+
+        const winnerName = this.nameCache.get(memberNumber) ?? "the winner";
+        let anyInvalid = false;
+        for (const idx of indices) {
+            if (idx < 1 || idx > entries.length) { anyInvalid = true; continue; }
+            const [prizeMemberNumber, { name, password }] = entries[idx - 1];
+            this.bot.whisper(memberNumber, `🔑 ${name}'s lock password: ${password}`);
+            this.bot.whisper(prizeMemberNumber, `🔑 ${winnerName} has been given your lock password.`);
+            this.prizePasswords.delete(prizeMemberNumber);
+        }
+        if (anyInvalid) {
+            this.bot.whisper(memberNumber, `Invalid selection. There are ${entries.length} prize player(s).`);
+        }
     }
 
     private handleTestOutfit(memberNumber: number, message: string): void {
@@ -2331,6 +2203,7 @@ export class StripDiceGame {
         if (this.players.size === 1) {
             const winner = [...this.players.values()][0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Not enough players remain to continue.`);
+            this.finisherCount++; // winner counts as a finisher
             this.recordGameCompletion([winner.memberNumber]);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
             this.applyEndGameLocks([winner]);
@@ -2341,36 +2214,6 @@ export class StripDiceGame {
             this.currentDiceMax = STARTING_DICE_MAX;
             this.resolveCurrentTurn();
         }
-    }
-
-    private handleSetStatus(memberNumber: number, message: string): void {
-        if (!this.requireAdmin(memberNumber)) return;
-        const parts = message.trim().split(/\s+/);
-        const playerId = parts[1];
-        const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
-        const validStatuses: FeedbackItemStatus[] = ["reviewing", "testing", "researching", "implemented", "partly_implemented"];
-
-        if (!playerId || !/^\d+$/.test(playerId)) {
-            this.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
-            return;
-        }
-        if (!validStatuses.includes(status)) {
-            this.bot.whisper(memberNumber, `Invalid status. Valid statuses: ${validStatuses.join(", ")}`);
-            return;
-        }
-
-        const entry = this.feedbackStatus[playerId];
-        if (!entry || entry.items.length === 0) {
-            this.bot.whisper(memberNumber, `No feedback found for player #${playerId}.`);
-            return;
-        }
-
-        for (const item of entry.items) {
-            item.status = status;
-            item.statusShown = false;
-        }
-        this.saveFeedbackStatus();
-        this.bot.whisper(memberNumber, `Updated ${entry.items.length} feedback item(s) for ${entry.name} (#${playerId}) to "${status}".`);
     }
 
     private handleSafeword(memberNumber: number, name: string): void {
@@ -2566,39 +2409,61 @@ export class StripDiceGame {
     }
 
     // Handler for BC's native SafewordUsed event (ChatRoomMessage with Type "Action",
-    // Content matching the safeword pattern). Unlike !safeword (which pauses and asks
-    // other players if they want to continue), this immediately stops the game and
-    // removes bondage from ALL players — the non-negotiable emergency stop.
+    // Content matching the safeword pattern). Logs the event and notifies admins,
+    // then delegates to handleSafeword for the same game behavior as !safeword.
     public handleBCSafewordEvent(memberNumber: number, name: string): void {
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const timestamp = centralTimestamp();
         log(`SAFEWORD EVENT: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}`);
 
-        const line = `[${timestamp}] SAFEWORD EVENT: ${name} (#${memberNumber}) used their BC safeword. Game stopped. All bondage removed.\n`;
+        const line = `[${timestamp}] SAFEWORD EVENT: ${name} (#${memberNumber}) used their BC safeword.\n`;
         try {
             fs.appendFileSync(path.join(__dirname, "..", "feedback.log"), line, "utf8");
         } catch (err) {
             log("ERROR: Failed to write safeword event to feedback.log: " + err);
         }
 
-        this.bot.sendChat(`⚠️ ${name} has used their safeword. The game has been stopped. All bondage items will be removed.`);
-        this.bot.whisper(208543, `⚠️ SAFEWORD: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}. Game stopped, all bondage removal initiated.`);
-
-        this.clearCountdown();
-        this.clearTurnTimer();
-        this.clearSecondChanceTimer();
-        this.activeSecondChance = null;
-        this.secondChanceQueue = [];
-        this.logMultiplayerGameEnd("aborted", { logSuffix: `BC safeword by ${name}` });
-
-        let removalDelay = 0;
-        for (const player of this.players.values()) {
-            this.removeAllItems(player.memberNumber, removalDelay);
-            removalDelay += REMOVAL_SLOTS.length * REMOVAL_SLOT_DELAY_MS;
+        for (const adminNum of secrets.adminMemberNumbers) {
+            this.bot.whisper(adminNum, `⚠️ SAFEWORD: ${name} (#${memberNumber}) triggered BC safeword at ${timestamp}.`);
         }
 
-        this.resetGame();
+        this.handleSafeword(memberNumber, name);
+    }
+
+    private handlePause(memberNumber: number, name: string): void {
+        if (this.state !== GameState.Rolling && this.state !== GameState.WaitingRemove) {
+            this.bot.whisper(memberNumber, "The game can only be paused during an active turn.");
+            return;
+        }
+        this.clearTurnTimer();
+        this.prePauseState = this.state;
+        this.state = GameState.Paused;
+        this.bot.sendChat(`⏸️ ${name} has requested a quick pause. Type !resume when ready to continue.`);
+    }
+
+    private handleResume(memberNumber: number): void {
+        if (this.state !== GameState.Paused || this.prePauseState === null) {
+            this.bot.whisper(memberNumber, "No pause is active.");
+            return;
+        }
+
+        const wasState = this.prePauseState;
+        this.prePauseState = null;
+        this.state = wasState;
+        this.bot.sendChat(`▶️ Game resumed!`);
+
+        if (wasState === GameState.Rolling) {
+            this.announceCurrentTurn();
+            this.startTurnTimer();
+        } else if (wasState === GameState.WaitingRemove) {
+            const current = this.getCurrentPlayer();
+            if (current) {
+                const nextItem = current.clothing[current.clothingRemoved];
+                this.bot.sendChat(`${current.name}, please remove your ${nextItem ?? "item"} and type !removed when done.`);
+                this.startTurnTimer(20000);
+            }
+        }
     }
 
     private handleContinue(memberNumber: number): void {
@@ -2643,72 +2508,9 @@ export class StripDiceGame {
         );
     }
 
-    private handleFeedbackPrompt(memberNumber: number): void {
-        this.pendingFeedbackRequest.add(memberNumber);
-        this.bot.whisper(memberNumber, "What's your feedback? Go ahead and whisper it to me and I'll pass it along! 💬");
-    }
-
-    private handleFeedback(memberNumber: number, name: string, message: string): void {
-        const text = message.trim().slice("!feedback ".length).trim();
-        if (!text) {
-            this.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
-            return;
-        }
-
-        // Admin proxy: "!feedback <room member name> <text>" logs the feedback
-        // under that player's name/number instead of the admin's, after a
-        // yes/no confirmation. Falls through to normal behavior if the first
-        // word doesn't match anyone currently in the room.
-        if (this.isAdmin(memberNumber)) {
-            const spaceIdx = text.indexOf(" ");
-            if (spaceIdx !== -1) {
-                const firstWord = text.slice(0, spaceIdx);
-                const rest = text.slice(spaceIdx + 1).trim();
-                const target = rest ? this.matchRoomMemberByName(firstWord) : undefined;
-                if (target && target.memberNumber !== memberNumber) {
-                    this.startAdminFeedbackProxy(memberNumber, target, rest);
-                    return;
-                }
-            }
-        }
-
-        this.logFeedbackEntry(memberNumber, name, text);
-        this.bot.whisper(memberNumber, "Thank you for your feedback! 💬 We read everything and really appreciate it.");
-    }
-
-    // Appends a feedback.log line and updates feedback-tracking state for the
-    // given member/name. Shared by normal feedback submission and the admin
-    // proxy-feedback confirmation, which logs under the target player's
-    // identity rather than the submitting admin's.
-    private logFeedbackEntry(memberNumber: number, name: string, text: string): void {
-        const timestamp = centralTimestamp();
-        const line = `[${timestamp}] ${name} (#${memberNumber}): ${text}\n`;
-        const filePath = path.join(__dirname, "..", "feedback.log");
-        try {
-            fs.appendFileSync(filePath, line, "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write feedback.log: " + err);
-        }
-        log(`Feedback from ${name}: ${text}`);
-        this.feedbackMemberNumbers.add(memberNumber);
-
-        const key = String(memberNumber);
-        const entry = this.feedbackStatus[key] ?? { name, items: [] };
-        entry.name = name;
-        entry.items.push({ timestamp, text, status: "reviewing" });
-        this.feedbackStatus[key] = entry;
-        this.saveFeedbackStatus();
-
-        const playerRecord = this.playerRecords[key];
-        if (playerRecord && !playerRecord.feedbackGiven) {
-            playerRecord.feedbackGiven = true;
-            this.savePlayerRecords();
-        }
-    }
-
     // Finds a room member whose name matches the query, preferring an exact
     // (case-insensitive) name match and falling back to a prefix match.
-    private matchRoomMemberByName(query: string): { memberNumber: number; name: string } | undefined {
+    public matchRoomMemberByName(query: string): { memberNumber: number; name: string } | undefined {
         const lowerQuery = query.toLowerCase();
         let prefixMatch: { memberNumber: number; name: string } | undefined;
         for (const roomMemberNumber of this.roomMembers) {
@@ -2725,51 +2527,6 @@ export class StripDiceGame {
         return prefixMatch;
     }
 
-    // Starts (or restarts) the yes/no confirmation window for an admin's
-    // proxied feedback submission on behalf of a room member.
-    private startAdminFeedbackProxy(adminMemberNumber: number, target: { memberNumber: number; name: string }, text: string): void {
-        const existing = this.pendingAdminFeedbackProxy.get(adminMemberNumber);
-        if (existing) clearTimeout(existing.timeout);
-
-        const timeout = setTimeout(() => {
-            this.pendingAdminFeedbackProxy.delete(adminMemberNumber);
-            this.bot.whisper(adminMemberNumber, "Feedback proxy confirmation timed out — nothing was logged.");
-        }, ADMIN_FEEDBACK_PROXY_TIMEOUT_MS);
-
-        this.pendingAdminFeedbackProxy.set(adminMemberNumber, {
-            targetMemberNumber: target.memberNumber,
-            targetName: target.name,
-            text,
-            timeout,
-        });
-
-        this.bot.whisper(
-            adminMemberNumber,
-            `Did you mean to submit this feedback on behalf of **${target.name}**? Reply **yes** to confirm or **no** to cancel.`
-        );
-    }
-
-    // Yes/No confirmation for a pending admin proxy-feedback submission.
-    // Returns true if the message was consumed as a yes/no answer.
-    private tryHandleAdminFeedbackProxyYesNo(memberNumber: number, msg: string): boolean {
-        const pending = this.pendingAdminFeedbackProxy.get(memberNumber);
-        if (!pending) return false;
-        if (msg === "yes" || msg === "y") {
-            clearTimeout(pending.timeout);
-            this.pendingAdminFeedbackProxy.delete(memberNumber);
-            this.logFeedbackEntry(pending.targetMemberNumber, pending.targetName, pending.text);
-            this.bot.whisper(memberNumber, `Feedback logged on behalf of ${pending.targetName}.`);
-            return true;
-        }
-        if (msg === "no" || msg === "n") {
-            clearTimeout(pending.timeout);
-            this.pendingAdminFeedbackProxy.delete(memberNumber);
-            this.bot.whisper(memberNumber, "Feedback cancelled.");
-            return true;
-        }
-        return false;
-    }
-
     private handleOutfitSubmission(memberNumber: number, name: string, message: string): void {
         const description = message.trim().slice("!outfit ".length).trim();
         if (!description) {
@@ -2777,37 +2534,23 @@ export class StripDiceGame {
             return;
         }
 
-        const suggestions = this.loadOutfitSuggestions();
+        const suggestions = this.storage.loadOutfitSuggestions();
         suggestions.push({
             memberNumber,
             name,
             description,
             timestamp: centralTimestamp(),
         });
-
-        try {
-            fs.writeFileSync(this.outfitSuggestionsPath, JSON.stringify(suggestions, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write outfit_suggestions.json: " + err);
-        }
+        this.storage.saveOutfitSuggestions(suggestions);
 
         log(`Outfit submission from ${name}: ${description}`);
         this.bot.whisper(memberNumber, "Outfit submitted! It may appear as a penalty in a future game.");
     }
 
-    private loadOutfitSuggestions(): OutfitSuggestion[] {
-        try {
-            const raw = fs.readFileSync(this.outfitSuggestionsPath, "utf8");
-            return JSON.parse(raw);
-        } catch {
-            return [];
-        }
-    }
-
     private handleOutfitsList(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
 
-        const suggestions = this.loadOutfitSuggestions();
+        const suggestions = this.storage.loadOutfitSuggestions();
         if (suggestions.length === 0) {
             this.bot.whisper(memberNumber, "No outfit suggestions submitted yet.");
             return;
@@ -2821,589 +2564,8 @@ export class StripDiceGame {
     }
 
     // ============================================================
-    // SOLO GAME MODE
-    // ============================================================
-
-    private handleSoloStart(memberNumber: number, name: string, mode: SoloMode): void {
-        if (this.soloGames.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You already have a solo game in progress — !roll to continue.");
-            return;
-        }
-        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingQuestionIndex: 0, pendingClothing: [] });
-        this.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
-        this.askSoloClothingQuestion(memberNumber);
-    }
-
-    private askSoloClothingQuestion(memberNumber: number): void {
-        const pending = this.pendingSoloSetup.get(memberNumber)!;
-        const idx = pending.clothingQuestionIndex;
-
-        if (idx >= CLOTHING_SLOTS.length) {
-            const clothing = CLOTHING_SLOTS.filter(slot => pending.pendingClothing.includes(slot));
-            if (clothing.length < SOLO_BRACKET_MIN) {
-                this.bot.whisper(memberNumber, `You need at least ${SOLO_BRACKET_MIN} items to start — let's try again.`);
-                pending.clothingQuestionIndex = 0;
-                pending.pendingClothing = [];
-                this.askSoloClothingQuestion(memberNumber);
-                return;
-            }
-            this.startSoloGame(memberNumber, pending.mode, pending.name, clothing);
-            return;
-        }
-
-        this.bot.whisper(memberNumber, `Wearing ${CLOTHING_SLOTS[idx]}? (yes/no)`);
-    }
-
-    private handleSoloClothingAnswer(memberNumber: number, msg: string): void {
-        const pending = this.pendingSoloSetup.get(memberNumber)!;
-        const idx = pending.clothingQuestionIndex;
-        const item = CLOTHING_SLOTS[idx];
-
-        if (msg === "yes" || msg === "y") {
-            pending.pendingClothing.push(item);
-        }
-
-        pending.clothingQuestionIndex = idx + 1;
-        this.askSoloClothingQuestion(memberNumber);
-    }
-
-    private startSoloGame(memberNumber: number, mode: SoloMode, name: string, clothing: string[]): void {
-        this.pendingSoloSetup.delete(memberNumber);
-
-        const bracket = clothing.length;
-        const solo: SoloGameState = {
-            memberNumber,
-            name,
-            mode,
-            bracket,
-            currentMax: SOLO_DICE_MAX,
-            totalRolls: 0,
-            rollsThisItem: 0,
-            clothingRemaining: clothing,
-            clothingLost: [],
-            startTime: new Date().toISOString(),
-            awaitingRemoval: false,
-            inactivityTimer: null,
-        };
-        this.soloGames.set(memberNumber, solo);
-        this.writeBotState();
-        logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
-
-        this.bot.sendChat(`🎲 ${name} is playing a solo game — good luck!`);
-
-        const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
-        const objective = mode === "race"
-            ? "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — fewest total rolls wins."
-            : "Each roll's result becomes your next roll's max. Hit a 1 and you lose an item — most total rolls before you're naked wins.";
-
-        this.bot.whisper(memberNumber,
-            `🎲 ${modeLabel} — starting with ${bracket} item${bracket === 1 ? "" : "s"}: ${clothing.join(", ")}.\n` +
-            `${objective}\n` +
-            `This is just between us.`
-        );
-        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    private handleSoloRoll(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-
-        this.clearSoloInactivityTimer(solo);
-
-        if (solo.awaitingRemoval) {
-            const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-            this.bot.whisper(memberNumber, `⏸️ Remove your ${lostItem}.`);
-            this.startSoloInactivityTimer(memberNumber);
-            return;
-        }
-
-        let roll: number;
-        if (this.debugNextRoll !== null) {
-            roll = this.debugNextRoll;
-            this.debugNextRoll = null;
-        } else {
-            roll = Math.floor(Math.random() * solo.currentMax) + 1;
-        }
-        solo.totalRolls++;
-        solo.rollsThisItem++;
-
-        if (roll === 1) {
-            const lostItem = solo.clothingRemaining.shift()!;
-            solo.clothingLost.push(lostItem);
-
-            this.bot.whisper(memberNumber,
-                `You rolled a 1 — lost your ${lostItem}! (${solo.rollsThisItem} roll${solo.rollsThisItem === 1 ? "" : "s"} for that item, ${solo.totalRolls} total)`
-            );
-
-            solo.awaitingRemoval = true;
-            this.bot.whisper(memberNumber, `Remove your ${lostItem}.`);
-            this.startSoloInactivityTimer(memberNumber);
-            return;
-        }
-
-        solo.currentMax = roll;
-        this.bot.whisper(memberNumber, `You are now at ${roll} — !roll again.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    // Called once the player confirms (whispered !removed, or closed their
-    // Wardrobe) that the item they just lost is off.
-    private handleSoloRemoved(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo || !solo.awaitingRemoval) return;
-
-        this.clearSoloInactivityTimer(solo);
-        solo.awaitingRemoval = false;
-
-        if (solo.clothingRemaining.length === 0) {
-            this.finishSoloGame(memberNumber);
-            return;
-        }
-
-        solo.currentMax = SOLO_DICE_MAX;
-        solo.rollsThisItem = 0;
-        this.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
-        this.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
-        this.startSoloInactivityTimer(memberNumber);
-    }
-
-    // Soft nudge if the player goes quiet after a prompt. Does not end the
-    // game; resets whenever the player acts. While awaiting a clothing
-    // removal, we wait for the Wardrobe-close event (handleWardrobe) rather
-    // than rushing the player, only mentioning !removed as a fallback if
-    // SOLO_REMOVAL_REMINDER_MS passes with no Wardrobe activity — then keeps
-    // re-reminding every interval until they act.
-    private startSoloInactivityTimer(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-
-        this.clearSoloInactivityTimer(solo);
-        if (solo.awaitingRemoval) {
-            solo.inactivityTimer = setTimeout(() => {
-                solo.inactivityTimer = null;
-                const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-                this.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed if you have already removed them to continue.`);
-                this.startSoloInactivityTimer(memberNumber);
-            }, SOLO_REMOVAL_REMINDER_MS);
-        } else {
-            solo.inactivityTimer = setTimeout(() => {
-                solo.inactivityTimer = null;
-                this.bot.whisper(memberNumber, "Whenever you're ready — type !roll to continue.");
-            }, SOLO_INACTIVITY_TIMEOUT_MS);
-        }
-    }
-
-    private clearSoloInactivityTimer(solo: SoloGameState): void {
-        if (solo.inactivityTimer) {
-            clearTimeout(solo.inactivityTimer);
-            solo.inactivityTimer = null;
-        }
-    }
-
-    // Returns true if `score` beats `current` (or the hardcoded default target
-    // if no record exists yet). For "race", fewer rolls is better; for
-    // "survive", more rolls is better.
-    private isSoloRecordBeat(mode: SoloMode, score: number, current: SoloRecordEntry | undefined): boolean {
-        const target = current ? current.rolls : SOLO_DEFAULT_TARGET;
-        return mode === "race" ? score < target : score > target;
-    }
-
-    private finishSoloGame(memberNumber: number): void {
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-        this.clearSoloInactivityTimer(solo);
-        this.soloGames.delete(memberNumber);
-        this.writeBotState();
-
-        const records = this.loadSoloRecords();
-        const bracketKey = String(solo.bracket);
-        const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
-        const dailyRecord = records.daily[solo.mode][bracketKey];
-        const allTimeRecord = records.allTime[solo.mode][bracketKey];
-        const score = solo.totalRolls;
-        const endTime = new Date().toISOString();
-        const players = [`${solo.name}(#${memberNumber})`];
-
-        this.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
-
-        const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
-
-        // No all-time record yet for this mode/bracket: this run sets it (and
-        // the daily record) penalty-free — the first player to finish in a
-        // bracket always gets a free run, since there's no record to beat.
-        if (!allTimeRecord) {
-            records.daily[solo.mode][bracketKey] = entry;
-            records.allTime[solo.mode][bracketKey] = entry;
-            this.bot.whisper(memberNumber, `🏆 You set the all-time record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls! No penalty for being first.`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        if (this.isSoloRecordBeat(solo.mode, score, allTimeRecord)) {
-            records.daily[solo.mode][bracketKey] = entry;
-            records.allTime[solo.mode][bracketKey] = entry;
-            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
-            this.bot.sendChat(`🏆 That's also a new ALL-TIME record for ${modeLabel} (${solo.bracket}-item bracket)!`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        // All-time record stands, but no daily record yet today (or this run
-        // beats today's daily record): set/keep the daily record, no penalty.
-        if (!dailyRecord || this.isSoloRecordBeat(solo.mode, score, dailyRecord)) {
-            records.daily[solo.mode][bracketKey] = entry;
-            this.bot.sendChat(`🎲 ${solo.name} set a new daily record for ${modeLabel} (${solo.bracket}-item bracket) — ${score} rolls!`);
-
-            logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: record-beaten`);
-            this.appendGameLog({
-                type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-                players, outcome: "record-beaten", score,
-            });
-
-            this.incrementGameCount("solo_strip");
-            this.removeAllItems(memberNumber);
-            this.saveSoloRecords(records);
-            return;
-        }
-
-        const recordRolls = dailyRecord.rolls;
-        this.bot.whisper(memberNumber, `You didn't beat the record (${recordRolls} rolls). Better luck next time!`);
-
-        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
-        setTimeout(() => {
-            this.applySoloPenalty(memberNumber, penaltyMinutes);
-        }, SOLO_BONDAGE_DELAY_MS);
-
-        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: loss | penalty: ${penaltyMinutes}min`);
-        this.appendGameLog({
-            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime,
-            players, outcome: "loss", score, penaltyMin: penaltyMinutes,
-        });
-
-        this.incrementGameCount("solo_bondage");
-        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
-        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
-        this.saveSoloRecords(records);
-    }
-
-    // Applies a random eligible bondage outfit (or just its first `itemCap`
-    // items, for partial bondage when a player leaves mid-run) locked for
-    // `penaltyMinutes`.
-    private applySoloPenalty(memberNumber: number, penaltyMinutes: number, itemCap?: number): void {
-        const pool = this.getEligibleOutfits(memberNumber);
-        if (pool.length === 0) return;
-
-        const outfit = pool[Math.floor(Math.random() * pool.length)];
-        const items = itemCap !== undefined ? outfit.items.slice(0, itemCap) : outfit.items;
-        if (items.length === 0) return;
-
-        const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
-        const name = this.nameCache.get(memberNumber) ?? `#${memberNumber}`;
-
-        items.forEach((item, i) => {
-            setTimeout(() => {
-                this.bot.applyItem(memberNumber, item.group, item.name, item.color, item.property);
-
-                setTimeout(() => {
-                    this.bot.applyItem(
-                        memberNumber,
-                        item.group,
-                        item.name,
-                        item.color,
-                        this.buildLockedItemProperty(item, {
-                            hint: `Released in ${penaltyMinutes} minutes`,
-                            removeItem: true,
-                            showTimer: true,
-                            removeTimer: lockEndTime
-                        })
-                    );
-                }, REMOVAL_UNLOCK_GAP_MS);
-            }, i * REMOVAL_SLOT_DELAY_MS);
-        });
-
-        // Phase 1 (apply) finishes once the last item's lock step has fired.
-        const phase1CompleteDelay = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS;
-
-        // Phase 2: after everything is locked, verify each lock using the same
-        // silence=success / ChatRoomSyncSingle=rejection model as end-game locks.
-        let lastVerifyDelay = 0;
-        items.forEach((item, i) => {
-            const verifyDelay = phase1CompleteDelay + i * REMOVAL_SLOT_DELAY_MS;
-            lastVerifyDelay = verifyDelay;
-            setTimeout(() => {
-                this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, 0);
-            }, verifyDelay);
-        });
-
-        // The "penalty applied" whisper waits until the full verify pass
-        // (including any retries' own verify windows) has had time to land.
-        const allVerificationsCompleteDelay = lastVerifyDelay + LOCK_VERIFY_DELAY_MS;
-        setTimeout(() => {
-            this.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
-        }, allVerificationsCompleteDelay);
-    }
-
-    // Re-applies one solo penalty lock item and starts its verification window.
-    private applySoloLockItem(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
-        this.bot.applyItem(
-            memberNumber,
-            item.group,
-            item.name,
-            item.color,
-            this.buildLockedItemProperty(item, {
-                hint: `Released in ${penaltyMinutes} minutes`,
-                removeItem: true,
-                showTimer: true,
-                removeTimer: lockEndTime
-            })
-        );
-        this.verifySoloLockApplied(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt);
-    }
-
-    // Same silence=success / ChatRoomSyncSingle=rejection model as
-    // verifyEndGameLockApplied(), applied to solo penalty locks.
-    private verifySoloLockApplied(memberNumber: number, name: string, item: BondageItem, lockEndTime: number, penaltyMinutes: number, attempt: number): void {
-        const key = `${memberNumber}:${item.group}`;
-
-        const existing = this.pendingLockApplyChecks.get(key);
-        if (existing) this.pendingLockApplyChecks.delete(key);
-
-        const finish = (rejected: boolean) => {
-            if (!this.pendingLockApplyChecks.has(key)) return;
-            this.pendingLockApplyChecks.delete(key);
-
-            if (!rejected) {
-                log(`Solo lock verification: ${name} (#${memberNumber}) ${item.group}/${item.name} confirmed (no rejection received).`);
-                return;
-            }
-
-            log(`Solo lock verification: BC rejected lock for ${name} (#${memberNumber}) on ${item.group}/${item.name} (attempt ${attempt}/${MAX_END_GAME_LOCK_RETRIES}).`);
-
-            if (attempt >= MAX_END_GAME_LOCK_RETRIES) {
-                log(`SOLO LOCK VERIFY FAILED: giving up on ${name} (#${memberNumber}) ${item.group}/${item.name} after ${attempt} attempts`);
-                this.bot.whisper(memberNumber, "⚠️ One or more locks may not have applied correctly — please check your items.");
-                return;
-            }
-
-            const retry = () => this.applySoloLockItem(memberNumber, name, item, lockEndTime, penaltyMinutes, attempt + 1);
-            if (this.bot.isReconnecting()) {
-                log(`Reconnect in progress — delaying solo lock retry for ${name} (#${memberNumber}) ${item.group}/${item.name} until reconnected.`);
-                this.bot.onceConnected(retry);
-            } else {
-                retry();
-            }
-        };
-
-        this.pendingLockApplyChecks.set(key, { itemName: item.name, onResult: finish });
-        setTimeout(() => finish(false), LOCK_VERIFY_DELAY_MS);
-    }
-
-    // Called when a player leaves the room mid-run. Discards their solo game
-    // state, applying partial bondage (one item per clothing item already
-    // lost) if they'd made any progress.
-    private cleanupSoloOnLeave(memberNumber: number): void {
-        this.pendingSoloSetup.delete(memberNumber);
-
-        const solo = this.soloGames.get(memberNumber);
-        if (!solo) return;
-        this.clearSoloInactivityTimer(solo);
-        this.soloGames.delete(memberNumber);
-        this.writeBotState();
-
-        logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | outcome: abandoned`);
-        this.appendGameLog({
-            type: "solo", mode: solo.mode, startTime: solo.startTime, endTime: new Date().toISOString(),
-            players: [`${solo.name}(#${memberNumber})`], outcome: "abandoned",
-        });
-
-        const clothingRemoved = solo.clothingLost.length;
-        if (clothingRemoved <= 0) return;
-
-        const records = this.loadSoloRecords();
-        const bracketKey = String(solo.bracket);
-        const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
-
-        this.applySoloPenalty(memberNumber, penaltyMinutes, clothingRemoved);
-
-        if (!records.attempts[solo.mode][bracketKey]) records.attempts[solo.mode][bracketKey] = {};
-        records.attempts[solo.mode][bracketKey][String(memberNumber)] = attemptsToday + 1;
-        this.saveSoloRecords(records);
-    }
-
-    // Admin command: !solo_reset [player name]. With no name, lists all
-    // active solo games. With a name, discards that player's solo game with
-    // no penalty (e.g. to clear a stuck/buggy run).
-    private handleSoloReset(memberNumber: number, message: string): void {
-        if (!this.requireAdmin(memberNumber)) return;
-
-        const requested = message.trim().slice("!solo_reset".length).trim();
-
-        if (!requested) {
-            if (this.soloGames.size === 0) {
-                this.bot.whisper(memberNumber, "No solo games are currently active.");
-                return;
-            }
-            const lines = [...this.soloGames.values()].map(solo => {
-                const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
-                return `${solo.name} (#${solo.memberNumber}) - ${modeLabel}, ${solo.bracket}-item bracket, ${solo.clothingLost.length}/${solo.bracket} lost, ${solo.totalRolls} rolls so far`;
-            });
-            this.sendLongWhisper(memberNumber, `=== Active Solo Games ===\n${lines.join("\n")}\nUsage: !solo_reset [player name] to reset one.`);
-            return;
-        }
-
-        const target = [...this.soloGames.values()].find(s => s.name.toLowerCase().includes(requested.toLowerCase()));
-        if (!target) {
-            this.bot.whisper(memberNumber, `No active solo game found matching "${requested}".`);
-            return;
-        }
-
-        this.clearSoloInactivityTimer(target);
-        this.soloGames.delete(target.memberNumber);
-        this.pendingSoloSetup.delete(target.memberNumber);
-        this.writeBotState();
-
-        logGameEvent(`[SOLO END] mode: ${target.mode} | bracket: ${target.bracket} | player: ${target.name} | outcome: admin-reset`);
-        this.appendGameLog({
-            type: "solo", mode: target.mode, startTime: target.startTime, endTime: new Date().toISOString(),
-            players: [`${target.name}(#${target.memberNumber})`], outcome: "admin-reset",
-        });
-
-        this.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
-        this.bot.whisper(target.memberNumber, "An admin reset your solo game — !solo race or !solo survive to start a new one.");
-    }
-
-    private loadSoloRecords(): SoloRecordsData {
-        let data: SoloRecordsData;
-        try {
-            const raw = fs.readFileSync(this.soloRecordsPath, "utf8");
-            data = JSON.parse(raw);
-        } catch {
-            data = emptySoloRecordsData();
-        }
-
-        const today = utcDateString();
-        if (data.date !== today) {
-            data.date = today;
-            data.daily = { race: {}, survive: {} };
-            data.attempts = { race: {}, survive: {} };
-        }
-
-        return data;
-    }
-
-    private saveSoloRecords(data: SoloRecordsData): void {
-        try {
-            fs.writeFileSync(this.soloRecordsPath, JSON.stringify(data, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write solo_records.json: " + err);
-        }
-    }
-
-    // ============================================================
     // GAME ACTIVITY LOGGING
     // ============================================================
-
-    // Appends one NDJSON line to game_log.json for a completed game (multiplayer or solo).
-    private appendGameLog(entry: GameLogEntry): void {
-        try {
-            fs.appendFileSync(this.gameLogPath, JSON.stringify(entry) + "\n", "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write game_log.json: " + err);
-        }
-    }
-
-    // Drops game_log.json entries older than 30 days. Called once on startup.
-    private pruneGameLog(): void {
-        try {
-            if (!fs.existsSync(this.gameLogPath)) return;
-            const raw = fs.readFileSync(this.gameLogPath, "utf8");
-            const cutoff = Date.now() - GAME_LOG_RETENTION_MS;
-
-            const kept = raw.split("\n")
-                .filter(line => line.trim().length > 0)
-                .filter(line => {
-                    try {
-                        const entry: GameLogEntry = JSON.parse(line);
-                        return new Date(entry.endTime).getTime() >= cutoff;
-                    } catch {
-                        return false;
-                    }
-                });
-
-            fs.writeFileSync(this.gameLogPath, kept.map(line => line + "\n").join(""), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to prune game_log.json: " + err);
-        }
-    }
-
-    // Writes a small status snapshot read by external monitoring tools.
-    private writeBotState(): void {
-        const state = {
-            activeMultiplayer: this.activeMultiplayer,
-            activeSoloCount: this.soloGames.size,
-            lastUpdated: new Date().toISOString(),
-        };
-        try {
-            fs.writeFileSync(this.botStatePath, JSON.stringify(state, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write bot_state.json: " + err);
-        }
-    }
-
-    private loadGameCounts(): { multiplayer: number; solo_strip: number; solo_bondage: number; aborted: number; toysDeclineCount: number; lastUpdated: string } {
-        try {
-            const raw = fs.readFileSync(this.gameCountsPath, "utf8");
-            return JSON.parse(raw);
-        } catch {
-            return { multiplayer: 0, solo_strip: 0, solo_bondage: 0, aborted: 0, toysDeclineCount: 0, lastUpdated: new Date().toISOString() };
-        }
-    }
-
-    private incrementGameCount(type: "multiplayer" | "solo_strip" | "solo_bondage" | "aborted"): void {
-        const counts = this.loadGameCounts();
-        counts[type]++;
-        counts.lastUpdated = new Date().toISOString();
-        try {
-            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write game_counts.json: ${err}`);
-        }
-    }
-
-    // Running total across all games of explicit "no" answers to the toys
-    // consent question (late-join timeouts/declines are NOT counted here —
-    // only players who actually answered "no").
-    private incrementToysDeclineCount(): void {
-        const counts = this.loadGameCounts();
-        counts.toysDeclineCount = (counts.toysDeclineCount ?? 0) + 1;
-        counts.lastUpdated = new Date().toISOString();
-        try {
-            fs.writeFileSync(this.gameCountsPath, JSON.stringify(counts, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write game_counts.json: ${err}`);
-        }
-    }
 
     // Logs a "[GAME END] multiplayer" line plus a game_log.json entry, and
     // marks this game's end as logged so resetGame() doesn't log it again
@@ -3412,7 +2574,8 @@ export class StripDiceGame {
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
         const outcomeLabel = options?.logSuffix ? `${outcome} (${options.logSuffix})` : outcome;
         const winnerPart = options?.winner ? ` | winner: ${options.winner}` : "";
-        logGameEvent(`[GAME END] multiplayer | outcome: ${outcomeLabel}${winnerPart} | players: ${playerNames}`);
+        const teamTag = this.isTeamMode ? ` | team: ${this.teamSize}v${this.teamSize}` : "";
+        logGameEvent(`[GAME END] multiplayer${teamTag} | outcome: ${outcomeLabel}${winnerPart} | players: ${playerNames}`);
 
         const entry: GameLogEntry = {
             type: "multiplayer",
@@ -3423,7 +2586,11 @@ export class StripDiceGame {
             outcome,
         };
         if (options?.winner) entry.winner = options.winner;
-        this.appendGameLog(entry);
+        if (this.isTeamMode) {
+            entry.isTeamMode = true;
+            entry.teamSize = this.teamSize;
+        }
+        this.storage.appendGameLog(entry);
         this.gameEndLogged = true;
 
         if (outcome === "win" || outcome === "all-bound") {
@@ -3431,79 +2598,24 @@ export class StripDiceGame {
         }
 
         if (outcome === "win" || outcome === "all-bound") {
-            this.incrementGameCount("multiplayer");
+            if (this.isTeamMode) {
+                this.storage.incrementGameCount(this.teamSize === 3 ? "team_3v3" : "team_2v2");
+            } else {
+                this.storage.incrementGameCount("multiplayer");
+            }
+            // A finished game is the best moment to ask what someone thought.
+            // Random per player, so nobody gets nudged every single round.
+            for (const player of this.players.values()) {
+                this.feedback.maybeSuggestFeedback(player.memberNumber);
+            }
         } else {
-            this.incrementGameCount("aborted");
+            this.storage.incrementGameCount("aborted");
         }
     }
 
     // ============================================================
     // SCORES & LEADERBOARDS
     // ============================================================
-
-    private formatSoloScoreLine(records: SoloRecordsData, mode: SoloMode, bracket: number): string {
-        const bracketKey = String(bracket);
-        const daily = records.daily[mode][bracketKey];
-        const allTime = records.allTime[mode][bracketKey];
-        const dailyStr = daily ? `${daily.name} ${daily.rolls} rolls` : "—";
-        const allTimeStr = allTime ? `${allTime.name} ${allTime.rolls} rolls` : "—";
-        return `${bracket} items: ${dailyStr} | ${allTimeStr}`;
-    }
-
-    private handleScores(memberNumber: number, filter?: SoloMode): void {
-        const records = this.loadSoloRecords();
-        const lines: string[] = [];
-
-        if (!filter || filter === "race") {
-            lines.push("🎲 Race to Naked (daily | all-time)");
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                lines.push(this.formatSoloScoreLine(records, "race", b));
-            }
-        }
-        if (!filter || filter === "survive") {
-            lines.push("🧦 Survive (daily | all-time)");
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                lines.push(this.formatSoloScoreLine(records, "survive", b));
-            }
-        }
-        lines.push("Type !scores me for your personal stats.");
-
-        this.sendLongWhisper(memberNumber, lines.join("\n"));
-    }
-
-    private handleScoresMe(memberNumber: number): void {
-        const records = this.loadSoloRecords();
-        const name = this.getPlayerName(memberNumber);
-        const lines: string[] = [`=== Your Solo Stats, ${name} ===`];
-
-        for (const mode of ["race", "survive"] as SoloMode[]) {
-            const modeLabel = mode === "race" ? "Race to Naked" : "Survive";
-            for (let b = SOLO_BRACKET_MIN; b <= SOLO_BRACKET_MAX; b++) {
-                const bracketKey = String(b);
-                const daily = records.daily[mode][bracketKey];
-                const allTime = records.allTime[mode][bracketKey];
-                const isDailyMe = daily?.memberNumber === memberNumber;
-                const isAllTimeMe = allTime?.memberNumber === memberNumber;
-                const attempts = records.attempts[mode][bracketKey]?.[String(memberNumber)] ?? 0;
-
-                if (!isDailyMe && !isAllTimeMe && attempts === 0) continue;
-
-                const parts: string[] = [];
-                if (isAllTimeMe) parts.push(`all-time best ${allTime!.rolls} rolls`);
-                if (isDailyMe && !(isAllTimeMe && daily!.rolls === allTime!.rolls)) parts.push(`today's best ${daily!.rolls} rolls`);
-                if (parts.length > 0) lines.push(`${modeLabel} (${b} items): ${parts.join(", ")}`);
-
-                if (attempts > 0) {
-                    const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attempts;
-                    lines.push(`  Attempts today: ${attempts} (next penalty if you don't beat the record: ${penaltyMinutes} min)`);
-                }
-            }
-        }
-
-        if (lines.length === 1) lines.push("No personal records yet — try !solo race or !solo survive!");
-
-        this.sendLongWhisper(memberNumber, lines.join("\n"));
-    }
 
     private handleLeaderboard(memberNumber: number): void {
         const records = Object.values(this.playerRecords);
@@ -3533,72 +2645,9 @@ export class StripDiceGame {
         this.sendLongWhisper(memberNumber, lines.join("\n"));
     }
 
-    // ============================================================
-    // FEEDBACK STATUS NOTIFICATIONS
-    // ============================================================
-
-    private loadFeedbackStatus(): void {
-        try {
-            const raw = fs.readFileSync(this.feedbackStatusPath, "utf8");
-            this.feedbackStatus = JSON.parse(raw);
-        } catch {
-            this.feedbackStatus = {};
-        }
-    }
-
-    private saveFeedbackStatus(): void {
-        try {
-            fs.writeFileSync(this.feedbackStatusPath, JSON.stringify(this.feedbackStatus, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write feedback_status.json: " + err);
-        }
-    }
-
-    private notifyFeedbackStatus(memberNumber: number, name: string): void {
-        if (this.feedbackNotified.has(memberNumber)) return;
-        const entry = this.feedbackStatus[String(memberNumber)];
-        if (!entry || entry.items.length === 0) return;
-        this.feedbackNotified.add(memberNumber);
-
-        let changed = false;
-
-        const resolvedToShow = entry.items.filter(item =>
-            RESOLVED_FEEDBACK_STATUSES.has(item.status) && !item.statusShown
-        );
-        if (resolvedToShow.length > 0) {
-            const lines = resolvedToShow.map((item, i) =>
-                `${i + 1}. "${item.text}" — ${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}`
-            );
-            this.sendLongWhisper(memberNumber,
-                `Hi ${name}! Here's an update on the feedback you've sent us:\n` +
-                lines.join("\n") +
-                `\n\nThanks for helping us improve the game! 💕`
-            );
-            for (const item of resolvedToShow) {
-                item.statusShown = true;
-            }
-            changed = true;
-        }
-
-        const reviewingItems = entry.items.filter(item => REVIEWING_FEEDBACK_STATUSES.has(item.status));
-        if (reviewingItems.length > 0) {
-            const ackDate = entry.reviewingAckDate ? new Date(entry.reviewingAckDate) : null;
-            const hasNewSinceAck = reviewingItems.some(item => !ackDate || new Date(item.timestamp) > ackDate);
-            if (hasNewSinceAck) {
-                this.sendLongWhisper(memberNumber,
-                    `Hi ${name}! We've received your feedback and are reviewing it. We'll let you know when there's an update!`
-                );
-                entry.reviewingAckDate = new Date().toISOString();
-                changed = true;
-            }
-        }
-
-        if (changed) this.saveFeedbackStatus();
-    }
-
     // Whispers tend to get silently dropped by the BC server if they exceed
     // its max chat message length, so split long messages on line boundaries.
-    private sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
+    public sendLongWhisper(memberNumber: number, text: string, maxLen: number = 900): void {
         if (text.length <= maxLen) {
             this.bot.whisper(memberNumber, text);
             return;
@@ -3620,6 +2669,18 @@ export class StripDiceGame {
         });
     }
 
+    // Writes bot_state.json with the current multiplayer + solo activity (GameHost).
+    public saveBotState(): void {
+        this.storage.writeBotState(this.activeMultiplayer, this.solo.activeCount());
+    }
+
+    // Returns the admin-forced next roll (!debugroll) and clears it, or null (GameHost).
+    public consumeDebugRoll(): number | null {
+        const roll = this.debugNextRoll;
+        this.debugNextRoll = null;
+        return roll;
+    }
+
     // ============================================================
     // PLAYER TRACKING
     // ============================================================
@@ -3628,7 +2689,7 @@ export class StripDiceGame {
     // running, whether it's still joinable, and whether solo games are active.
     private sendWelcomeWhisper(memberNumber: number, name: string): void {
         if (this.state === GameState.Idle) {
-            if (this.soloGames.size > 0) {
+            if (this.solo.activeCount() > 0) {
                 this.bot.whisper(memberNumber,
                     "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
@@ -3662,16 +2723,10 @@ export class StripDiceGame {
     }
 
     private loadPlayerRecords(): void {
-        try {
-            const raw = fs.readFileSync(this.playerRecordsPath, "utf8");
-            this.playerRecords = JSON.parse(raw);
-        } catch {
-            this.playerRecords = {};
-        }
+        this.playerRecords = this.storage.loadPlayerRecords();
 
-        for (const memberNumber of this.feedbackMemberNumbers) {
-            const record = this.playerRecords[String(memberNumber)];
-            if (record) record.feedbackGiven = true;
+        for (const record of Object.values(this.playerRecords)) {
+            if (this.feedback.hasGivenFeedback(record.memberNumber)) record.feedbackGiven = true;
         }
 
         // Backfill gamesLost for records saved before the field existed.
@@ -3681,26 +2736,74 @@ export class StripDiceGame {
     }
 
     private savePlayerRecords(): void {
-        try {
-            fs.writeFileSync(this.playerRecordsPath, JSON.stringify(this.playerRecords, null, 2), "utf8");
-        } catch (err) {
-            log("ERROR: Failed to write players.json: " + err);
+        this.storage.savePlayerRecords(this.playerRecords);
+    }
+
+    // Sets the feedbackGiven flag on a player's persistent record (GameHost).
+    public markFeedbackGiven(memberNumber: number): void {
+        const record = this.playerRecords[String(memberNumber)];
+        if (record && !record.feedbackGiven) {
+            record.feedbackGiven = true;
+            this.savePlayerRecords();
         }
     }
 
-    // Reads feedback.log and returns the set of member numbers that have
-    // submitted feedback, e.g. lines like "... Missy (#208543): ...".
-    private loadFeedbackMemberNumbers(): Set<number> {
-        const memberNumbers = new Set<number>();
-        try {
-            const raw = fs.readFileSync(path.join(__dirname, "..", "feedback.log"), "utf8");
-            for (const match of raw.matchAll(/\(#(\d+)\)/g)) {
-                memberNumbers.add(Number(match[1]));
-            }
-        } catch {
-            // No feedback log yet
+    // Records a shipped update so !changelog can report it later. Called from
+    // index.ts on startup, once, for a pending_update.txt version this bot
+    // hasn't recorded before.
+    public recordUpdate(entry: ChangelogEntry): void {
+        this.storage.appendChangelogEntry(entry);
+    }
+
+    // The version a returning player is compared against — null when nothing
+    // has shipped yet, which suppresses the nudge entirely.
+    private latestChangelogVersion(): string | null {
+        const entries = this.storage.loadChangelog();
+        return entries.length ? entries[entries.length - 1].version : null;
+    }
+
+    // One short line on join for players who were away when something shipped,
+    // replacing the old habit of posting the whole update into room chat.
+    // Skipped for first-time visitors, who have no absence to catch up on.
+    private nudgeChangelogIfBehind(memberNumber: number, isNewPlayer: boolean): void {
+        if (isNewPlayer) return;
+        const latest = this.latestChangelogVersion();
+        if (!latest) return;
+        const record = this.playerRecords[String(memberNumber)];
+        if (record?.lastChangelogVersion === latest) return;
+
+        this.bot.whisper(memberNumber,
+            `📋 I've been updated since your last visit — whisper !changelog to see what changed.`
+        );
+    }
+
+    private handleChangelog(memberNumber: number): void {
+        const entries = this.storage.loadChangelog();
+        if (!entries.length) {
+            this.bot.whisper(memberNumber, "No changes recorded yet — you're up to date!");
+            return;
         }
-        return memberNumbers;
+
+        const shown = entries.slice(-CHANGELOG_ENTRIES_SHOWN).reverse();
+        const lines = shown.map(entry => {
+            const date = entry.version.split("T")[0] || entry.version;
+            const detail = entry.detail ? `\n${entry.detail}` : "";
+            return `— ${date} —\n${entry.headline}${detail}`;
+        });
+
+        const older = entries.length - shown.length;
+        const footer = older > 0 ? `\n\n(${older} older ${older === 1 ? "change" : "changes"} not shown.)` : "";
+
+        this.sendLongWhisper(memberNumber,
+            `=== What's New in Strip Dice ===\n\n${lines.join("\n\n")}${footer}`
+        );
+
+        // Mark caught up so the join nudge stops until the next update ships.
+        const record = this.playerRecords[String(memberNumber)];
+        if (record) {
+            record.lastChangelogVersion = entries[entries.length - 1].version;
+            this.savePlayerRecords();
+        }
     }
 
     private recordPlayerSeen(memberNumber: number, name: string): void {
@@ -3719,7 +2822,7 @@ export class StripDiceGame {
                 gamesPlayed: 0,
                 gamesWon: 0,
                 gamesLost: 0,
-                feedbackGiven: this.feedbackMemberNumbers.has(memberNumber),
+                feedbackGiven: this.feedback.hasGivenFeedback(memberNumber),
             };
         }
         this.savePlayerRecords();
@@ -3741,26 +2844,6 @@ export class StripDiceGame {
         this.savePlayerRecords();
     }
 
-    private handleFeedbackList(memberNumber: number): void {
-        if (!this.requireAdmin(memberNumber)) return;
-
-        const entries = Object.entries(this.feedbackStatus).filter(([k]) => !k.startsWith("_"));
-        if (entries.length === 0) {
-            this.bot.whisper(memberNumber, "No feedback recorded yet.");
-            return;
-        }
-
-        const lines: string[] = [];
-        for (const [playerId, entry] of entries) {
-            lines.push(`${entry.name} (#${playerId}):`);
-            entry.items.forEach((item, i) => {
-                lines.push(`  ${i + 1}. [${FEEDBACK_STATUS_LABELS[item.status] ?? item.status}] ${item.text}`);
-            });
-        }
-
-        this.sendLongWhisper(memberNumber, `=== Feedback Status ===\n${lines.join("\n")}`);
-    }
-
     private handleHelp(memberNumber: number): void {
         let text =
             `=== Strip Dice Help ===\n` +
@@ -3772,7 +2855,9 @@ export class StripDiceGame {
             text += `!help admin - Admin commands\n`;
         }
 
-        text += `!about - About this bot`;
+        text +=
+            `!changelog - What's changed recently\n` +
+            `!about - About this bot`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -3798,20 +2883,25 @@ export class StripDiceGame {
             `!join - Join the game\n` +
             `!wearing - Go through your outfit one item at a time (yes/no)\n` +
             `!wearing [items] - Declare your clothing all at once\n` +
-            `  Valid items: shoes socks top bottom bra panties\n` +
+            `  Valid items (female list): shoes socks top bottom bra panties\n` +
+            `  Valid items (male list): shoes socks jacket shirt pants underwear\n` +
+            `!clothes male / !clothes female - Switch which clothing list !wearing uses\n` +
             `!naked - Declare you have no clothing on\n` +
             `!same - Reuse your outfit from last game\n` +
             `!ready - Confirm you are ready to play\n` +
-            `!lock10 / !lock15 / !lock20 - Set the end-game lock duration before the game starts (default ${DEFAULT_LOCK_MINUTES} min)\n` +
+            `!lock10 / !lock15 / !lock20 - Set the end-game lock duration (admin only, default ${DEFAULT_LOCK_MINUTES} min)\n` +
             `!start - Start the game early\n` +
             `!cancel - Cancel the countdown\n` +
             `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
             `!removed - Confirm you removed a clothing item\n` +
             `!safeword - Emergency: remove all restraints immediately\n` +
+            `!pause - Request a quick pause; anyone can type !resume to continue\n` +
             `!released / !stuck - Confirm whether your locks released at the end of the game\n` +
             `!feedback [text] - Send feedback to the developers\n` +
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
+            `!friend - Add me to your friend list so you can see when the room is up (!unfriend to undo)\n` +
+            `!changelog - See what's changed recently\n` +
             `!about - About this bot\n` +
             `!help - Show the help menu`;
 
@@ -3839,25 +2929,27 @@ export class StripDiceGame {
             `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
             `!midgamejoin on/off - Allow players to join games already in progress\n` +
             `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
-            `!setstatus [playerID] [status] - Set a player's feedback status (reviewing, testing, researching, implemented, partly_implemented)\n` +
+            `!setstatus [playerID] [status] - Set a player's feedback status (pending, reviewing, testing, researching, implemented, partly_implemented, declined)\n` +
             `!feedback list - View a summary of all tracked feedback\n` +
             `!outfits - View submitted outfit suggestions\n` +
             `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / solo / aborted)`;
+            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)`;
 
         this.sendLongWhisper(memberNumber, text);
     }
 
     private handleGameStats(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
-        const counts = this.loadGameCounts();
-        const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted;
+        const counts = this.storage.loadGameCounts();
+        const total = counts.multiplayer + counts.solo_strip + counts.solo_bondage + counts.aborted + counts.team_2v2 + counts.team_3v3;
         this.bot.whisper(memberNumber,
             `=== Game Stats ===\n` +
             `Multiplayer: ${counts.multiplayer}\n` +
+            `Team 2v2: ${counts.team_2v2}\n` +
+            `Team 3v3: ${counts.team_3v3}\n` +
             `Solo (strip): ${counts.solo_strip}\n` +
             `Solo (bondage): ${counts.solo_bondage}\n` +
             `Aborted: ${counts.aborted}\n` +
@@ -3929,9 +3021,10 @@ export class StripDiceGame {
     }
 
     // Bonus flavor commentary fired after a roll's result is known — repeated
-    // same-number streaks and a 69 easter egg. Purely cosmetic: never touches
-    // game state, scoring, or turn flow beyond this.lastRollValue/rollStreakCount
-    // (which exist only to drive this commentary).
+    // same-number streaks and a 69 easter egg. The 69 also accumulates a lock
+    // bonus for the rolling player in active multiplayer games (+10 on D100,
+    // +5 otherwise). Losers keep their own bonus; winners assign theirs to
+    // bound players before the end-game lock vote.
     private emitBonusRollCommentary(roll: number, diceMax: number): void {
         this.totalRollsThisGame++;
         const isFirstRoll = this.totalRollsThisGame === 1;
@@ -3940,6 +3033,43 @@ export class StripDiceGame {
             this.bot.sendChat(pickRandomMessage(SIXTY_NINE_MESSAGES));
             this.lastRollValue = null;
             this.rollStreakCount = 0;
+
+            // Accumulate lock bonus in active multiplayer games.
+            if (this.activeMultiplayer) {
+                const currentPlayer = this.getCurrentPlayer();
+                if (currentPlayer) {
+                    const bonus = diceMax === 100 ? 10 : 5;
+
+                    if (this.isTeamMode) {
+                        // Team mode: pool added to every losing player's lock at end game.
+                        if (this.teamSixtyNineBonus >= StripDiceGame.TEAM_69_CAP) {
+                            // Already capped — announce the cap flavor.
+                            this.bot.sendChat(pickRandomMessage(TEAM_69_CAP_MESSAGES));
+                        } else {
+                            const prev = this.teamSixtyNineBonus;
+                            this.teamSixtyNineBonus = Math.min(prev + bonus, StripDiceGame.TEAM_69_CAP);
+                            const added = this.teamSixtyNineBonus - prev; // may be less than bonus if we hit the cap
+                            const msg = pickRandomMessage(TEAM_69_MESSAGES)
+                                .replace("{bonus}", String(added))
+                                .replace("{total}", String(this.teamSixtyNineBonus));
+                            this.bot.sendChat(msg);
+                            if (this.teamSixtyNineBonus === StripDiceGame.TEAM_69_CAP) {
+                                this.bot.sendChat(`⚠️ The losing team's 69 pool has hit the 30-min cap — no more 69 time will be added.`);
+                            }
+                            log(`[LOCK TIME] Team 69 pool: +${added} → ${this.teamSixtyNineBonus}/${StripDiceGame.TEAM_69_CAP} min`);
+                        }
+                    } else {
+                        // Standard mode: per-player bonus, winner distributes to bound players.
+                        const prev = this.sixtyNineBonuses.get(currentPlayer.memberNumber) ?? 0;
+                        this.sixtyNineBonuses.set(currentPlayer.memberNumber, prev + bonus);
+                        const tag = diceMax === 100 ? " 🎰 D100 double bonus!" : "";
+                        this.bot.sendChat(
+                            `🎰 ${currentPlayer.name} earns +${bonus} min lock bonus for that 69.${tag} ` +
+                            `(running total: ${prev + bonus} min — applied to their lock if they lose)`
+                        );
+                    }
+                }
+            }
             return;
         }
 
@@ -3964,8 +3094,8 @@ export class StripDiceGame {
     }
 
     public handleWardrobe(memberNumber: number, name: string): void {
-        if (this.soloGames.get(memberNumber)?.awaitingRemoval) {
-            this.handleSoloRemoved(memberNumber);
+        if (this.solo.isAwaitingRemoval(memberNumber)) {
+            this.solo.handleRemoved(memberNumber);
             return;
         }
 
@@ -4044,8 +3174,6 @@ export class StripDiceGame {
     // ============================================================
 
     private checkAllJoined(): void {
-        if (this.awaitingMinMaxReply) return;
-
         const nonBotMembers = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
         const joinedCount = this.players.size;
 
@@ -4061,7 +3189,12 @@ export class StripDiceGame {
 
     private startCountdown(): void {
         this.state = GameState.Countdown;
-        this.bot.sendChat(`All players have joined! 🎲 Game starts in 30 seconds... Whisper !start to begin early or !cancel to wait for more players.`);
+        // "All players" was misleading when only the minimum had joined
+        // (e.g. 2 of 6) — players read it as "no one else can join".
+        const headline = this.players.size >= this.maxPlayers
+            ? "All player slots are filled"
+            : `Enough players to start (${this.players.size}/${this.maxPlayers} joined)`;
+        this.bot.sendChat(`${headline}! 🎲 Game starts in 30 seconds... Whisper !start to begin early or !cancel to wait for more players.`);
 
         let seconds = 30;
         this.countdownTimer = setInterval(() => {
@@ -4100,26 +3233,23 @@ export class StripDiceGame {
                     "⚠️ Heads up: your item permission is currently blocking interactions. " +
                     "Enable \"Allow others to add items\" in Online Settings → Items or bondage penalties won't apply."
                 );
-            } else if (oss?.GameVersion && this.botGameVersion &&
-                       this.parseBCVersion(oss.GameVersion) > this.parseBCVersion(this.botGameVersion)) {
-                this.bot.whisper(player.memberNumber,
-                    "⚠️ Heads up: your BC version may not be compatible with this bot. " +
-                    "Item interactions may not work correctly."
-                );
             }
         }
 
         for (const [, player] of this.players) {
-            if (!player.ready) {
+            if (player.ready) continue;
+            // Mid-guided-declaration players already have a pending yes/no
+            // question on their screen — a generic "finish declaring" nag on
+            // top of it reads like the bot lost their progress (found live
+            // 2026-07-18, made a player restart from scratch). Stay quiet.
+            if (player.clothingQuestionIndex !== null) continue;
+            if (player.clothing.length > 0 || player.isNaked) {
                 this.bot.whisper(player.memberNumber,
-                    `Game is starting soon! Please whisper:\n` +
-                    (this.lastClothing.has(player.memberNumber)
-                        ? `!same - use your last outfit (${this.lastClothing.get(player.memberNumber)!.join(", ")})\n`
-                        : ``) +
-                    `!wearing - go through your outfit one item at a time (yes/no)\n` +
-                    `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
-                    `!naked - if you have nothing on\n` +
-                    `Then whisper !ready`
+                    `Game is starting soon — your outfit is declared, just whisper !ready to join in!`
+                );
+            } else {
+                this.bot.whisper(player.memberNumber,
+                    `Game is starting soon — declare your outfit (!wearing or !naked) and whisper !ready to join in!`
                 );
             }
         }
@@ -4129,13 +3259,45 @@ export class StripDiceGame {
         if (this.players.size === 0) return;
         if (this.players.size < this.minPlayers) return;
         if (this.awaitingToysConsent) return;
+        if (this.awaitingPrizeConsent) return;
         if (this.awaitingBondageMode) return;
         if (this.awaitingSlotConsent) return;
         for (const [, player] of this.players) {
             if (!player.ready) return;
         }
 
-        this.beginToysConsent();
+        // Resume the pregame consent pipeline from wherever it left off,
+        // rather than restarting from toys consent every time. A player can
+        // un-ready mid-pipeline (e.g. whispering !wearing again) and then
+        // re-ready, which re-triggers this function — found live 2026-07-18
+        // that re-running beginToysConsent() from scratch re-armed a full 60s
+        // timeout even though both players had already answered toys consent
+        // and there was nobody left to ask, silently stalling the game for a
+        // full minute (twice, in that incident) with no visible progress.
+        if (!this.toysConsentResolved) {
+            this.beginToysConsent();
+        } else if (!this.prizeConsentResolved) {
+            this.beginPrizeConsent();
+        } else if (!this.bondageModeResolved) {
+            this.beginBondageModeSelection();
+        } else if (!this.slotConsentResolved) {
+            // Bondage modes resolved but the slot-consent stage never got to
+            // run — happens when resolveBondageModeSelection() bailed at its
+            // not-ready guard (someone un-readied during the mode Q&A) before
+            // reaching beginSlotConsentPhase. Without this branch the final
+            // else would start the game with player-pick players never asked
+            // which slots they consent to.
+            const pickers = [...this.players.values()]
+                .filter(p => !p.joinedAfterPregameStart && p.bondageMode === "player-pick");
+            if (pickers.length > 0) {
+                this.beginSlotConsentPhase(pickers);
+            } else {
+                this.slotConsentResolved = true;
+                this.tryStartIfEveryoneReady();
+            }
+        } else {
+            this.tryStartIfEveryoneReady();
+        }
     }
 
     // The moment the game would normally start: every ready player is asked,
@@ -4143,15 +3305,37 @@ export class StripDiceGame {
     // The game doesn't actually start until everyone has answered or the
     // window times out (unanswered players are then treated as "no").
     private beginToysConsent(): void {
+        this.pregameFlowStarted = true;
         clearTimeout(this.toysConsentTimer);
         this.toysConsentTimer = null;
         this.awaitingToysConsent = true;
+        let askedAnyone = false;
         for (const player of this.players.values()) {
-            player.toysConsent = null;
+            // Anyone who joined after this Q&A already started for the rest
+            // of the roster gets their own individual gate later (in
+            // handleReady), not this group vote — skip them here so a
+            // re-trigger of this function doesn't re-ask (or silently
+            // reset) players already handled.
+            if (player.joinedAfterPregameStart) continue;
+            // Players who answered toys consent at join time are already set —
+            // don't re-ask or reset them.
+            if (player.toysConsent !== null) {
+                logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) already answered at join (${player.toysConsent}) — skipping.`);
+                continue;
+            }
+            askedAnyone = true;
             this.bot.whisper(player.memberNumber,
-                "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no)"
+                "Before we start — is it OK for the winner to add toys and touch you at the end of the game? (yes/no — 60s, no answer = no toys)"
             );
             logGameEvent(`[ToysConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        // Everyone already answered at join time — nothing to wait on, so
+        // resolve immediately instead of arming a needless 60s timeout (found
+        // live 2026-07-18: this was silently stalling the game a full minute
+        // whenever every player had already answered "yes" at !join).
+        if (!askedAnyone) {
+            this.resolveToysConsent();
+            return;
         }
         this.toysConsentTimer = setTimeout(() => this.resolveToysConsent(), TOYS_CONSENT_TIMEOUT_MS);
     }
@@ -4163,9 +3347,9 @@ export class StripDiceGame {
         if (!player || player.toysConsent !== null) return;
         player.toysConsent = accepted;
         logGameEvent(`[ToysConsent] ${player.name} (#${player.memberNumber}) answered: ${accepted ? "yes" : "no"}`);
-        if (!accepted) this.incrementToysDeclineCount();
+        if (!accepted) this.storage.incrementToysDeclineCount();
 
-        if ([...this.players.values()].every(p => p.toysConsent !== null)) {
+        if ([...this.players.values()].filter(p => !p.joinedAfterPregameStart).every(p => p.toysConsent !== null)) {
             this.resolveToysConsent();
         }
     }
@@ -4175,7 +3359,9 @@ export class StripDiceGame {
     // "no") and starts the game.
     private resolveToysConsent(): void {
         if (!this.awaitingToysConsent) return;
-        for (const player of this.players.values()) {
+        this.toysConsentResolved = true;
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
             logGameEvent(`[ToysConsent] Resolving — ${player.name}: ${player.toysConsent}`);
         }
         this.awaitingToysConsent = false;
@@ -4184,10 +3370,12 @@ export class StripDiceGame {
             this.toysConsentTimer = null;
         }
 
-        for (const player of this.players.values()) {
+        for (const player of roster) {
             if (player.toysConsent === null) player.toysConsent = false;
         }
-        this.toysAllowed = [...this.players.values()].every(p => p.toysConsent === true);
+        // Decided by the original roster only — late joiners aren't asked to
+        // vote, only to verify (see gateLateJoinOnToysConsent in handleReady).
+        this.toysAllowed = roster.every(p => p.toysConsent === true);
         logGameEvent(`[ToysConsent] Result: toysAllowed=${this.toysAllowed}`);
 
         if (this.toysAllowed) {
@@ -4204,6 +3392,219 @@ export class StripDiceGame {
             return;
         }
 
+        this.beginPrizeConsent();
+    }
+
+    // Asks each original-roster player whether they want to be a potential
+    // prize if they lose. In team mode, all players on a team must say yes
+    // for that team's prize consent to count.
+    private beginPrizeConsent(): void {
+        // Expire any prize passwords from previous games whose locks have run out.
+        // Active prizes (lock not yet expired) survive so winners can still claim them
+        // even after a new game starts. lastWinners is kept for the same reason.
+        const now = Date.now();
+        for (const [mn, entry] of this.prizePasswords.entries()) {
+            if (now > entry.lockEndTime) this.prizePasswords.delete(mn);
+        }
+        this.prizeWillingPlayers.clear();
+        this.prizeConsentTeams.clear();
+
+        this.awaitingPrizeConsent = true;
+        for (const player of this.players.values()) {
+            if (player.joinedAfterPregameStart) continue;
+            player.prizeConsent = null;
+            const teamNote = this.isTeamMode
+                ? " All players on your team must agree for the prize system to activate for your team."
+                : "";
+            this.bot.whisper(player.memberNumber,
+                `🏆 Prize opt-in: Would you like to be a potential prize for the winning team if your team loses? If you say yes, you agree to be claimed — the winners will receive your lock password and a leash to take you wherever they like.${teamNote} (yes/no)`
+            );
+            logGameEvent(`[PrizeConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        this.prizeConsentTimer = setTimeout(() => this.resolvePrizeConsent(), TOYS_CONSENT_TIMEOUT_MS);
+    }
+
+    // Records one player's answer to the prize opt-in question and resolves
+    // early once everyone on the original roster has answered.
+    private recordPrizeConsentAnswer(memberNumber: number, agreed: boolean): void {
+        const player = this.players.get(memberNumber);
+        if (!player || player.prizeConsent !== null) return;
+        player.prizeConsent = agreed;
+        logGameEvent(`[PrizeConsent] ${player.name} (#${player.memberNumber}) answered: ${agreed ? "yes" : "no"}`);
+
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        if (roster.every(p => p.prizeConsent !== null)) {
+            this.resolvePrizeConsent();
+        }
+    }
+
+    // Finalizes prize consent (unanswered players default to false) and
+    // announces the result before proceeding to bondage-mode selection.
+    // In team mode, checks for unanimous per-team consent and a possible
+    // beneficial swap before moving on.
+    private resolvePrizeConsent(): void {
+        if (!this.awaitingPrizeConsent) return;
+        this.prizeConsentResolved = true;
+        if (this.prizeConsentTimer) {
+            clearTimeout(this.prizeConsentTimer);
+            this.prizeConsentTimer = null;
+        }
+        this.awaitingPrizeConsent = false;
+
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
+            if (player.prizeConsent === null) player.prizeConsent = false;
+        }
+        for (const player of roster) {
+            logGameEvent(`[PrizeConsent] Resolving — ${player.name}: ${player.prizeConsent}`);
+        }
+
+        if (this.isTeamMode) {
+            // Per-team unanimous check
+            const t1 = roster.filter(p => p.teamId === 1);
+            const t2 = roster.filter(p => p.teamId === 2);
+            if (t1.length > 0 && t1.every(p => p.prizeConsent === true)) this.prizeConsentTeams.add(1);
+            if (t2.length > 0 && t2.every(p => p.prizeConsent === true)) this.prizeConsentTeams.add(2);
+
+            logGameEvent(`[PrizeConsent] Team mode — T1 unanimous: ${this.prizeConsentTeams.has(1)}, T2 unanimous: ${this.prizeConsentTeams.has(2)}`);
+
+            if (this.prizeConsentTeams.size > 0) {
+                this.bot.sendChat("🏆 Prize system active — if a consenting team loses, they'll become prizes for the winners!");
+            }
+
+            // Check if a swap would unlock prize for an otherwise-split team
+            this.checkPrizeSwapOpportunity(roster);
+            return; // checkPrizeSwapOpportunity calls beginBondageModeSelection when done
+        }
+
+        const optedIn = roster.filter(p => p.prizeConsent === true);
+        if (optedIn.length > 0) {
+            this.bot.sendChat("Some players have opted in as potential prizes — the winner will be notified at game end! 🏆");
+        }
+
+        this.beginBondageModeSelection();
+    }
+
+    // In team mode, looks for a pair of players (one from each team) whose
+    // swap would make at least one team unanimous yes. If found, announces the
+    // opportunity and waits 30 s for both players to confirm with !swap.
+    private checkPrizeSwapOpportunity(roster: Player[]): void {
+        const t1 = roster.filter(p => p.teamId === 1);
+        const t2 = roster.filter(p => p.teamId === 2);
+
+        // Find the first (noPlayer∈T1, yesPlayer∈T2) or (yesPlayer∈T1, noPlayer∈T2)
+        // pair where swapping makes at least one team all-yes.
+        const findSwap = (): { p1: Player; p2: Player } | null => {
+            for (const a of t1) {
+                for (const b of t2) {
+                    if (a.prizeConsent === b.prizeConsent) continue; // same answer, swap won't help
+                    // Simulate swap
+                    const t1After = t1.map(p => (p === a ? b : p));
+                    const t2After = t2.map(p => (p === b ? a : p));
+                    if (t1After.every(p => p.prizeConsent === true) || t2After.every(p => p.prizeConsent === true)) {
+                        return { p1: a, p2: b };
+                    }
+                }
+            }
+            return null;
+        };
+
+        const swap = findSwap();
+        if (!swap) {
+            this.beginBondageModeSelection();
+            return;
+        }
+
+        const { p1, p2 } = swap;
+        this.bot.sendChat(
+            `🔀 Prize tip: if ${p1.name} (Team ${p1.teamId}) and ${p2.name} (Team ${p2.teamId}) swap teams, ` +
+            `the prize system can activate! Both players whisper !swap within 30 seconds to confirm.`
+        );
+        logGameEvent(`[PrizeSwap] Suggesting swap: ${p1.name} (#${p1.memberNumber}) T${p1.teamId} ↔ ${p2.name} (#${p2.memberNumber}) T${p2.teamId}`);
+
+        const timeout = setTimeout(() => {
+            if (!this.pendingPrizeSwap) return;
+            this.pendingPrizeSwap = null;
+            this.bot.sendChat("⏰ Swap window expired — continuing with current teams.");
+            this.recomputeTeamPrizeConsent();
+            this.beginBondageModeSelection();
+        }, 30 * 1000);
+
+        this.pendingPrizeSwap = {
+            player1: { memberNumber: p1.memberNumber, fromTeam: p1.teamId as 1 | 2 },
+            player2: { memberNumber: p2.memberNumber, fromTeam: p2.teamId as 1 | 2 },
+            confirmed: new Set(),
+            timeout,
+        };
+    }
+
+    // Re-runs the unanimous per-team check after a swap (or swap timeout).
+    private recomputeTeamPrizeConsent(): void {
+        this.prizeConsentTeams.clear();
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        const t1 = roster.filter(p => p.teamId === 1);
+        const t2 = roster.filter(p => p.teamId === 2);
+        if (t1.length > 0 && t1.every(p => p.prizeConsent === true)) this.prizeConsentTeams.add(1);
+        if (t2.length > 0 && t2.every(p => p.prizeConsent === true)) this.prizeConsentTeams.add(2);
+        logGameEvent(`[PrizeConsent] After swap — T1 unanimous: ${this.prizeConsentTeams.has(1)}, T2 unanimous: ${this.prizeConsentTeams.has(2)}`);
+    }
+
+    // Handles !swap during the pending prize swap window.
+    private handleSwap(memberNumber: number): void {
+        const swap = this.pendingPrizeSwap;
+        if (!swap) {
+            this.bot.whisper(memberNumber, "No team swap is pending right now.");
+            return;
+        }
+        if (memberNumber !== swap.player1.memberNumber && memberNumber !== swap.player2.memberNumber) {
+            this.bot.whisper(memberNumber, "You're not one of the players in the suggested swap.");
+            return;
+        }
+        if (swap.confirmed.has(memberNumber)) {
+            this.bot.whisper(memberNumber, "You've already confirmed the swap — waiting for the other player.");
+            return;
+        }
+        swap.confirmed.add(memberNumber);
+
+        if (swap.confirmed.size < 2) {
+            const other = memberNumber === swap.player1.memberNumber ? swap.player2.memberNumber : swap.player1.memberNumber;
+            const otherName = this.nameCache.get(other) ?? "the other player";
+            this.bot.whisper(memberNumber, `Swap confirmed your side — waiting for ${otherName} to also whisper !swap.`);
+            return;
+        }
+
+        // Both confirmed — execute the swap
+        clearTimeout(swap.timeout);
+        this.pendingPrizeSwap = null;
+
+        const p1 = this.players.get(swap.player1.memberNumber);
+        const p2 = this.players.get(swap.player2.memberNumber);
+        if (!p1 || !p2) {
+            this.bot.sendChat("Swap failed — one of the players is no longer in the game.");
+            this.beginBondageModeSelection();
+            return;
+        }
+
+        const oldTeam1 = p1.teamId as 1 | 2;
+        const oldTeam2 = p2.teamId as 1 | 2;
+        p1.teamId = oldTeam2;
+        p2.teamId = oldTeam1;
+
+        // Update teamRoster arrays
+        this.teamRoster[oldTeam1] = this.teamRoster[oldTeam1].filter(n => n !== p1.memberNumber);
+        this.teamRoster[oldTeam2] = this.teamRoster[oldTeam2].filter(n => n !== p2.memberNumber);
+        this.teamRoster[oldTeam2].push(p1.memberNumber);
+        this.teamRoster[oldTeam1].push(p2.memberNumber);
+
+        const t1Names = this.teamRoster[1].map(n => this.getPlayerName(n)).join(", ");
+        const t2Names = this.teamRoster[2].map(n => this.getPlayerName(n)).join(", ");
+        this.bot.sendChat(`🔀 Swap confirmed! New teams:\nTeam 1: ${t1Names}\nTeam 2: ${t2Names}`);
+        logGameEvent(`[PrizeSwap] Executed — ${p1.name} T${oldTeam1}→T${oldTeam2}, ${p2.name} T${oldTeam2}→T${oldTeam1}`);
+
+        this.recomputeTeamPrizeConsent();
+        if (this.prizeConsentTeams.size > 0) {
+            this.bot.sendChat("🏆 Prize system active with new teams — consenting team members become prizes if they lose!");
+        }
         this.beginBondageModeSelection();
     }
 
@@ -4242,8 +3643,9 @@ export class StripDiceGame {
 
         this.activeMultiplayer = true;
         const playerNames = [...this.players.values()].map(p => p.name).join(", ");
-        logGameEvent(`[GAME START] multiplayer | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
-        this.writeBotState();
+        const teamTag = this.isTeamMode ? ` | team: ${this.teamSize}v${this.teamSize}` : "";
+        logGameEvent(`[GAME START] multiplayer${teamTag} | players: ${playerNames} | lock: ${this.lockDurationMinutes}min`);
+        this.saveBotState();
 
         const orderNames = this.turnOrder
             .map(n => {
@@ -4270,7 +3672,7 @@ export class StripDiceGame {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll`);
+        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll or !r`);
     }
 
     private advanceTurn(): void {
@@ -4594,18 +3996,18 @@ export class StripDiceGame {
     // Builds the Property object for a padlocked bondage item, used both
     // when applying a fresh bondage item mid-game and when locking everyone
     // up at the end of the game.
-    private buildLockedItemProperty(
+    public buildLockedItemProperty(
         item: BondageItem,
-        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number }
+        options: { hint: string; removeItem: boolean; showTimer: boolean; removeTimer: number; password?: string }
     ): any {
         return {
             ...item.property,
-            Difficulty: 20,
+            Difficulty: 50,
             Effect: [...(item.property.Effect || []), "Lock"],
             LockedBy: "TimerPasswordPadlock",
             LockMemberNumber: this.bot.getMemberNumber(),
             LockMemberName: "GameBot",
-            Password: this.gamePassword,
+            Password: options.password ?? this.gamePassword,
             Hint: options.hint,
             LockSet: true,
             RemoveItem: options.removeItem,
@@ -4686,11 +4088,12 @@ export class StripDiceGame {
     private continueAfterBondageApply(player: Player, becameFullyBound: boolean): void {
         if (becameFullyBound) {
             player.isFullyBound = true;
+            this.finisherCount++; // track every player who finishes fully bound
             this.turnOrder = this.turnOrder.filter(n => n !== player.memberNumber);
             if (this.isTeamMode && player.teamId !== null) {
                 const remaining = [...this.players.values()]
                     .filter(p => p.teamId === player.teamId && !p.isFullyBound && this.turnOrder.includes(p.memberNumber));
-                this.bot.sendChat(`🔒 Team ${player.teamId}'s ${player.name} is fully bound! Team ${player.teamId} has ${remaining.length} active player${remaining.length === 1 ? "" : "s"} remaining.`);
+                this.bot.sendChat(`🔒 ${player.name} has been captured! Team ${player.teamId} fights on with ${remaining.length} player${remaining.length === 1 ? "" : "s"} still free.`);
             } else {
                 this.bot.sendChat(`🔒 ${player.name} is fully bound and out of the game!`);
             }
@@ -4745,7 +4148,9 @@ export class StripDiceGame {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             for (const player of this.players.values()) player.bondageMode = "outfit";
             this.gameBondageMode = "outfit";
-            this.startGame();
+            this.bondageModeResolved = true;
+            this.slotConsentResolved = true;
+            this.tryStartIfEveryoneReady();
             return;
         }
 
@@ -4755,6 +4160,9 @@ export class StripDiceGame {
         }
         this.awaitingBondageMode = true;
         for (const player of this.players.values()) {
+            // Late-registration joiners get their own individual question
+            // once they're ready (handleReady) — see beginToysConsent.
+            if (player.joinedAfterPregameStart) continue;
             player.bondageMode = null;
             this.sendBondageModeQuestion(player.memberNumber);
             logGameEvent(`[BondageMode] Sent question to ${player.name} (#${player.memberNumber})`);
@@ -4765,20 +4173,76 @@ export class StripDiceGame {
     private sendBondageModeQuestion(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             "How should your bondage penalties be chosen?\n" +
-            "pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
-            "outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
-            "Reply \"pick\" or \"outfit\". (60s — no answer counts as outfit)"
+            "1. pick — another player picks your restraints piece by piece (you'll choose which slots are OK next, and can veto items)\n" +
+            "2. outfit — I apply one of my predefined outfits (classic — no more questions)\n" +
+            "Reply \"1/pick\" or \"2/outfit\". (60s — no answer counts as pick)"
         );
     }
 
+    // Individual version of beginPrizeConsent() for a late joiner (mid-game
+    // join, or Registration-phase join after the original roster's own
+    // prize question already resolved). Prize consent is a personal opt-in,
+    // not a group-decided policy — unlike toys, there's no "verify against
+    // what was already decided" here, every late joiner just gets asked.
+    // Team mode skips it entirely, same as the original roster's version.
+    private askLatePrizeConsent(player: Player): void {
+        if (this.isTeamMode) return;
+
+        const existingTimer = this.latePrizeConsentTimers.get(player.memberNumber);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        player.prizeConsent = null;
+        this.awaitingLatePrizeConsent.add(player.memberNumber);
+        this.bot.whisper(player.memberNumber,
+            "🏆 Prize opt-in: Would you like to be a potential prize for the winner if you lose? If you say yes, you agree to be the winner's prize to do with as they choose — they'll receive your lock password and a leash to take you wherever they like. (yes/no)"
+        );
+        logGameEvent(`[PrizeConsent] Sent question to ${player.name} (#${player.memberNumber}) [late join]`);
+
+        const timer = setTimeout(() => this.resolveLatePrizeConsent(player.memberNumber), TOYS_CONSENT_TIMEOUT_MS);
+        this.latePrizeConsentTimers.set(player.memberNumber, timer);
+    }
+
+    // Timeout fallback for askLatePrizeConsent — no answer defaults to false,
+    // same as the original roster's resolvePrizeConsent.
+    private resolveLatePrizeConsent(memberNumber: number): void {
+        if (!this.awaitingLatePrizeConsent.has(memberNumber)) return;
+        this.awaitingLatePrizeConsent.delete(memberNumber);
+        const timer = this.latePrizeConsentTimers.get(memberNumber);
+        if (timer) {
+            clearTimeout(timer);
+            this.latePrizeConsentTimers.delete(memberNumber);
+        }
+        const player = this.players.get(memberNumber);
+        if (player && player.prizeConsent === null) player.prizeConsent = false;
+        logGameEvent(`[PrizeConsent] Timed out [late join] — ${player?.name ?? memberNumber}: defaulted to false`);
+    }
+
+    private handleLatePrizeConsentAnswer(memberNumber: number, agreed: boolean): void {
+        if (!this.awaitingLatePrizeConsent.has(memberNumber)) return;
+        this.awaitingLatePrizeConsent.delete(memberNumber);
+        const timer = this.latePrizeConsentTimers.get(memberNumber);
+        if (timer) {
+            clearTimeout(timer);
+            this.latePrizeConsentTimers.delete(memberNumber);
+        }
+
+        const player = this.players.get(memberNumber);
+        if (player) player.prizeConsent = agreed;
+        logGameEvent(`[PrizeConsent] ${player?.name ?? memberNumber} (#${memberNumber}) answered [late join]: ${agreed ? "yes" : "no"}`);
+
+        this.bot.whisper(memberNumber, agreed ? "Got it — you're a potential prize if you lose!" : "Got it — you won't be offered as a prize.");
+    }
+
     // Asks a single late joiner (mid-game joiner once clothing is confirmed,
-    // or a naked late joiner right after registering) the same mode question,
-    // scoped to just this player since the group question already resolved
-    // for the rest of the game.
+    // a naked late joiner right after registering, or a Registration-phase
+    // joiner who arrived after the original roster's own Q&A already began)
+    // the same mode question, scoped to just this player since the group
+    // question has already gone out to (or resolved for) everyone else.
     private askLateBondageMode(player: Player): void {
         if (BC_ITEM_CATALOG.size === 0) {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             player.bondageMode = "outfit";
+            this.tryStartIfEveryoneReady();
             return;
         }
 
@@ -4803,7 +4267,11 @@ export class StripDiceGame {
             this.lateBondageModeTimers.delete(memberNumber);
         }
         const player = this.players.get(memberNumber);
-        if (player && player.bondageMode === null) player.bondageMode = "outfit";
+        if (player && player.bondageMode === null) player.bondageMode = "player-pick";
+        // A late-registration joiner may have been the last thing blocking
+        // game start (the original roster's Q&A already resolved without
+        // waiting on them) — check now that their own answer is in.
+        this.tryStartIfEveryoneReady();
     }
 
     private tryHandleBondageModeAnswer(memberNumber: number, msg: string): boolean {
@@ -4822,7 +4290,7 @@ export class StripDiceGame {
 
         if (this.awaitingLateBondageMode.has(memberNumber)) {
             this.resolveLateBondageMode(memberNumber);
-        } else if ([...this.players.values()].every(p => p.bondageMode !== null)) {
+        } else if ([...this.players.values()].filter(p => !p.joinedAfterPregameStart).every(p => p.bondageMode !== null)) {
             this.resolveBondageModeSelection();
         }
         return true;
@@ -4830,20 +4298,22 @@ export class StripDiceGame {
 
     private resolveBondageModeSelection(): void {
         if (!this.awaitingBondageMode) return;
+        this.bondageModeResolved = true;
         this.awaitingBondageMode = false;
         if (this.bondageModeTimer) {
             clearTimeout(this.bondageModeTimer);
             this.bondageModeTimer = null;
         }
 
-        for (const player of this.players.values()) {
-            if (player.bondageMode === null) player.bondageMode = "outfit";
+        const roster = [...this.players.values()].filter(p => !p.joinedAfterPregameStart);
+        for (const player of roster) {
+            if (player.bondageMode === null) player.bondageMode = "player-pick";
         }
 
-        const pickers = [...this.players.values()].filter(p => p.bondageMode === "player-pick");
+        const pickers = roster.filter(p => p.bondageMode === "player-pick");
         this.gameBondageMode = pickers.length === 0
             ? "outfit"
-            : (pickers.length === this.players.size ? "player-pick" : "mixed");
+            : (pickers.length === roster.length ? "player-pick" : "mixed");
         logGameEvent(`[BondageMode] Result: ${this.gameBondageMode}`);
 
         if (this.gameBondageMode === "player-pick") {
@@ -4852,9 +4322,11 @@ export class StripDiceGame {
             this.bot.sendChat(`${pickers.map(p => p.name).join(", ")} chose player-pick restraints; everyone else gets preset outfits.`);
         }
 
-        // Same guard as resolveToysConsent: the question window gives time for
-        // the lobby to change — if it did, the next !ready re-evaluates.
-        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+        // Same guard as resolveToysConsent, scoped to the original roster —
+        // late-registration joiners are handled individually (handleReady)
+        // and don't block this stage; tryStartIfEveryoneReady is the final
+        // gate that waits on them before the game actually starts.
+        if (this.players.size < this.minPlayers || roster.some(p => !p.ready)) {
             return;
         }
 
@@ -4863,7 +4335,8 @@ export class StripDiceGame {
         if (pickers.length > 0) {
             this.beginSlotConsentPhase(pickers);
         } else {
-            this.startGame();
+            this.slotConsentResolved = true;
+            this.tryStartIfEveryoneReady();
         }
     }
 
@@ -4885,6 +4358,7 @@ export class StripDiceGame {
 
     private resolveSlotConsentPhase(): void {
         if (!this.awaitingSlotConsent) return;
+        this.slotConsentResolved = true;
         this.awaitingSlotConsent = false;
         if (this.slotConsentTimer) {
             clearTimeout(this.slotConsentTimer);
@@ -4896,9 +4370,27 @@ export class StripDiceGame {
         }
         this.pendingSlotConsent.clear();
 
-        if (this.players.size < this.minPlayers || [...this.players.values()].some(p => !p.ready)) {
+        if (this.players.size < this.minPlayers || [...this.players.values()].filter(p => !p.joinedAfterPregameStart).some(p => !p.ready)) {
             return;
         }
+
+        this.tryStartIfEveryoneReady();
+    }
+
+    // Final gate before startGame(): confirms every current player — the
+    // original roster plus any late-registration joiners — is ready and has
+    // answered their bondage-mode question (and, if a late joiner, isn't
+    // still mid toys-verify). Called both when the original roster's own
+    // Q&A chain finishes, and again whenever a late joiner's individual
+    // answer comes in, so a slow latecomer can't be left behind or force a
+    // re-ask of everyone who already answered.
+    private tryStartIfEveryoneReady(): void {
+        if (this.state !== GameState.Registration) return;
+        if (this.awaitingToysConsent || this.awaitingBondageMode || this.awaitingSlotConsent) return;
+        if (this.awaitingLateBondageMode.size > 0) return;
+        if (this.pendingLateJoinToysConsent.size > 0) return;
+        if (this.players.size < this.minPlayers) return;
+        if ([...this.players.values()].some(p => !p.ready || p.bondageMode === null)) return;
 
         this.startGame();
     }
@@ -5008,6 +4500,8 @@ export class StripDiceGame {
             slotDisplay: null,
             slotGroup: null,
             options: [],
+            optionsAll: [],
+            optionsPage: 0,
             chosenItem: null,
             vetoedItems: [],
             timer: null,
@@ -5023,8 +4517,12 @@ export class StripDiceGame {
     }
 
     // The picker is whoever has gone longest without rolling a 1 (lowest
-    // lastLossSeq; 0 = never lost, which outranks everyone). Ties — including
-    // round 1, where nobody has lost yet — resolve randomly among the tied.
+    // lastLossSeq; 0 = present from the start and never lost, which outranks
+    // everyone). A mid-game joiner is stamped with the current lossSeqCounter
+    // on entry (see the Player creation sites), i.e. treated as if they just
+    // lost, so they land at the back of the pick order instead of instantly
+    // becoming the picker. Ties — including round 1, where nobody has lost
+    // yet — resolve randomly among the tied.
     // The target never picks their own items, and ghosts never pick (they
     // don't respond to anything). In team mode, an opposing-team member is
     // preferred when one's available; otherwise falls back to anyone eligible.
@@ -5052,8 +4550,9 @@ export class StripDiceGame {
     }
 
     private slotPromptText(target: Player): string {
-        const slots = this.availablePickSlots(target).map(s => s.display).join(", ");
-        return `It's your turn to pick a bondage item for ${target.name}. Choose a slot: ${slots} — type a slot name.`;
+        const slots = this.availablePickSlots(target);
+        const list = slots.map((s, i) => `${i + 1}. ${s.display}`).join("\n");
+        return `It's your turn to pick a bondage item for ${target.name}. Choose a slot:\n${list}\nType a number.`;
     }
 
     // Slots the picker may choose for this target: consented, not already
@@ -5129,13 +4628,22 @@ export class StripDiceGame {
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
         const q = norm(input);
         const slots = this.availablePickSlots(target);
-        const match = slots.find(s =>
-            norm(s.display) === q || norm(s.group) === q ||
-            (s.group === "ItemTorso2" && q === "torso2")
-        );
+
+        let match: { display: string; group: string } | undefined;
+        if (/^\d+$/.test(input.trim())) {
+            const idx = parseInt(input.trim(), 10);
+            match = (idx >= 1 && idx <= slots.length) ? slots[idx - 1] : undefined;
+        } else {
+            match = slots.find(s =>
+                norm(s.display) === q || norm(s.group) === q ||
+                (s.group === "ItemTorso2" && q === "torso2")
+            );
+        }
+
         if (!match) {
+            const list = slots.map((s, i) => `${i + 1}. ${s.display}`).join("\n");
             this.bot.whisper(pending.pickerNumber,
-                `That's not an available slot for ${target.name}. Choose one of: ${slots.map(s => s.display).join(", ")}`);
+                `That's not a valid slot for ${target.name}. Choose one:\n${list}\nType a number.`);
             return;
         }
 
@@ -5145,7 +4653,7 @@ export class StripDiceGame {
             return;
         }
 
-        const { options, hasRandom } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+        const { options, all } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
         if (options.length === 0) {
             this.bot.whisper(pending.pickerNumber, `No items are available for that slot — pick a different one.`);
             return;
@@ -5154,8 +4662,11 @@ export class StripDiceGame {
         pending.slotDisplay = match.display;
         pending.slotGroup = actualGroup;
         pending.options = options;
+        pending.optionsAll = all;
+        pending.optionsPage = 0;
         pending.stage = "item";
-        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, hasRandom));
+        const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
+        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, 0, totalPages));
         this.startPickTimer();
     }
 
@@ -5165,6 +4676,23 @@ export class StripDiceGame {
 
         let chosen: string | null = null;
         const trimmed = input.trim();
+
+        // "M" or "m" — advance to the next page of the item list.
+        if (trimmed.toLowerCase() === "m") {
+            const allOpts = pending.optionsAll;
+            const totalPages = Math.ceil(allOpts.length / PICK_LIST_TOP_N);
+            if (totalPages <= 1) {
+                this.bot.whisper(pending.pickerNumber, "There are no more options for this slot.");
+                return;
+            }
+            pending.optionsPage = (pending.optionsPage + 1) % totalPages;
+            const start = pending.optionsPage * PICK_LIST_TOP_N;
+            pending.options = allOpts.slice(start, start + PICK_LIST_TOP_N);
+            this.sendLongWhisper(pending.pickerNumber, this.formatPickList(pending.slotDisplay!, pending.options, pending.optionsPage, totalPages));
+            this.startPickTimer();
+            return;
+        }
+
         if (/^\d+$/.test(trimmed)) {
             const idx = parseInt(trimmed, 10);
             if (idx >= 1 && idx <= pending.options.length) {
@@ -5182,8 +4710,10 @@ export class StripDiceGame {
                     `Multiple matches: ${result.candidates.slice(0, 8).join(", ")} — be more specific.`);
                 return;
             } else {
+                const totalPages = Math.ceil(pending.optionsAll.length / PICK_LIST_TOP_N);
+                const moreHint = totalPages > 1 ? " Type M to browse more options, or" : "";
                 this.bot.whisper(pending.pickerNumber,
-                    `No item matching "${trimmed}" in this slot. Reply with a number 1-${pending.options.length} or an item name.`);
+                    `No item matching "${trimmed}" in this slot.${moreHint} type more of the name.`);
                 return;
             }
         }
@@ -5196,45 +4726,58 @@ export class StripDiceGame {
         return pending.vetoedItems.filter(v => v.group === group).map(v => v.item);
     }
 
-    // Top-N most popular items for this slot plus one random wildcard.
-    // Bootstrap: below N tracked entries, fill from outfits.json items for
-    // this group in the order they appear, so the list is never empty.
-    private buildPickList(group: string, excluded: string[]): { options: string[]; hasRandom: boolean } {
+    // Returns `all` — the full sorted catalog list for this slot (pinned →
+    // popular → outfit-bootstrap → shuffled remainder) — and `options`, which
+    // is the first PICK_LIST_TOP_N entries. The full list is stored in
+    // pendingBondagePick so "M for more" can page through it without
+    // re-randomising. Excluded items (vetoed) are filtered out of both lists.
+    private buildPickList(group: string, excluded: string[]): { options: string[]; all: string[] } {
         const catalogItems = BC_ITEM_CATALOG.get(group) ?? [];
         const usage = this.bondageUsage[group] ?? {};
 
-        const options: string[] = Object.entries(usage)
-            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name))
+        // Pin any new items for this slot to the front (see NEW_ITEMS) so
+        // players always see the latest gear regardless of usage history.
+        const pinned: string[] = [...NEW_ITEMS].filter(
+            n => catalogItems.includes(n) && !excluded.includes(n)
+        );
+
+        // All items with recorded usage, sorted by popularity (descending).
+        const popularSorted: string[] = Object.entries(usage)
+            .filter(([name, count]) => count > 0 && !excluded.includes(name) && catalogItems.includes(name) && !pinned.includes(name))
             .sort((a, b) => b[1] - a[1])
-            .slice(0, PICK_LIST_TOP_N)
             .map(([name]) => name);
 
-        if (options.length < PICK_LIST_TOP_N) {
-            for (const outfit of BONDAGE_OUTFITS) {
-                for (const item of outfit.items) {
-                    if (item.group !== group || options.includes(item.name) || excluded.includes(item.name)) continue;
-                    options.push(item.name);
-                    if (options.length >= PICK_LIST_TOP_N) break;
-                }
-                if (options.length >= PICK_LIST_TOP_N) break;
+        // Bootstrap fill from outfits.json — items listed in preset outfits
+        // that haven't been covered yet (stable order, no randomness).
+        const bootstrapSeen = new Set([...pinned, ...popularSorted]);
+        const bootstrap: string[] = [];
+        for (const outfit of BONDAGE_OUTFITS) {
+            for (const item of outfit.items) {
+                if (item.group !== group || bootstrapSeen.has(item.name) || excluded.includes(item.name)) continue;
+                if (!bootstrap.includes(item.name)) bootstrap.push(item.name);
+                bootstrapSeen.add(item.name);
             }
         }
 
-        const rest = catalogItems.filter(n => !options.includes(n) && !excluded.includes(n));
-        let hasRandom = false;
-        if (rest.length > 0) {
-            options.push(rest[Math.floor(Math.random() * rest.length)]);
-            hasRandom = true;
-        }
-        return { options, hasRandom };
+        // Remaining catalog items shuffled once — stable for the lifetime of
+        // this deal so M for more pages through the same order.
+        const rest = catalogItems.filter(n => !bootstrapSeen.has(n) && !excluded.includes(n));
+        const shuffled = [...rest].sort(() => Math.random() - 0.5);
+
+        const all = [...pinned, ...popularSorted, ...bootstrap, ...shuffled];
+        const options = all.slice(0, PICK_LIST_TOP_N);
+
+        return { options, all };
     }
 
-    private formatPickList(slotDisplay: string, options: string[], hasRandom: boolean): string {
-        const lines = [`Slot: ${slotDisplay} — pick one:`];
+    private formatPickList(slotDisplay: string, options: string[], page: number, totalPages: number): string {
+        const pageNote = totalPages > 1 ? ` (page ${page + 1} of ${totalPages})` : "";
+        const lines = [`Slot: ${slotDisplay} — pick one:${pageNote}`];
         options.forEach((name, i) => {
-            const marker = hasRandom && i === options.length - 1 ? ` ← random pick (not in top ${PICK_LIST_TOP_N})` : "";
-            lines.push(`${i + 1}. ${name}${marker}`);
+            const newMarker = NEW_ITEMS.has(name) ? " 🆕 new!" : "";
+            lines.push(`${i + 1}. ${name}${newMarker}`);
         });
+        if (page + 1 < totalPages) lines.push("M. More");
         lines.push("Or type any item name from this slot.");
         return lines.join("\n");
     }
@@ -5305,13 +4848,15 @@ export class StripDiceGame {
         pending.chosenItem = null;
         const pickerName = this.getPlayerName(pending.pickerNumber);
 
-        const { options, hasRandom } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
+        const { options, all } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
         if (options.length === 0) {
             // Every item in this slot has been vetoed — back to slot choice.
             pending.stage = "slot";
             pending.slotDisplay = null;
             pending.slotGroup = null;
             pending.options = [];
+            pending.optionsAll = [];
+            pending.optionsPage = 0;
             this.bot.whisper(pending.pickerNumber,
                 `${target.name} vetoed ${vetoed}, and no other items are available for that slot. ${this.slotPromptText(target)}`);
             this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is choosing a different slot.`);
@@ -5321,9 +4866,12 @@ export class StripDiceGame {
 
         pending.stage = "item";
         pending.options = options;
+        pending.optionsAll = all;
+        pending.optionsPage = 0;
+        const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
         this.sendLongWhisper(pending.pickerNumber,
             `${target.name} vetoed ${vetoed} — pick a different item.\n` +
-            this.formatPickList(pending.slotDisplay!, options, hasRandom));
+            this.formatPickList(pending.slotDisplay!, options, 0, totalPages));
         this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is picking another item.`);
         this.startPickTimer();
     }
@@ -5451,23 +4999,8 @@ export class StripDiceGame {
 
     // --- item settings library ---------------------------------
 
-    private loadItemSettings(): void {
-        try {
-            if (fs.existsSync(this.itemSettingsPath)) {
-                this.itemSettings = JSON.parse(fs.readFileSync(this.itemSettingsPath, "utf8"));
-            }
-        } catch (err) {
-            log(`WARNING: Could not load item_settings.json — starting with empty settings library: ${err}`);
-            this.itemSettings = {};
-        }
-    }
-
     private saveItemSettings(): void {
-        try {
-            fs.writeFileSync(this.itemSettingsPath, JSON.stringify(this.itemSettings, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write item_settings.json: ${err}`);
-        }
+        this.storage.saveItemSettings(this.itemSettings);
     }
 
     // Preloads configurations from the preset outfits so common items have a
@@ -5542,23 +5075,8 @@ export class StripDiceGame {
 
     // --- popularity tracking & candidate logging ---------------
 
-    private loadBondageUsage(): void {
-        try {
-            if (fs.existsSync(this.bondageUsagePath)) {
-                this.bondageUsage = JSON.parse(fs.readFileSync(this.bondageUsagePath, "utf8"));
-            }
-        } catch (err) {
-            log(`WARNING: Could not load bondage_usage.json — starting with empty usage data: ${err}`);
-            this.bondageUsage = {};
-        }
-    }
-
     private saveBondageUsage(): void {
-        try {
-            fs.writeFileSync(this.bondageUsagePath, JSON.stringify(this.bondageUsage, null, 2), "utf8");
-        } catch (err) {
-            log(`ERROR: Failed to write bondage_usage.json: ${err}`);
-        }
+        this.storage.saveBondageUsage(this.bondageUsage);
     }
 
     private incrementBondageUsage(group: string, itemName: string): void {
@@ -5581,17 +5099,8 @@ export class StripDiceGame {
                 p.appliedBondageItems.map(e => ({ slot: e.slot, item: e.item, appliedTo: p.name }))),
         };
 
-        try {
-            let existing: any[] = [];
-            if (fs.existsSync(this.outfitCandidatesPath)) {
-                const parsed = JSON.parse(fs.readFileSync(this.outfitCandidatesPath, "utf8"));
-                if (Array.isArray(parsed)) existing = parsed;
-            }
-            existing.push(entry);
-            fs.writeFileSync(this.outfitCandidatesPath, JSON.stringify(existing, null, 2), "utf8");
+        if (this.storage.appendOutfitCandidate(entry) >= 0) {
             log(`Logged ${entry.selections.length} player-pick selection(s) to outfit_candidates.json`);
-        } catch (err) {
-            log(`ERROR: Failed to write outfit_candidates.json: ${err}`);
         }
     }
 
@@ -5614,6 +5123,7 @@ export class StripDiceGame {
         } else if (activePlayers.length === 1 && this.players.size > 1) {
             const winner = activePlayers[0];
             this.bot.sendChat(`🏆 ${winner.name} wins! Everyone else is bound!`);
+            this.finisherCount++; // winner also counts as a finisher
             this.recordGameCompletion([winner.memberNumber]);
             this.logMultiplayerGameEnd("win", { winner: winner.name });
             this.applyEndGameLocks([winner]);
@@ -5642,19 +5152,26 @@ export class StripDiceGame {
             return true;
         }
         if (team1AllOut) {
-            const winners = team2.filter(p => !isOut(p));
+            // The whole winning team is freed (see finalizeEndGameLocks) — even
+            // any member who got fully bound. Survivors (still unbound) are the
+            // ones that count as "finishers" for the lock-time formula/display.
+            const winningTeam = team2;
+            const survivors = team2.filter(p => !isOut(p));
             this.bot.sendChat(`🔒 Team 1 is fully bound! Team 2 wins! 🎉`);
-            this.recordGameCompletion(winners.map(p => p.memberNumber));
-            this.logMultiplayerGameEnd("win", { winner: `Team 2 (${winners.map(p => p.name).join(", ")})` });
-            this.applyEndGameLocks(winners);
+            this.finisherCount += survivors.length; // finishers = still-unbound winners
+            this.recordGameCompletion(winningTeam.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 2 (${survivors.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winningTeam);
             return true;
         }
         if (team2AllOut) {
-            const winners = team1.filter(p => !isOut(p));
+            const winningTeam = team1;
+            const survivors = team1.filter(p => !isOut(p));
             this.bot.sendChat(`🔒 Team 2 is fully bound! Team 1 wins! 🎉`);
-            this.recordGameCompletion(winners.map(p => p.memberNumber));
-            this.logMultiplayerGameEnd("win", { winner: `Team 1 (${winners.map(p => p.name).join(", ")})` });
-            this.applyEndGameLocks(winners);
+            this.finisherCount += survivors.length; // finishers = still-unbound winners
+            this.recordGameCompletion(winningTeam.map(p => p.memberNumber));
+            this.logMultiplayerGameEnd("win", { winner: `Team 1 (${survivors.map(p => p.name).join(", ")})` });
+            this.applyEndGameLocks(winningTeam);
             return true;
         }
         return false;
@@ -5677,39 +5194,157 @@ export class StripDiceGame {
     // — the vote's finalize step calls finalizeEndGameLocks with the same
     // winners once lockDurationMinutes has (maybe) been nudged.
     private applyEndGameLocks(winners?: Player[]): void {
-        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
+        let boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
+
+        // In team mode, bound players on the winning team get freed, not locked —
+        // their team won even though they personally got bound mid-game.
+        if (this.isTeamMode && winners && winners.length > 0) {
+            const winnerTeamId = winners[0].teamId as 1 | 2;
+            const boundWinners = boundPlayers.filter(p => p.teamId === winnerTeamId);
+            boundPlayers = boundPlayers.filter(p => p.teamId !== winnerTeamId);
+
+            if (boundWinners.length > 0) {
+                const names = boundWinners.map(p => p.name).join(", ");
+                this.bot.sendChat(`🎉 ${names} — your team won! Removing your bondage now.`);
+                let freeStagger = 0;
+                for (const p of boundWinners) {
+                    REMOVAL_SLOTS.forEach((group) => {
+                        setTimeout(() => this.removeSlotVerified(p.memberNumber, group),
+                            freeStagger * END_GAME_EMIT_STAGGER_MS);
+                        freeStagger++;
+                    });
+                }
+            }
+        }
+
         if (boundPlayers.length === 0) {
             this.finalizeEndGameLocks(winners);
             return;
         }
-        this.startEndGameLockVote(winners, boundPlayers);
-    }
-
-    // Give every bound player a 30-second window to nudge the proposed lock
-    // duration up or down in 5-minute increments before it's applied. The
-    // proposal itself is the greater of lockDurationMinutes (the host's
-    // pre-game !lock10/!lock15/!lock20/!locktime setting, now treated as a
-    // floor rather than a fixed value) or (number of players in the match)
-    // + 5 — so bigger games start the vote from a higher baseline. No reply
-    // within the window counts as "accept" (see finalizeEndGameLockVote).
-    private startEndGameLockVote(winners: Player[] | undefined, boundPlayers: Player[]): void {
-        const suggestedMinutes = Math.max(this.lockDurationMinutes, this.players.size + 5);
-        const timeout = setTimeout(() => this.finalizeEndGameLockVote(), 30 * 1000);
-        this.pendingLockTimeVote = { winners, boundPlayers, suggestedMinutes, votes: new Map(), timeout };
-
-        for (const player of boundPlayers) {
-            this.bot.whisper(player.memberNumber,
-                `⏱️ Lock time vote: ${suggestedMinutes} min proposed. Reply: 1 = less (−5 min)  2 = accept  3 = more (+5 min). You have 30 seconds.`);
+        // If the winner rolled 69 and accumulated bonus minutes, let them
+        // assign those minutes (in 5-min chunks) to bound players before
+        // the lock vote. Team mode skipped — winner assignment is complex
+        // with multiple winners, just apply bonuses as-is.
+        const winner = winners?.length === 1 ? winners[0] : undefined;
+        const winnerBonus = winner ? (this.sixtyNineBonuses.get(winner.memberNumber) ?? 0) : 0;
+        if (winnerBonus > 0 && winner) {
+            this.startWinner69Assignment(winner, winnerBonus, winners, boundPlayers);
+        } else {
+            this.startEndGameLockVote(winners, boundPlayers);
         }
     }
 
-    // Dispatches a bound player's vote reply. Returns true if the message
-    // was consumed (whether or not it was a valid 1/2/3). Ignores anything
-    // from someone who isn't one of the polled bound players, or a second
-    // reply from someone who already voted.
+    // Sends the numbered pick menu to the winner. `header` replaces the intro
+    // line when the menu loops after a pick; omit it for the opening message.
+    private send69Menu(winnerNumber: number, remainingMinutes: number, boundPlayers: Player[], header?: string): void {
+        const intro = header ?? `🎰 You rolled 69 — you have ${remainingMinutes} bonus minutes to hand out!\nEach pick adds 5 minutes to that player's lock.`;
+        const lines = boundPlayers.map((p, i) => `${i + 1}. ${p.name}`).join("\n");
+        this.bot.whisper(winnerNumber, `${intro}\n\n${lines}\n0. Skip — don't assign the remaining time`);
+    }
+
+    // Shows the numbered menu and starts the 30-second window. Timer resets
+    // after each valid pick so the winner has 30s per decision, not 30s total.
+    private startWinner69Assignment(winner: Player, totalBonusMinutes: number, winners: Player[] | undefined, boundPlayers: Player[]): void {
+        this.send69Menu(winner.memberNumber, totalBonusMinutes, boundPlayers);
+        const timeout = setTimeout(() => {
+            const phase = this.pendingWinner69Assignment;
+            if (!phase) return;
+            this.pendingWinner69Assignment = null;
+            this.bot.whisper(winner.memberNumber, "Time's up — moving on with whatever was assigned.");
+            this.startEndGameLockVote(phase.winners, phase.boundPlayers);
+        }, 30 * 1000);
+        this.pendingWinner69Assignment = { winners, winnerNumber: winner.memberNumber, remainingMinutes: totalBonusMinutes, boundPlayers, timeout };
+    }
+
+    // Handles the winner's numbered reply during the 69 bonus assignment phase.
+    // Returns true if the message was consumed by this phase.
+    private tryHandleWinner69Assignment(memberNumber: number, msg: string): boolean {
+        const phase = this.pendingWinner69Assignment;
+        if (!phase || phase.winnerNumber !== memberNumber) return false;
+
+        const msgTrimmed = msg.trim();
+        const msgLower = msgTrimmed.toLowerCase();
+
+        // 0 or skip keywords — abandon remaining minutes.
+        if (msgTrimmed === "0" || msgLower === "skip" || msgLower === "done" || msgLower === "no one" || msgLower === "none") {
+            clearTimeout(phase.timeout);
+            this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, `Got it — skipping your remaining ${phase.remainingMinutes} minutes. On to the lock vote!`);
+            this.startEndGameLockVote(phase.winners, phase.boundPlayers);
+            return true;
+        }
+
+        const idx = parseInt(msgTrimmed, 10);
+        if (isNaN(idx) || idx < 1 || idx > phase.boundPlayers.length) {
+            this.bot.whisper(memberNumber, `Pick a number 1–${phase.boundPlayers.length}, or 0 to skip.`);
+            return true;
+        }
+
+        const target = phase.boundPlayers[idx - 1];
+        const prev = this.sixtyNineBonuses.get(target.memberNumber) ?? 0;
+        this.sixtyNineBonuses.set(target.memberNumber, prev + 5);
+        phase.remainingMinutes -= 5;
+
+        if (phase.remainingMinutes <= 0) {
+            clearTimeout(phase.timeout);
+            this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, `+5 min added to ${target.name}. All bonus minutes assigned — on to the lock vote!`);
+            this.startEndGameLockVote(phase.winners, phase.boundPlayers);
+            return true;
+        }
+
+        // Reset the 30-second window and loop the menu with updated remaining.
+        clearTimeout(phase.timeout);
+        phase.timeout = setTimeout(() => {
+            if (!this.pendingWinner69Assignment) return;
+            this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, "Time's up — moving on with whatever was assigned.");
+            this.startEndGameLockVote(phase.winners, phase.boundPlayers);
+        }, 30 * 1000);
+
+        this.send69Menu(
+            memberNumber, phase.remainingMinutes, phase.boundPlayers,
+            `+5 min added to ${target.name}. ${phase.remainingMinutes} minutes left to assign.`
+        );
+        return true;
+    }
+
+    // Give every bound player AND the winner(s) a 30-second window to vote
+    // on the proposed lock duration. The proposal = max(lockDurationMinutes,
+    // playerCount + 5) + (finisherCount × 2 min). Majority rules: if more
+    // votes are "more" than "less" → +5 total; more "less" → -5 total; tie
+    // or all accept → no change. Missing votes count as "accept".
+    private startEndGameLockVote(winners: Player[] | undefined, boundPlayers: Player[]): void {
+        const playerFloor = Math.max(this.lockDurationMinutes, this.players.size + 5);
+        const finisherBonus = this.finisherCount * 2;
+        const suggestedMinutes = playerFloor + finisherBonus;
+        const allVoters = [...boundPlayers, ...(winners ?? [])];
+
+        log(`[LOCK TIME] floor=${playerFloor} (setting=${this.lockDurationMinutes}, players=${this.players.size}+5), ` +
+            `finishers=${this.finisherCount}×2=${finisherBonus}, proposed=${suggestedMinutes} min`);
+
+        const timeout = setTimeout(() => this.finalizeEndGameLockVote(), 30 * 1000);
+        this.pendingLockTimeVote = { winners, boundPlayers, allVoters, suggestedMinutes, votes: new Map(), timeout };
+
+        for (const player of allVoters) {
+            const isWinner = winners?.some(w => w.memberNumber === player.memberNumber) ?? false;
+            const roleHint = isWinner ? " (you're the winner — your vote counts too!)" : "";
+            this.bot.whisper(player.memberNumber,
+                `⏱️ Lock time vote: ${suggestedMinutes} min proposed` +
+                ` (base ${playerFloor} + ${finisherBonus} min for ${this.finisherCount} finishers).${roleHint}\n` +
+                `1. less (−5 min)\n` +
+                `2. accept\n` +
+                `3. more (+5 min)\n` +
+                `Majority wins. 30 seconds.`
+            );
+        }
+    }
+
+    // Dispatches a vote reply from any eligible voter (bound players + winner).
+    // Returns true if the message was consumed by this phase.
     private tryHandleEndGameLockVote(memberNumber: number, msg: string): boolean {
         const vote = this.pendingLockTimeVote;
-        if (!vote || !vote.boundPlayers.some(p => p.memberNumber === memberNumber)) return false;
+        if (!vote || !vote.allVoters.some(p => p.memberNumber === memberNumber)) return false;
         if (vote.votes.has(memberNumber)) return true;
 
         if (msg !== "1" && msg !== "2" && msg !== "3") {
@@ -5719,18 +5354,16 @@ export class StripDiceGame {
 
         vote.votes.set(memberNumber, Number(msg) as 1 | 2 | 3);
 
-        if (vote.votes.size === vote.boundPlayers.length) {
+        if (vote.votes.size === vote.allVoters.length) {
             clearTimeout(vote.timeout);
             this.finalizeEndGameLockVote();
         }
         return true;
     }
 
-    // Tallies whatever votes came in — missing votes count as "accept" —
-    // adjusts lockDurationMinutes (floor of 5, no ceiling), and moves on to
-    // actually applying the locks. Guards against running twice (once from
-    // the last vote in, once from the timeout) by clearing
-    // pendingLockTimeVote first.
+    // Tallies votes — missing = accept — applies majority (+5/-5/0 total),
+    // logs the breakdown, and proceeds to applying locks. Guards against
+    // running twice by clearing pendingLockTimeVote first.
     private finalizeEndGameLockVote(): void {
         const vote = this.pendingLockTimeVote;
         if (!vote) return;
@@ -5739,25 +5372,68 @@ export class StripDiceGame {
 
         let lessCount = 0;
         let moreCount = 0;
-        for (const player of vote.boundPlayers) {
+        for (const player of vote.allVoters) {
             const choice = vote.votes.get(player.memberNumber) ?? 2;
             if (choice === 1) lessCount++;
             else if (choice === 3) moreCount++;
         }
 
-        this.lockDurationMinutes = Math.max(5, vote.suggestedMinutes + moreCount * 5 - lessCount * 5);
-        if (this.lockDurationMinutes !== vote.suggestedMinutes) {
-            this.bot.sendChat(`⏱️ Lock time vote result: ${this.lockDurationMinutes} minutes.`);
+        const voteDelta = moreCount > lessCount ? 5 : (lessCount > moreCount ? -5 : 0);
+        this.lockDurationMinutes = Math.max(5, vote.suggestedMinutes + voteDelta);
+
+        const voteDesc = voteDelta > 0 ? `+${voteDelta}` : voteDelta < 0 ? `${voteDelta}` : "no change";
+        this.bot.sendChat(`⏱️ Vote: ${moreCount} more / ${lessCount} less → ${voteDesc} → ${this.lockDurationMinutes} min base lock.`);
+        log(`[LOCK TIME] vote: more=${moreCount} less=${lessCount} delta=${voteDelta}, final base=${this.lockDurationMinutes} min`);
+
+        // Log per-player 69 bonuses that will be added on top of the base.
+        if (this.isTeamMode && this.teamSixtyNineBonus > 0) {
+            log(`[LOCK TIME] team 69 pool: +${this.teamSixtyNineBonus} min applied to each loser`);
+            this.bot.sendChat(`🎰 Team 69 pool: +${this.teamSixtyNineBonus} min added to every losing player's lock.`);
+        }
+        const playerBonuses = vote.boundPlayers
+            .map(p => ({ name: p.name, bonus: this.sixtyNineBonuses.get(p.memberNumber) ?? 0 }))
+            .filter(e => e.bonus > 0);
+        if (playerBonuses.length > 0) {
+            const bonusLog = playerBonuses.map(e => `${e.name}: +${e.bonus} min`).join(", ");
+            log(`[LOCK TIME] per-player 69 bonuses: ${bonusLog}`);
+            this.bot.sendChat(`🎰 Individual 69 bonuses: ${bonusLog}.`);
         }
 
         this.finalizeEndGameLocks(vote.winners);
     }
 
-    // Actually applies the end-game locks at the current lockDurationMinutes
-    // (already settled by applyEndGameLocks/finalizeEndGameLockVote above).
+    // Picks the most popular ItemNeck (collar) item from learned usage data
+    // (the same popularity tracking the player-pick bondage picker uses),
+    // falling back to a preset outfit's collar, then any catalog entry.
+    // Used to give a prize player a collar before leashing them if they
+    // aren't already wearing one — a leash has nothing to attach to
+    // otherwise.
+    private pickTopCollarName(): string {
+        const usage = this.bondageUsage["ItemNeck"] ?? {};
+        const catalogItems = BC_ITEM_CATALOG.get("ItemNeck") ?? [];
+        const ranked = Object.entries(usage)
+            .filter(([name, count]) => count > 0 && catalogItems.includes(name))
+            .sort((a, b) => b[1] - a[1]);
+        if (ranked.length > 0) return ranked[0][0];
+
+        for (const outfit of BONDAGE_OUTFITS) {
+            const collar = outfit.items.find(item => item.group === "ItemNeck");
+            if (collar) return collar.name;
+        }
+
+        return catalogItems[0] ?? "LeatherCollar";
+    }
+
+    // Actually applies the end-game locks. lockDurationMinutes is the shared
+    // base (settled by the vote). Each bound player's final lock time may be
+    // longer if they accumulated a 69-roll bonus during the game.
     private finalizeEndGameLocks(winners?: Player[]): void {
-        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound);
-        const lockEndTime = Date.now() + (this.lockDurationMinutes * 60 * 1000);
+        // Winners are freed, never locked — even a member of the winning team
+        // who happened to get fully bound during the game (team mode). Without
+        // this exclusion such a player would fall into boundPlayers and get
+        // locked like a loser, leaving the winning team not fully unbound.
+        const winnerNumbers = new Set((winners ?? []).map(w => w.memberNumber));
+        const boundPlayers = [...this.players.values()].filter(p => p.isFullyBound && !winnerNumbers.has(p.memberNumber));
 
         if (winners && this.toysAllowed) {
             for (const winner of winners) {
@@ -5788,7 +5464,7 @@ export class StripDiceGame {
 
         // Phase 1: apply every player's locks first. Verification for all of
         // them happens afterward in Phase 2, once the apply burst has landed.
-        const pendingVerifications: { player: Player; item: BondageItem }[] = [];
+        const pendingVerifications: { player: Player; item: BondageItem; lockEndTime: number }[] = [];
 
         for (const player of boundPlayers) {
             const pool = this.getEligibleOutfits(player.memberNumber);
@@ -5802,6 +5478,12 @@ export class StripDiceGame {
                 this.resetGame();
                 return;
             }
+
+            // Per-player final lock duration = base + any 69-roll bonus earned/assigned
+            // + the team 69 pool (team mode only, flat add to every loser).
+            const playerBonus = this.sixtyNineBonuses.get(player.memberNumber) ?? 0;
+            const playerLockMinutes = this.lockDurationMinutes + playerBonus + this.teamSixtyNineBonus;
+            const playerLockEndTime = Date.now() + (playerLockMinutes * 60 * 1000);
 
             for (let i = 0; i < player.bondageApplied; i++) {
                 const storedItem = player.bondageOutfit?.items[i];
@@ -5826,32 +5508,38 @@ export class StripDiceGame {
                         item.name,
                         item.color,
                         this.buildLockedItemProperty(item, {
-                            hint: `Released in ${this.lockDurationMinutes} minutes`,
+                            hint: `Released in ${playerLockMinutes} minutes`,
                             removeItem: true,
                             showTimer: true,
-                            removeTimer: lockEndTime
+                            removeTimer: playerLockEndTime
                         })
                     );
                 }, delay);
                 stagger++;
 
-                pendingVerifications.push({ player, item });
+                pendingVerifications.push({ player, item, lockEndTime: playerLockEndTime });
             }
 
-            this.bot.sendChat(`🔒 ${player.name} locked for ${this.lockDurationMinutes} minutes!`);
+            if (playerBonus > 0) {
+                this.bot.sendChat(`🔒 ${player.name} locked for ${playerLockMinutes} min (base ${this.lockDurationMinutes} + ${playerBonus} 🎰 bonus)!`);
+                log(`[LOCK TIME] ${player.name}: base=${this.lockDurationMinutes}, 69bonus=${playerBonus}, total=${playerLockMinutes} min`);
+            } else {
+                this.bot.sendChat(`🔒 ${player.name} locked for ${playerLockMinutes} minutes!`);
+            }
 
-            this.scheduleLockReleaseCheck(player);
+            this.scheduleLockReleaseCheck(player, playerLockMinutes);
+            this.activeLockEndTimes.set(player.memberNumber, playerLockEndTime);
         }
 
         // Phase 2: after a gap, verify every lock that was just applied.
         stagger++; // gap slot between the apply burst and the verify burst
 
         let lastVerifyDelay = 0;
-        for (const { player, item } of pendingVerifications) {
+        for (const { player, item, lockEndTime: pLockEnd } of pendingVerifications) {
             const delay = stagger * END_GAME_EMIT_STAGGER_MS;
             lastVerifyDelay = delay;
             setTimeout(() => {
-                this.verifyEndGameLockApplied(player, item, lockEndTime, 0);
+                this.verifyEndGameLockApplied(player, item, pLockEnd, 0);
             }, delay);
             stagger++;
         }
@@ -5866,7 +5554,206 @@ export class StripDiceGame {
 
         for (const player of boundPlayers) {
             if (player.bondageApplied === 0) continue; // nothing was locked on them
-            this.sendLockVerificationWhisper(player, lockEndTime, allVerificationsCompleteDelay);
+            const playerBonus2 = this.sixtyNineBonuses.get(player.memberNumber) ?? 0;
+            const playerLockMinutes2 = this.lockDurationMinutes + playerBonus2;
+            const playerLockEnd2 = Date.now() + (playerLockMinutes2 * 60 * 1000);
+            this.sendLockVerificationWhisper(player, playerLockEnd2, allVerificationsCompleteDelay, playerLockMinutes2);
+        }
+
+        // Phase 3: prize leash — apply a timed leash to willing non-winner players.
+        // Solo: single winner, any opted-in loser becomes a prize.
+        // Team: losers whose team had unanimous consent become prizes; all winners
+        //       get notified and can !claim to receive every password at once.
+        const isTeamPrize = this.isTeamMode && winners && winners.length > 0 && (() => {
+            // Determine which team lost (bound players' teamId)
+            const losingTeamId = boundPlayers[0]?.teamId as 1 | 2 | undefined;
+            return losingTeamId !== undefined && this.prizeConsentTeams.has(losingTeamId);
+        })();
+        const isSoloPrize = !this.isTeamMode && winners && winners.length === 1;
+
+        if (isTeamPrize && winners) {
+            // Register all winners so any of them can !claim
+            for (const w of winners) this.lastWinners.add(w.memberNumber);
+            const teamWinnerNumbers = winners.map(w => w.memberNumber);
+            const prizeLeashPlayers = boundPlayers.filter(p => p.prizeConsent === true);
+            this.prizeWillingPlayers.clear();
+            for (const prizePlayer of prizeLeashPlayers) {
+                this.prizeWillingPlayers.add(prizePlayer.memberNumber);
+                const password = generatePassword();
+                const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
+                const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
+                const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
+                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: teamWinnerNumbers });
+
+                if (prizePlayer.bondageOutfit) {
+                    for (let i = 0; i < prizePlayer.bondageApplied; i++) {
+                        const storedItem = prizePlayer.bondageOutfit.items[i];
+                        if (!storedItem) continue;
+                        const cached = this.itemStateCache.get(`${prizePlayer.memberNumber}:${storedItem.group}`);
+                        const item: BondageItem = (cached && cached.Name)
+                            ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
+                            : storedItem;
+                        const relockDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                        setTimeout(() => {
+                            this.bot.applyItem(prizePlayer.memberNumber, item.group, item.name, item.color,
+                                this.buildLockedItemProperty(item, {
+                                    hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
+                                    removeItem: true, showTimer: true, removeTimer: prizePlayerLockEndTime, password,
+                                })
+                            );
+                        }, relockDelay);
+                        stagger++;
+                    }
+                }
+
+                // Shared lock property for the leash and, if we add one, the
+                // collar — so both carry the same password/timer and release
+                // together.
+                const neckLockProperty = {
+                    Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
+                    LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
+                    Password: password, Hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
+                    LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
+                    MemberNumberList: [], RemoveTimer: prizePlayerLockEndTime,
+                };
+
+                // A leash needs a collar in ItemNeck to attach to — if this
+                // player isn't already wearing one, add the most popular collar
+                // first, locked to the same timer/password so it releases with
+                // the leash. Never overwrites an existing collar.
+                const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
+                    ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+                if (!hasCollar) {
+                    const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                    setTimeout(() => {
+                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
+                    }, collarDelay);
+                    stagger++;
+                }
+
+                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+                setTimeout(() => {
+                    this.bot.applyItem(prizePlayer.memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", neckLockProperty);
+                }, delay);
+                stagger++;
+
+                this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for the winning team.`);
+            }
+
+            if (prizeLeashPlayers.length > 0) {
+                const prizeNames = prizeLeashPlayers.map(p => p.name).join(", ");
+                for (const w of winners) {
+                    this.bot.whisper(w.memberNumber,
+                        `🏆 Willing prizes: ${prizeNames}. Any of you can whisper !claim to receive all their lock passwords at once.`
+                    );
+                }
+            }
+        }
+
+        if (isSoloPrize && winners && winners.length === 1) {
+            const winner = winners[0];
+            this.lastWinners.add(winner.memberNumber);
+            const prizeLeashPlayers = [...this.players.values()].filter(
+                p => p.prizeConsent === true && p.memberNumber !== winner.memberNumber
+            );
+            this.prizeWillingPlayers.clear();
+            for (const prizePlayer of prizeLeashPlayers) {
+                this.prizeWillingPlayers.add(prizePlayer.memberNumber);
+                const password = generatePassword();
+                // Use this prize player's personal lock duration (base + their 69 bonus)
+                // for the prize re-lock and leash.
+                const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
+                const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
+                const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
+                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: [winner.memberNumber] });
+
+                // Re-lock this player's existing bondage outfit with their own
+                // prize password instead of the shared game password, so the
+                // one password !claim reveals unlocks everything on them —
+                // the whole outfit, not just the leash.
+                if (prizePlayer.bondageOutfit) {
+                    for (let i = 0; i < prizePlayer.bondageApplied; i++) {
+                        const storedItem = prizePlayer.bondageOutfit.items[i];
+                        if (!storedItem) continue;
+                        const cached = this.itemStateCache.get(`${prizePlayer.memberNumber}:${storedItem.group}`);
+                        const item: BondageItem = (cached && cached.Name)
+                            ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
+                            : storedItem;
+
+                        const relockDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                        setTimeout(() => {
+                            this.bot.applyItem(
+                                prizePlayer.memberNumber,
+                                item.group,
+                                item.name,
+                                item.color,
+                                this.buildLockedItemProperty(item, {
+                                    hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
+                                    removeItem: true,
+                                    showTimer: true,
+                                    removeTimer: prizePlayerLockEndTime,
+                                    password,
+                                })
+                            );
+                        }, relockDelay);
+                        stagger++;
+                    }
+                }
+
+                // Shared lock property for the leash and, if we add one, the
+                // collar — so both carry the same password/timer and release
+                // together.
+                const neckLockProperty = {
+                    Difficulty: 20,
+                    Effect: ["Lock"],
+                    LockedBy: "TimerPasswordPadlock",
+                    LockMemberNumber: this.bot.getMemberNumber(),
+                    LockMemberName: "GameBot",
+                    Password: password,
+                    Hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
+                    LockSet: true,
+                    RemoveItem: true,
+                    ShowTimer: true,
+                    EnableRandomInput: false,
+                    MemberNumberList: [],
+                    RemoveTimer: prizePlayerLockEndTime,
+                };
+
+                // The leash attaches to a collar — if this player isn't already
+                // wearing one in ItemNeck, give them the most popular one first,
+                // locked to the same timer/password so it releases with the
+                // leash. Never overwrites an existing collar.
+                const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
+                    ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+                if (!hasCollar) {
+                    const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+                    setTimeout(() => {
+                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
+                    }, collarDelay);
+                    stagger++;
+                }
+
+                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+                setTimeout(() => {
+                    this.bot.applyItem(
+                        prizePlayer.memberNumber,
+                        "ItemNeckRestraints",
+                        "CollarLeash",
+                        "#808080",
+                        neckLockProperty
+                    );
+                }, delay);
+                stagger++;
+
+                this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for ${winner.name}.`);
+            }
+
+            if (prizeLeashPlayers.length > 0) {
+                const prizeNames = prizeLeashPlayers.map(p => p.name).join(", ");
+                this.bot.whisper(winner.memberNumber,
+                    `🏆 The following players are willing prizes: ${prizeNames}. Use !claim to see the list and request their lock passwords.`
+                );
+            }
         }
 
         // Pause before the next game starts, so players have time to confirm
@@ -5887,13 +5774,14 @@ export class StripDiceGame {
 
     // Applies one end-game lock item and starts its verification window.
     private applyEndGameLockItem(player: Player, item: BondageItem, lockEndTime: number, attempt: number = 1): void {
+        const remainingMinutes = Math.max(1, Math.round((lockEndTime - Date.now()) / 60000));
         this.bot.applyItem(
             player.memberNumber,
             item.group,
             item.name,
             item.color,
             this.buildLockedItemProperty(item, {
-                hint: `Released in ${this.lockDurationMinutes} minutes`,
+                hint: `Released in ${remainingMinutes} minutes`,
                 removeItem: true,
                 showTimer: true,
                 removeTimer: lockEndTime
@@ -5943,15 +5831,16 @@ export class StripDiceGame {
         setTimeout(() => finish(false), LOCK_VERIFY_DELAY_MS);
     }
 
-    private scheduleLockReleaseCheck(player: Player): void {
+    private scheduleLockReleaseCheck(player: Player, lockMinutes: number = this.lockDurationMinutes): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
         const items = (player.bondageOutfit?.items ?? []).slice(0, player.bondageApplied).map(i => i.name);
 
         // Small buffer added so the BC server has time to process the RemoveTimer before we ask.
-        const delay = (this.lockDurationMinutes * 60 * 1000) + 10000;
+        const delay = (lockMinutes * 60 * 1000) + 10000;
 
         setTimeout(() => {
+            this.activeLockEndTimes.delete(memberNumber);
             this.pendingLockConfirmations.set(memberNumber, { name, items });
             this.bot.whisper(memberNumber,
                 `Your locks should have been released — did your bondage items come off? Reply !released or !stuck so we can track any issues.`
@@ -5991,12 +5880,12 @@ export class StripDiceGame {
 
     // Schedules the "did everything apply correctly?" whisper once all of
     // this end-game burst's Phase 2 verifications have had time to land.
-    private sendLockVerificationWhisper(player: Player, lockEndTime: number, allVerificationsCompleteDelay: number): void {
+    private sendLockVerificationWhisper(player: Player, lockEndTime: number, allVerificationsCompleteDelay: number, lockMinutes: number = this.lockDurationMinutes): void {
         const memberNumber = player.memberNumber;
         const name = player.name;
         const bondageApplied = player.bondageApplied;
         const bondageOutfit = player.bondageOutfit;
-        const lockDurationMinutes = this.lockDurationMinutes;
+        const lockDurationMinutes = lockMinutes;
 
         const sendDelay = allVerificationsCompleteDelay + 1500;
         setTimeout(() => {
@@ -6086,7 +5975,7 @@ export class StripDiceGame {
         }
         this.gameEndLogged = false;
         this.activeMultiplayer = false;
-        this.writeBotState();
+        this.saveBotState();
 
         this.state = GameState.Idle;
         for (const player of this.players.values()) {
@@ -6100,12 +5989,22 @@ export class StripDiceGame {
         this.rollStreakCount = 0;
         this.totalRollsThisGame = 0;
         this.safewordMember = null;
+        this.prePauseState = null;
         this.bondagePhaseStarted = false;
+        this.pregameFlowStarted = false;
         this.lockDurationMinutes = DEFAULT_LOCK_MINUTES;
         if (this.pendingLockTimeVote) {
             clearTimeout(this.pendingLockTimeVote.timeout);
             this.pendingLockTimeVote = null;
         }
+        if (this.pendingWinner69Assignment) {
+            clearTimeout(this.pendingWinner69Assignment.timeout);
+            this.pendingWinner69Assignment = null;
+        }
+        this.sixtyNineBonuses.clear();
+        this.teamSixtyNineBonus = 0;
+        this.finisherCount = 0;
+        this.activeLockEndTimes.clear();
         this.minPlayers = 2;
         this.maxPlayers = 6;
         this.lobbyOpen = false;
@@ -6113,10 +6012,22 @@ export class StripDiceGame {
         this.awaitingMinMaxReply = false;
         this.toysAllowed = false;
         this.awaitingToysConsent = false;
+        this.toysConsentResolved = false;
         if (this.toysConsentTimer) {
             clearTimeout(this.toysConsentTimer);
             this.toysConsentTimer = null;
         }
+        // Prize consent phase cleanup (prizePasswords/lastWinners intentionally
+        // survive the reset so winners can still use !claim in the new lobby)
+        if (this.pendingPrizeSwap) { clearTimeout(this.pendingPrizeSwap.timeout); this.pendingPrizeSwap = null; }
+        this.prizeConsentTeams.clear();
+        this.awaitingPrizeConsent = false;
+        this.prizeConsentResolved = false;
+        if (this.prizeConsentTimer) {
+            clearTimeout(this.prizeConsentTimer);
+            this.prizeConsentTimer = null;
+        }
+        this.prizeWillingPlayers.clear();
         for (const pending of this.pendingLateJoinToysConsent.values()) {
             clearTimeout(pending.timeout);
         }
@@ -6155,11 +6066,13 @@ export class StripDiceGame {
         this.pickerHistory = [];
         this.gameBondageMode = "outfit";
         this.awaitingBondageMode = false;
+        this.bondageModeResolved = false;
         if (this.bondageModeTimer) {
             clearTimeout(this.bondageModeTimer);
             this.bondageModeTimer = null;
         }
         this.awaitingSlotConsent = false;
+        this.slotConsentResolved = false;
         if (this.slotConsentTimer) {
             clearTimeout(this.slotConsentTimer);
             this.slotConsentTimer = null;
@@ -6168,6 +6081,9 @@ export class StripDiceGame {
         this.awaitingLateBondageMode.clear();
         for (const timer of this.lateBondageModeTimers.values()) clearTimeout(timer);
         this.lateBondageModeTimers.clear();
+        this.awaitingLatePrizeConsent.clear();
+        for (const timer of this.latePrizeConsentTimers.values()) clearTimeout(timer);
+        this.latePrizeConsentTimers.clear();
 
         this.isTeamMode = false;
         this.teamSize = 2;
@@ -6199,28 +6115,32 @@ export class StripDiceGame {
     }
 
     private checkPendingUpdate(): boolean {
-        const updatePath = path.join(__dirname, "..", "pending_update.txt");
-        if (!fs.existsSync(updatePath)) return false;
+        const current = readPendingUpdate();
+        if (!current) return false;
+        if (current.version === getSeenVersion()) return false;
 
-        let note = "";
-        try {
-            note = fs.readFileSync(updatePath, "utf8").trim();
-        } catch {
-            note = "";
+        // If any players still have active locks, skip the update this cycle.
+        // BC timer locks will self-release without the bot, but we want to stay
+        // online to answer !free requests and handle lock-release confirmations.
+        const now = Date.now();
+        const lockedPlayers = [...this.activeLockEndTimes.entries()]
+            .filter(([, endTime]) => endTime > now);
+        if (lockedPlayers.length > 0) {
+            const maxEnd = Math.max(...lockedPlayers.map(([, t]) => t));
+            const minutesLeft = Math.ceil((maxEnd - now) / 60000);
+            log(`Pending update skipped — ${lockedPlayers.length} player(s) still locked (up to ${minutesLeft} min remaining). Will retry when idle.`);
+            return false;
         }
 
+        const note = current.note;
         const message = note
             ? `⚙️ Update incoming (${note}) — StripDiceBot will be right back!`
             : `⚙️ Update incoming — StripDiceBot will be right back!`;
 
         this.bot.sendChat(message);
-        log(`Pending update detected${note ? ` (${note})` : ""}. Restarting...`);
+        log(`Pending update detected (version ${current.version})${note ? ` (${note})` : ""}. Restarting...`);
 
-        try {
-            fs.unlinkSync(updatePath);
-        } catch (err) {
-            log(`Failed to remove pending_update.txt: ${err}`);
-        }
+        markVersionSeen(current.version);
 
         setTimeout(() => {
             process.exit(0);
@@ -6231,7 +6151,7 @@ export class StripDiceGame {
 
     // startDelay lets callers stagger removal across multiple players so their
     // slot-removal emits don't all flood the server at once.
-    private removeAllItems(memberNumber: number, startDelay: number = 0): void {
+    public removeAllItems(memberNumber: number, startDelay: number = 0): void {
         REMOVAL_SLOTS.forEach((group, index) => {
             setTimeout(() => {
                 this.removeSlotVerified(memberNumber, group);
@@ -6587,7 +6507,7 @@ export class StripDiceGame {
         return this.players.get(memberNumber)?.name ?? this.nameCache.get(memberNumber);
     }
 
-    private getPlayerName(memberNumber: number): string {
+    public getPlayerName(memberNumber: number): string {
         return this.getNameFor(memberNumber) ?? `Player #${memberNumber}`;
     }
 
@@ -6608,7 +6528,7 @@ export class StripDiceGame {
     // Players who have set their pronouns to HeHim get outfits without
     // breast-targeted items (e.g. a chastity bra), falling back to the full
     // pool if no such outfit is defined.
-    private getEligibleOutfits(memberNumber: number): BondageOutfit[] {
+    public getEligibleOutfits(memberNumber: number): BondageOutfit[] {
         if (this.pronounsCache.get(memberNumber) === "HeHim") {
             const maleFriendly = BONDAGE_OUTFITS.filter(o => !o.items.some(i => i.group === "ItemBreast"));
             if (maleFriendly.length > 0) return maleFriendly;
