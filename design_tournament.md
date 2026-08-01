@@ -34,23 +34,31 @@ Each match consists of **3 solo games** between two assigned opponents played **
 
 The 3 games do not have to be played in one session. The bot tracks per-game scores in `tournament.json` so a player can play game 1, leave, and return later for games 2 and 3 within the round window.
 
+### Punishment
+
+- **Round 1 is a grace round — no punishment applies.** All players play their match normally; losers just take a loss on their record.
+- **Rounds 2+ onward:** punishment applies to match losers (design TBD — see Rewards and Consequences section).
+- This gives new players a chance to experience the format before stakes kick in.
+
 ---
 
 ## Registration
 
 - Command: `!tournament register`
-- Sign-up window: **1 week** (configurable)
+- Sign-up window: **1 week** (configurable at tournament creation)
 - Minimum players to start: **6**
 - No maximum (open field — byes handle odd numbers)
 - Players are shown their registration confirmation via whisper
 - `!tournament` shows current registrations and time remaining in the sign-up window
+- **Players must be friended with the bot** to receive tournament announcements (round assignments, results, early-start votes, display time reminders). Bot whispers a friend request prompt at registration if not already friended.
+- When a registered player enters the room during an active tournament, the bot whispers them their current round status (opponent, games completed, time remaining).
 
 ---
 
 ## Rounds
 
 - Each round is **48 hours** long
-- Rounds advance automatically at **midnight UTC**
+- Rounds advance automatically at **midnight UTC** on the configured start day
 - At round start: all active players are paired, assignments written to `tournament.json`
 - When a player joins the room during an active round, the bot whispers them their opponent and current match status
 - If both players complete their games before the 48-hour window closes, the result is finalized immediately — no need to wait
@@ -58,6 +66,20 @@ The 3 games do not have to be played in one session. The bot tracks per-game sco
 ### What "midnight UTC" means in practice
 
 The bot checks whether a round should advance on any activity event (player join, game end, etc.) — similar to how `pending_update.txt` is polled. If the current UTC time is past the round deadline and the round hasn't been advanced yet, it advances then. This avoids needing an external cron job.
+
+### Early round start
+
+After each player completes their 3 games for the round, the bot immediately whispers them:
+
+```
+You've finished your round [N] games. All players finishing early can start the next round now.
+Are you okay with starting early if everyone else agrees? (YES / NO)
+```
+
+- If every active player (no byes, no forfeits pending) responds YES, the next round begins immediately — no waiting for the scheduled deadline.
+- The new round's deadline is set to **now + round length**, so players get the full configured window from whenever the early start fires.
+- A player who does not respond is treated as **no** — the round advances on schedule.
+- Players who received a bye this round are automatically counted as YES (they have no games to finish).
 
 ---
 
@@ -94,12 +116,32 @@ When an odd number of players share the same record, one receives a bye:
 
 ## Rewards and Consequences
 
-**Not yet designed.** This section needs DW input before implementation. Questions to answer:
+### Champion (1st place)
+- Public room announcement declaring the winner.
+- **Fully exempt** from all display punishment.
 
-- Does the winner receive a public announcement? Bondage applied to runner-up?
-- Are there per-round consequences (e.g., loser of each match gets a brief bondage penalty)?
-- Is there an in-room prize display or title?
-- Do consequences scale with how far into the tournament you lost?
+### Runner-up (2nd place)
+- **Fully exempt** from all display punishment.
+- The grand final always produces a definitive 1st and 2nd — no ambiguity.
+
+### Punishment — loss-based scaling
+
+| Loss | Punishment | Notes |
+|------|-----------|-------|
+| Any loss in Round 1 | None | Grace round — no punishment for anyone |
+| 1st loss (Round 2+) | 15 min on display | Must be fully served before playing next round match |
+| 2nd loss (elimination) | 1 hour on display | Served after elimination; BD locked until complete |
+
+- **On display** means the player is put on display in the room and listed as a prize for others to interact with.
+- Display time does **not** need to be served consecutively — a player can leave and return, and the bot tracks remaining time.
+- **BD is locked** for the player until their display time is fully served. They cannot start or join a BD game while time is outstanding.
+- The 15-minute serve requirement before the next match creates real time pressure — a player who loses early in a round must finish their display time within the round window to stay competitive.
+
+### Implementation notes
+- Bot tracks `displayTimeRemainingMs` per player in `tournament.json`.
+- When a player enters the room with outstanding time, bot whispers a reminder and puts them on display / lists them as a prize.
+- Before a player can use `!tournament play`, bot checks for outstanding display time and blocks if any remains.
+- BD lockout check: before starting any solo or multiplayer game, bot checks outstanding tournament display time.
 
 ---
 
@@ -116,14 +158,121 @@ The player adjusts their outfit manually and retries. The bot does not auto-appl
 
 ---
 
+## Withdrawal
+
+- **`allows_withdrawal`** is configured at tournament creation (yes/no question during `!tournament setup`).
+- If enabled: players may withdraw **between rounds only** — not mid-round while their match is in progress.
+- Withdrawing mid-tournament still counts as a loss for that round (punishment applies if it's round 2+). The intent is to prevent players from dropping to dodge a penalty.
+- If a player withdraws, their current-round opponent gets a bye win.
+- Withdrawn players do not appear in active standings but are shown in a "withdrew" section.
+
+---
+
+## Field Collapse
+
+When the active field drops to a problematic size mid-tournament:
+
+- **Field reaches 2 players:** force the grand final immediately, regardless of records.
+- **Mathematically decided winner** (e.g., one player has 0 losses and the other has 2 after round results): bot auto-awards the tournament to the undisputed leader and announces the result. No need for an additional final.
+- **Admin pause as safety net:** `!tournament pause` freezes advancement if an edge case arises that needs manual review. Use `!tournament resume` to continue. This is the fallback — the auto-rules above should handle most situations.
+
+---
+
+## Dispute System
+
+After each round's results are delivered, every player is immediately asked via whisper:
+
+```
+✅ Round [N] result: you [won/lost] against [Opponent].
+Do you agree with this result? Reply YES or NO.
+```
+
+- **YES:** logged, no further action.
+- **NO:** bot asks for a reason via follow-up whisper. Reason is logged to `tournament_disputes.log`. Bot beeps the admin with the dispute summary.
+
+Admin receives a beep containing: round number, players involved, recorded scores, and the disputing player's stated reason.
+
+Admin dispute commands:
+| Command | Effect |
+|---------|--------|
+| `!tournament replay <matchId>` | Nulls the match result; both players must replay their 3 games within a new window |
+| `!tournament deny <matchId>` | Dispute denied; original result stands; player notified via whisper |
+| `!tournament reverse <matchId>` | Flips the result (loser becomes winner); use if scores were recorded wrong |
+
+- Admin must be present in the room to use dispute commands.
+- The bot keeps per-game score logs for every tournament game (see Logging section) so admin can review raw rolls before deciding.
+
+---
+
+## Tournament Logging
+
+Every tournament game is logged with enough detail to reconstruct disputes:
+
+- Timestamp, round number, match ID, player member number and name
+- Per-game: each individual roll result, final score (rolls survived)
+- Match outcome and how it was determined (score, tiebreaker, forfeit, etc.)
+- Any dispute events and admin resolutions
+
+Log format: append-only to `tournament_game_log.txt` (gitignored), similar to `sss_telemetry.md`. Structured so each match's games are grouped and easy to visually scan.
+
+---
+
+## Admin Commands
+
+| Command | Who | Description |
+|---------|-----|-------------|
+| `!tournament setup` | Admin | Interactive tournament creation (see Setup section) |
+| `!tournament cancel` | Admin | Cancel an active or upcoming tournament (with confirmation) |
+| `!tournament advance` | Admin | Manually advance to the next round (testing only) |
+| `!tournament pause` | Admin | Freeze round advancement for manual review |
+| `!tournament resume` | Admin | Resume a paused tournament |
+| `!tournament replay <matchId>` | Admin | Null a match result and require a replay |
+| `!tournament deny <matchId>` | Admin | Deny a dispute; original result stands |
+| `!tournament reverse <matchId>` | Admin | Reverse a match result |
+
+---
+
+## Tournament Setup (`!tournament setup`)
+
+Admin runs `!tournament setup` and the bot asks questions via sequential whispers:
+
+1. **Registration start** — "When does registration open? (e.g. `3 days from now` or `2026-08-10`)"
+2. **First round start** — "When does Round 1 begin? (same formats)"
+3. **Round length** — "How long is each round? (e.g. `48 hours`, `3 days`)"
+4. **Allow withdrawals?** — "Can players withdraw between rounds? (YES / NO)"
+5. **Confirmation** — Bot summarizes all settings and asks "Confirm? (YES / NO)"
+
+Date input: bot accepts both `X days from now` / `X hours from now` and explicit `YYYY-MM-DD` format. Internally stored as UTC ISO timestamps.
+
+After confirmation, bot announces registration open to the room and writes `tournament.json`.
+
+`!tournament cancel` can be used at any point before the grand final concludes. Bot asks for a single YES confirmation, then clears `tournament.json` and announces cancellation to the room.
+
+---
+
+## Player Commands
+
+| Command | Who | Description |
+|---------|-----|-------------|
+| `!tournament register` | Any player | Register for the next tournament during sign-up |
+| `!tournament` | Any player | Show standings / registration status / round info |
+| `!tournament play` | Registered player | Start your next tournament game for this round |
+| `!tournament status` | Any player | Alias for `!tournament` |
+| `!tournament withdraw` | Registered player | Withdraw from the tournament (if allowed and between rounds) |
+
+---
+
 ## State File: `tournament.json`
 
 Persists all tournament state across bot restarts. Structure (approximate):
 
 ```json
 {
-  "status": "registration" | "active" | "complete",
+  "status": "registration" | "active" | "paused" | "complete",
+  "allowsWithdrawal": true,
   "signUpDeadline": "<ISO timestamp>",
+  "firstRoundStart": "<ISO timestamp>",
+  "roundLengthMs": 172800000,
   "currentRound": 1,
   "roundDeadline": "<ISO timestamp>",
   "players": [
@@ -133,46 +282,28 @@ Persists all tournament state across bot restarts. Structure (approximate):
       "wins": 1,
       "losses": 0,
       "byesUsed": 0,
-      "eliminated": false
+      "eliminated": false,
+      "withdrew": false
     }
   ],
   "matches": [
     {
+      "id": "r1-m1",
       "round": 1,
       "playerA": 12345,
       "playerB": 67890,
       "gamesA": [30, 22, 41],
       "gamesB": [],
-      "result": null
+      "result": null,
+      "disputed": false,
+      "disputeReason": null,
+      "adminResolution": null
     }
   ]
 }
 ```
 
----
-
-## Commands
-
-| Command | Who | Description |
-|---------|-----|-------------|
-| `!tournament register` | Any player | Register for the next tournament during sign-up |
-| `!tournament` | Any player | Show standings / registration status / round info |
-| `!tournament play` | Registered player | Start your next tournament game for this round |
-| `!tournament status` | Any player | Alias for `!tournament` |
-
-Admin commands (design when needed):
-- Cancel tournament
-- Manually advance round
-- Override a match result
-
----
-
-## Open Questions (pre-implementation)
-
-1. **Rewards and consequences** — see section above
-2. **Auto-start vs admin trigger** — does the tournament start automatically at midnight when sign-up closes, or does an admin need to confirm?
-3. **Can a player withdraw after registering?** (before the tournament starts vs mid-tournament)
-4. **What if the field drops below a viable size mid-tournament** (e.g., multiple double-eliminations leave 2 players with very different records)?
+`tournament.json` and `tournament_game_log.txt` and `tournament_disputes.log` should all be gitignored (like `players.json`, `pair_balances.json`).
 
 ---
 
@@ -182,4 +313,87 @@ Admin commands (design when needed):
 - Solo game flow changes needed: tournament mode flag to lock bracket at 6, record per-game scores, suppress normal solo end announcements in favor of tournament-specific ones
 - Swiss pairing logic: sort active players by W-L record, pair top of each group against next, handle odd groups with byes
 - Round advancement: timestamp check on activity events (no external scheduler needed)
-- `tournament.json` should be gitignored (like `players.json`, `pair_balances.json`)
+- Dispute commands require admin to be in-room (same pattern as existing admin commands)
+- Grace round (round 1): pass a `graceRound: true` flag through to punishment logic so it's a clean conditional, not hardcoded
+
+---
+
+## Player-Facing Text
+
+### Short Announcement (room chat / social post)
+
+🎲 **StripDice Solo Tournament — Coming Soon!**
+
+Think you can survive the dice? Our first solo tournament is coming. Sign up with `!tournament register` when registration opens.
+
+Each round you face one opponent. You each play 3 solo games on your own time — no need to be online together. Most rolls survived wins. Lose twice and you're out. Last player standing wins.
+
+Round 1 is a free round — no punishment. After that, losses cost you display time. Lose once and you serve 15 minutes on display before your next match. Lose a second time and you're out — with an hour on display as your send-off. Champion and runner-up walk away free.
+
+Type `!tournament rules` for full details.
+Registration opens: **[DATE]** — First round: **[DATE]**
+
+---
+
+### Detailed Rules (`!tournament rules`)
+
+🎲 **StripDice Solo Tournament — Rules**
+
+**Format**
+Swiss + double elimination. Each round you are paired against one other player with a similar record. Lose twice and you are eliminated. The last two players meet in the grand final. There is always a clear 1st place and 2nd place.
+
+**Joining**
+Type `!tournament register` during the sign-up window. You must be friends with the bot to receive messages — it will send you a request when you register. Accept it or you will miss round assignments and results.
+
+**How a match works**
+Each match is 3 solo games. You do not need to be online at the same time as your opponent. You each play your 3 games when you can, within the round window.
+
+- Mode: Survive
+- Clothing: exactly 6 items. The bot checks at the start of each game. If your count is wrong, adjust and try again.
+- Score: number of rolls survived. More = better.
+- Win = 1 point, Draw = ½ point each, Loss = 0 points
+- Most points after 3 games wins the match. If tied, total rolls across all 3 games decides it.
+
+**Rounds**
+Each round lasts 48 hours. When you finish your games, the bot will ask if you are okay starting the next round early. If every active player agrees, the next round starts immediately and runs for the full 48 hours from that point.
+
+**Punishment**
+
+Round 1 is a grace round. No punishment for anyone in round 1.
+
+From round 2 onward, losses cost you display time. You will be placed on display in the room and listed as a prize for the duration.
+
+| Loss | Punishment |
+|------|-----------|
+| Any loss in round 1 | None |
+| 1st loss (round 2+) | 15 minutes on display |
+| 2nd loss — eliminated | 1 hour on display |
+| Runner-up (2nd place) | No punishment |
+| Champion (1st place) | No punishment |
+
+After your first loss, you must serve your 15 minutes on display before you can play your next round match. You cannot skip it.
+
+Display time does not need to be served all at once. You can leave and come back — the bot remembers your remaining time. You cannot play BD at all while you have outstanding display time.
+
+**If you do not finish your games in time**
+
+| Situation | Result |
+|-----------|--------|
+| You played, your opponent did not | You win |
+| Neither of you played | Both take a loss |
+| You played some games, time ran out | Finished games count; unplayed games score as losses |
+
+**Results and disputes**
+After each round the bot will ask if you agree with your result. If you do not agree, reply NO and give a reason. The admin will be notified and can review the game logs, then replay the match, deny the dispute, or reverse the result.
+
+**Withdrawing**
+If the tournament allows withdrawal, you may only withdraw between rounds — not while your match is in progress. Withdrawing still counts as a loss for that round and punishment still applies. You cannot drop out to avoid your display time.
+
+**Commands**
+
+| Command | What it does |
+|---------|-------------|
+| `!tournament register` | Sign up for the upcoming tournament |
+| `!tournament` | See standings, your opponent, time remaining |
+| `!tournament play` | Start your next tournament game |
+| `!tournament withdraw` | Leave the tournament (between rounds only, if allowed) |

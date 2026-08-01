@@ -47,7 +47,7 @@ export const ADMIN_FEEDBACK_PROXY_TIMEOUT_MS = 60 * 1000;
 export const SOLO_BRACKET_MIN = 3;
 export const SOLO_BRACKET_MAX = 7; // 7 = FEMALE_CLOTHING_SLOTS.length (the longer of the two clothing paths — see below); male path (6 items) just never fills bracket 7
 export const SOLO_DEFAULT_TARGET = 8; // Used when no daily record exists yet for a bracket
-export const SOLO_BASE_PENALTY_MINUTES = 5;
+export const SOLO_BASE_PENALTY_MINUTES = 10;
 export const SOLO_DICE_MAX = 100;
 export const SOLO_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000;
 // How long to wait for the player to close their Wardrobe (detected via

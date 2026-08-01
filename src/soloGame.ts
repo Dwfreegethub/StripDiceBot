@@ -14,6 +14,118 @@ import {
     SOLO_DEFAULT_TARGET, SOLO_DICE_MAX, SOLO_INACTIVITY_TIMEOUT_MS, SOLO_REMOVAL_REMINDER_MS,
 } from "./constants";
 
+// ============================================================
+// SOLO THEMED BONDAGE - path-based bondage applied after a solo
+// game loss. One item is randomly chosen per stage and then locked
+// exactly like the outfit-based penalty. All 9 themes from SSS,
+// except Shibari's hogtie stage is omitted (too restrictive post-game).
+// ============================================================
+interface SoloThemeStage { group: string; items: string[]; typeRecord?: Record<string, number> }
+interface SoloTheme { key: string; name: string; stages: SoloThemeStage[] }
+
+const SOLO_THEMES: SoloTheme[] = [
+    {
+        key: "strict", name: "strict bondage",
+        stages: [
+            { group: "ItemMouth", items: ["HarnessBallGag", "RingGag", "ClothGag"] },
+            { group: "ItemFeet", items: ["LeatherAnkleCuffs", "SteelAnkleCuffs", "HeavyAnkleCuffs"] },
+            { group: "ItemLegs", items: ["LegBinder", "HempRope", "LeatherLegCuffs"] },
+            { group: "ItemHands", items: ["FullMittens", "PaddedMittens", "LatexBondageMitts"] },
+            { group: "ItemHead", items: ["LeatherBlindfold", "PaddedBlindfold", "ClothBlindfold"] },
+            { group: "ItemHood", items: ["LeatherHood", "CanvasHood"] },
+        ],
+    },
+    {
+        key: "pet", name: "pet play",
+        stages: [
+            { group: "ItemEars", items: ["CustomizableCatEars", "CustomizableFluffyEars1", "CustomizableCowEars"] },
+            { group: "ItemNeckAccessories", items: ["CollarBell", "CollarNameTagPet", "CollarCowBell"] },
+            { group: "ItemHands", items: ["PawMittens", "PonyMittensBinder", "FoamMittens"] },
+            { group: "ItemMouth", items: ["KittyGag", "MuzzleGag", "KittyMuzzleGag"] },
+            { group: "ItemButt", items: ["PuppyTailPlug", "FoxTails", "KittenTail1"] },
+        ],
+    },
+    {
+        key: "display", name: "display & chastity",
+        stages: [
+            { group: "ItemMouth", items: ["RingGag", "FuturisticPanelGag", "ClothGag"] },
+            { group: "ItemNipples", items: ["NippleClamp", "ScrewClamps", "Clothespins"] },
+            { group: "ItemPelvis", items: ["MetalChastityBelt", "OrnateChastityBelt", "ModularChastityBelt"] },
+            { group: "ItemFeet", items: ["SpreaderMetal", "HeavySpreaderMetal"] },
+            { group: "ItemDevices", items: ["Pole", "X-Cross", "DisplayCase", "TheDisplayFrame"] },
+        ],
+    },
+    {
+        key: "sensory", name: "sensory deprivation",
+        stages: [
+            { group: "ItemMouth", items: ["PumpGag", "HarnessPanelGag", "FuturisticHarnessPanelGag"] },
+            { group: "ItemEars", items: ["HeavyDutyEarPlugs", "HeadphoneEarPlugs"] },
+            { group: "ItemHead", items: ["FullBlindfold", "LatexBlindfold", "PaddedBlindfold"] },
+            { group: "ItemHands", items: ["FullMittens", "LatexBondageMitts"] },
+            { group: "ItemHood", items: ["LeatherHoodSensDep", "SackHood"] },
+        ],
+    },
+    {
+        // Hogtie stage intentionally omitted — too restrictive for post-game use.
+        key: "shibari", name: "shibari",
+        stages: [
+            { group: "ItemTorso", items: ["NylonRopeHarness", "HempRopeHarness"] },
+            { group: "ItemMouth", items: ["RopeGag", "RopeBallGag"] },
+            { group: "ItemLegs", items: ["NylonRope", "HempRope"] },
+            { group: "ItemFeet", items: ["NylonRope", "HempRope"] },
+        ],
+    },
+    {
+        key: "hightech", name: "high-tech restraints",
+        stages: [
+            { group: "ItemMouth", items: ["FuturisticPanelGag", "FuturisticHarnessPanelGag", "FuturisticMuzzle", "TechnoGag"] },
+            { group: "ItemArms", items: ["FuturisticCuffs", "FuturisticStraitjacket", "FuturisticArmbinder"] },
+            { group: "ItemFeet", items: ["FuturisticAnkleCuffs"] },
+            { group: "ItemLegs", items: ["FuturisticLegCuffs"] },
+            { group: "ItemHood", items: ["TechnoHelmet1", "FuturisticHelmet"] },
+        ],
+    },
+    {
+        key: "leather", name: "leather restraints",
+        stages: [
+            { group: "ItemTorso", items: ["LeatherHarness", "LeatherStrapHarness", "LeatherChestHarness1"] },
+            { group: "ItemMouth", items: ["LeatherCorsetCollar"] },
+            { group: "ItemArms", items: ["LeatherArmbinder", "LeatherCuffs", "LeatherDeluxeCuffs", "SmoothLeatherArmbinder1"] },
+            { group: "ItemFeet", items: ["LeatherAnkleCuffs", "LeatherDeluxeAnkleCuffs"] },
+            { group: "ItemLegs", items: ["LeatherLegCuffs", "LeatherDeluxeLegCuffs"] },
+            { group: "ItemHands", items: ["LeatherMittens", "PaddedLeatherMittens", "SmoothLeatherMittens1"] },
+            { group: "ItemHead", items: ["LeatherBlindfold", "LeatherSlimMask", "LeatherSlimMaskOpenMouth"] },
+            { group: "ItemHood", items: ["LeatherHood", "LeatherHoodOpenEyes", "LeatherHoodOpenMouth", "LeatherHoodSealed"] },
+        ],
+    },
+    {
+        key: "latex", name: "latex enclosure",
+        stages: [
+            { group: "ItemTorso", items: ["LatexCorset1", "HeavyLatexCorset", "ClassicLatexCorset"] },
+            { group: "ItemMouth", items: ["LatexBallMuzzleGag", "LatexSheathGag", "LatexMuzzleMask", "LatexRespirator"] },
+            { group: "ItemArms", items: ["LatexArmbinder", "SeamlessLatexArmbinder", "LatexBoxtieLeotard", "LatexButterflyLeotard"] },
+            { group: "ItemHands", items: ["LatexBondageMitts"] },
+            { group: "ItemHead", items: ["LatexBlindfold"] },
+            { group: "ItemHood", items: ["LatexHoodOpenHair", "CustomLatexHood", "TransparentLatexHood", "RubberMask", "LatexDogHood"] },
+        ],
+    },
+    {
+        key: "leather_latex", name: "leather & latex",
+        stages: [
+            { group: "ItemTorso", items: ["LeatherHarness", "LeatherChestHarness1", "LatexCorset1", "HeavyLatexCorset"] },
+            { group: "ItemMouth", items: ["LeatherCorsetCollar", "LatexBallMuzzleGag", "LatexMuzzleMask"] },
+            { group: "ItemArms", items: ["LeatherArmbinder", "SmoothLeatherArmbinder1", "LatexArmbinder", "SeamlessLatexArmbinder"] },
+            { group: "ItemFeet", items: ["LeatherAnkleCuffs", "LeatherDeluxeAnkleCuffs"] },
+            { group: "ItemLegs", items: ["LeatherLegCuffs", "LeatherDeluxeLegCuffs"] },
+            { group: "ItemHands", items: ["LeatherMittens", "PaddedLeatherMittens", "LatexBondageMitts"] },
+            { group: "ItemHead", items: ["LeatherBlindfold", "LeatherSlimMask", "LatexBlindfold"] },
+            { group: "ItemHood", items: ["LeatherHood", "LeatherHoodOpenEyes", "LatexHoodOpenHair", "CustomLatexHood", "TransparentLatexHood"] },
+        ],
+    },
+];
+
+const SOLO_THEME_OFFER_TIMEOUT_MS = 30 * 1000;
+
 export class SoloGameManager {
     private soloGames: Map<number, SoloGameState> = new Map();
     private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
@@ -21,6 +133,8 @@ export class SoloGameManager {
     private pendingSoloPrizeQuestion: Map<number, string> = new Map(); // memberNumber → name
     // Players who said yes to the prize question and are now describing what it means to them.
     private pendingSoloPrizeDescription: Map<number, string> = new Map(); // memberNumber → name
+    // Players who were offered a themed bondage path after losing and haven't replied yet.
+    private pendingThemeOffer: Map<number, { theme: SoloTheme; penaltyMinutes: number; timer: ReturnType<typeof setTimeout> }> = new Map();
 
     constructor(private readonly host: GameHost) {}
 
@@ -50,6 +164,29 @@ export class SoloGameManager {
         return this.pendingSoloPrizeDescription.has(memberNumber);
     }
 
+    public hasThemeOffer(memberNumber: number): boolean {
+        return this.pendingThemeOffer.has(memberNumber);
+    }
+
+    // Player typed !yes — apply the offered theme.
+    public acceptThemeOffer(memberNumber: number): void {
+        const pending = this.pendingThemeOffer.get(memberNumber);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pendingThemeOffer.delete(memberNumber);
+        this.applyThemePenalty(memberNumber, pending.theme, pending.penaltyMinutes);
+    }
+
+    // Player typed !no (or timed out) — fall back to a random preset outfit.
+    public declineThemeOffer(memberNumber: number): void {
+        const pending = this.pendingThemeOffer.get(memberNumber);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pendingThemeOffer.delete(memberNumber);
+        this.host.bot.whisper(memberNumber, "No problem — applying a random preset outfit instead.");
+        this.applyPenalty(memberNumber, pending.penaltyMinutes);
+    }
+
     // Player responded yes/no to the post-game prize question.
     public handlePrizeQuestion(memberNumber: number, agreed: boolean): void {
         const name = this.pendingSoloPrizeQuestion.get(memberNumber);
@@ -57,15 +194,14 @@ export class SoloGameManager {
         this.pendingSoloPrizeQuestion.delete(memberNumber);
 
         if (!agreed) {
-            this.host.bot.whisper(memberNumber, "No problem! The solo prize system is something we're still designing.");
+            this.host.bot.whisper(memberNumber, "No worries — the option will be there when you're ready. 😈");
             return;
         }
 
-        // Solo prize not yet implemented — ask them to describe their vision.
-        this.pendingSoloPrizeDescription.set(memberNumber, name);
+        // Prize system is in development — thank them and let them know it's coming.
         this.host.bot.whisper(memberNumber,
-            "🏆 Love the enthusiasm! The solo prize feature isn't fully built yet — but your idea will help shape it. " +
-            "What would being a prize look like to you? Just whisper me a description and I'll pass it along!"
+            "🏆 It's coming — someone's going to get to claim you properly soon. " +
+            "If you've shared your thoughts via !feedback, we've read every one. Thank you! 💕"
         );
     }
 
@@ -354,9 +490,9 @@ export class SoloGameManager {
         this.host.bot.whisper(memberNumber, `You didn't beat the record (${recordRolls} rolls). Better luck next time!`);
 
         const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
+        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday * 2;
         setTimeout(() => {
-            this.applyPenalty(memberNumber, penaltyMinutes);
+            this.offerThemeBondage(memberNumber, penaltyMinutes);
         }, SOLO_BONDAGE_DELAY_MS);
 
         logGameEvent(`[SOLO END] mode: ${solo.mode} | bracket: ${solo.bracket} | player: ${solo.name} | score: ${score} rolls | outcome: loss | penalty: ${penaltyMinutes}min`);
@@ -426,6 +562,76 @@ export class SoloGameManager {
         setTimeout(() => {
             this.host.bot.whisper(memberNumber, `⛓️ Bondage penalty applied — locked for ${penaltyMinutes} minutes.`);
         }, allVerificationsCompleteDelay);
+    }
+
+    // Assembles BondageItem[] from a SoloTheme (one random item per stage) and
+    // applies them with the same spaced lock+verify machinery as applyPenalty.
+    private applyThemePenalty(memberNumber: number, theme: SoloTheme, penaltyMinutes: number): void {
+        const items: BondageItem[] = theme.stages.map(stage => {
+            const name = stage.items[Math.floor(Math.random() * stage.items.length)];
+            const property = stage.typeRecord ? { TypeRecord: stage.typeRecord } : {};
+            return { group: stage.group, name, color: "Default", property };
+        });
+
+        const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
+        const playerName = this.host.getNameFor(memberNumber) ?? `#${memberNumber}`;
+
+        items.forEach((item, i) => {
+            setTimeout(() => {
+                this.host.bot.applyItem(memberNumber, item.group, item.name, item.color, item.property);
+                setTimeout(() => {
+                    this.host.bot.applyItem(
+                        memberNumber, item.group, item.name, item.color,
+                        this.host.buildLockedItemProperty(item, {
+                            hint: `Released in ${penaltyMinutes} minutes`,
+                            removeItem: true,
+                            showTimer: true,
+                            removeTimer: lockEndTime
+                        })
+                    );
+                }, REMOVAL_UNLOCK_GAP_MS);
+            }, i * REMOVAL_SLOT_DELAY_MS);
+        });
+
+        const phase1Done = (items.length - 1) * REMOVAL_SLOT_DELAY_MS + REMOVAL_UNLOCK_GAP_MS;
+        let lastVerifyDelay = 0;
+        items.forEach((item, i) => {
+            const verifyDelay = phase1Done + i * REMOVAL_SLOT_DELAY_MS;
+            lastVerifyDelay = verifyDelay;
+            setTimeout(() => {
+                this.verifyLockApplied(memberNumber, playerName, item, lockEndTime, penaltyMinutes, 0);
+            }, verifyDelay);
+        });
+
+        const allVerifyDone = lastVerifyDelay + LOCK_VERIFY_DELAY_MS;
+        setTimeout(() => {
+            this.host.bot.whisper(memberNumber, `⛓️ ${theme.name} bondage applied — locked for ${penaltyMinutes} minutes.`);
+        }, allVerifyDone);
+    }
+
+    // 50/50 roll: offer themed bondage or fall straight through to applyPenalty.
+    // Called at game end (full loss only). The mid-game partial removal path always
+    // uses applyPenalty directly so itemCap logic is preserved there.
+    private offerThemeBondage(memberNumber: number, penaltyMinutes: number): void {
+        if (Math.random() < 0.5) {
+            // Outfit path — no offer, just apply immediately.
+            this.applyPenalty(memberNumber, penaltyMinutes);
+            return;
+        }
+
+        const theme = SOLO_THEMES[Math.floor(Math.random() * SOLO_THEMES.length)];
+        const timer = setTimeout(() => {
+            if (!this.pendingThemeOffer.has(memberNumber)) return;
+            this.pendingThemeOffer.delete(memberNumber);
+            this.host.bot.whisper(memberNumber, "No response — applying a random preset outfit.");
+            this.applyPenalty(memberNumber, penaltyMinutes);
+        }, SOLO_THEME_OFFER_TIMEOUT_MS);
+
+        this.pendingThemeOffer.set(memberNumber, { theme, penaltyMinutes, timer });
+        this.host.bot.whisper(memberNumber,
+            `⛓️ You lost! I'm going to put you in ${theme.name} bondage. ` +
+            `Say yes to accept or no for a random preset instead. (30s — !yes/!no also work)`
+        );
     }
 
     // Re-applies one solo penalty lock item and starts its verification window.
@@ -509,7 +715,7 @@ export class SoloGameManager {
         const records = this.host.storage.loadSoloRecords();
         const bracketKey = String(solo.bracket);
         const attemptsToday = records.attempts[solo.mode][bracketKey]?.[String(memberNumber)] ?? 0;
-        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday;
+        const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attemptsToday * 2;
 
         this.applyPenalty(memberNumber, penaltyMinutes, clothingRemoved);
 
@@ -565,8 +771,8 @@ export class SoloGameManager {
     private askSoloPrizeQuestion(memberNumber: number, name: string): void {
         this.pendingSoloPrizeQuestion.set(memberNumber, name);
         this.host.bot.whisper(memberNumber,
-            "🏆 Quick question: would you be interested in being a \"prize\" after your solo game — " +
-            "available for anyone in the room to claim? (yes/no)"
+            "🏆 Quick question: after a solo loss, would you want to be left as a prize — " +
+            "bound and available for whoever in the room wants to claim you? (yes/no)"
         );
     }
 
@@ -625,7 +831,7 @@ export class SoloGameManager {
                 if (parts.length > 0) lines.push(`${modeLabel} (${b} items): ${parts.join(", ")}`);
 
                 if (attempts > 0) {
-                    const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attempts;
+                    const penaltyMinutes = SOLO_BASE_PENALTY_MINUTES + attempts * 2;
                     lines.push(`  Attempts today: ${attempts} (next penalty if you don't beat the record: ${penaltyMinutes} min)`);
                 }
             }

@@ -1,3 +1,3 @@
-2026-07-22T00:00:01-05:00
-Bondage picker now has "M for more" — browse the full item catalog one page at a time instead of being limited to the top 9.
-The bondage pick list now shows "M. More" at the bottom when the slot has more items than fit on one page. Type M to page through the full catalog (popular items first, then preset outfit items, then the rest). Numbers are relative (1-9) per page. Works the same way after a veto — fresh list, page 1.
+2026-07-29T19:00:00
+Several end-game improvements + tighter locks
+Solo game loser lock time increased to 10 min base (+2 min per repeat loss today). Solo losers now get offered a themed bondage path (shibari, leather, latex, high-tech, and more) — say yes to accept or no for a random preset. Prize claim window now lasts until the prize player's lock expires, even across games. Prize list shows time remaining. Winners can only claim prizes from their own game. 69 bonus now uses a numbered menu — pick by number, 30s per pick, 0 to skip remaining. All bot-applied bondage now uses higher difficulty locks (harder to escape). Team game can now be cancelled with !cancel by the person who started it.

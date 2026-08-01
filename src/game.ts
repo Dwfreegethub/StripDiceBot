@@ -2,7 +2,7 @@ import { BCConnection } from "./connection";
 import { log, centralTimestamp, logGameEvent } from "./logger";
 import * as fs from "fs";
 import * as path from "path";
-import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES } from "./messages";
+import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES, TEAM_69_MESSAGES, TEAM_69_CAP_MESSAGES } from "./messages";
 import { readPendingUpdate, getSeenVersion, markVersionSeen } from "./pendingUpdate";
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
@@ -67,6 +67,10 @@ export class StripDiceGame implements GameHost {
     // game. Losers' bonuses are added to their individual lock duration;
     // winners distribute their bonus to bound players before the lock vote.
     private sixtyNineBonuses: Map<number, number> = new Map();
+    // Team-mode 69-roll pool: every 69 rolled adds to this shared pool (capped
+    // at 30 min). Applied flat to every losing player at end game — not split.
+    private static readonly TEAM_69_CAP = 30;
+    private teamSixtyNineBonus: number = 0;
     // Count of players who "finished" this game (reached isFullyBound or won).
     // Adds 2 min per finisher to the end-game lock baseline.
     private finisherCount: number = 0;
@@ -154,7 +158,7 @@ export class StripDiceGame implements GameHost {
     private prizeConsentResolved: boolean = false;
     private prizeWillingPlayers: Set<number> = new Set(); // member numbers who opted in as prizes (non-winners)
     private lastWinners: Set<number> = new Set();         // set at game end, gates !claim (all winners in team mode)
-    private prizePasswords: Map<number, { name: string; password: string }> = new Map(); // memberNumber → {name, password}
+    private prizePasswords: Map<number, { name: string; password: string; lockEndTime: number; claimableBy: number[] }> = new Map(); // memberNumber → {name, password, lockEndTime, claimableBy}
     // Team mode: which teams had unanimous prize consent (1, 2, or both).
     // Used in Phase 3 to decide if the losing team's players become prizes.
     private prizeConsentTeams: Set<1 | 2> = new Set();
@@ -283,6 +287,19 @@ export class StripDiceGame implements GameHost {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
+
+        // If the team game host leaves during setup (before joining a team), auto-cancel.
+        if (this.state === GameState.TeamSetup && memberNumber === this.hostMemberNumber) {
+            this.isTeamMode = false;
+            this.teamRoster = { 1: [], 2: [] };
+            this.awaitingTeamSizeReply = false;
+            this.hostMemberNumber = null;
+            this.players.clear();
+            this.state = GameState.Idle;
+            this.bot.sendChat("Team game cancelled — the host left the room.");
+            return;
+        }
+
         if (this.state === GameState.Idle || !this.players.has(memberNumber)) return;
 
         const player = this.players.get(memberNumber)!;
@@ -709,6 +726,14 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        // Themed bondage offer after a solo loss — !yes applies it, !no falls back to preset.
+        if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
+            const accepted = msg === "!yes" || msg === "yes";
+            if (accepted) this.solo.acceptThemeOffer(memberNumber);
+            else this.solo.declineThemeOffer(memberNumber);
+            return;
+        }
+
         // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
         if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.solo.handleClothingAnswer(memberNumber, msg);
@@ -857,6 +882,14 @@ export class StripDiceGame implements GameHost {
         // Toys consent question for a mid-game joiner is whisper-only — same nudge.
         if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me!");
+            return;
+        }
+
+        // Theme offer yes/no — accept from chat same as whisper (not sensitive).
+        if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
+            const accepted = msg === "!yes" || msg === "yes";
+            if (accepted) this.solo.acceptThemeOffer(memberNumber);
+            else this.solo.declineThemeOffer(memberNumber);
             return;
         }
 
@@ -1512,6 +1545,22 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        if (this.state === GameState.TeamSetup) {
+            const isHost = memberNumber === this.hostMemberNumber;
+            if (!isHost && !this.isAdmin(memberNumber)) {
+                this.bot.whisper(memberNumber, "Only the person who started the team game (or an admin) can cancel it.");
+                return;
+            }
+            this.isTeamMode = false;
+            this.teamRoster = { 1: [], 2: [] };
+            this.awaitingTeamSizeReply = false;
+            this.hostMemberNumber = null;
+            this.players.clear();
+            this.state = GameState.Idle;
+            this.bot.sendChat(`Team game cancelled by ${this.getPlayerName(memberNumber)}. Type !join to start a new game, or !teamgame for another team game.`);
+            return;
+        }
+
         if (this.state !== GameState.Countdown) {
             this.bot.whisper(memberNumber, "No countdown is currently running.");
             return;
@@ -1914,36 +1963,49 @@ export class StripDiceGame implements GameHost {
             this.bot.whisper(memberNumber, "Only the most recent winner(s) can use !claim.");
             return;
         }
-        if (this.prizePasswords.size === 0) {
-            this.bot.whisper(memberNumber, "No willing prizes this game.");
+
+        // Purge expired prizes, then filter to only what this winner can claim.
+        const now = Date.now();
+        for (const [mn, entry] of this.prizePasswords.entries()) {
+            if (now > entry.lockEndTime) this.prizePasswords.delete(mn);
+        }
+
+        const myPrizes = [...this.prizePasswords.entries()].filter(([, e]) => e.claimableBy.includes(memberNumber));
+
+        if (myPrizes.length === 0) {
+            this.bot.whisper(memberNumber, "No claimable prizes available — either no one opted in, their locks have expired, or you weren't the winner for that game.");
             return;
         }
 
-        // Team mode: deliver every password to every winner simultaneously.
+        // Team mode: deliver every password to every winner on this winner's team simultaneously.
         if (this.isTeamMode) {
-            const entries = [...this.prizePasswords.entries()];
             const winnerNames = [...this.lastWinners]
+                .filter(n => myPrizes.some(([, e]) => e.claimableBy.includes(n)))
                 .map(n => this.nameCache.get(n) ?? "a winner")
                 .join(", ");
-            for (const winner of this.lastWinners) {
-                for (const [, { name, password }] of entries) {
+            const teamWinners = [...this.lastWinners].filter(n => myPrizes.some(([, e]) => e.claimableBy.includes(n)));
+            for (const winner of teamWinners) {
+                for (const [, { name, password }] of myPrizes) {
                     this.bot.whisper(winner, `🔑 ${name}'s lock password: ${password}`);
                 }
             }
-            for (const [prizeMemberNumber] of entries) {
+            for (const [prizeMemberNumber] of myPrizes) {
                 this.bot.whisper(prizeMemberNumber, `🔑 The winning team (${winnerNames}) has received your lock password.`);
+                this.prizePasswords.delete(prizeMemberNumber);
             }
-            this.prizePasswords.clear();
             return;
         }
 
         // Solo mode: list or select by index.
         const args = message.trim().replace(/^!claim\s*/i, "").trim();
-        const entries = [...this.prizePasswords.entries()];
+        const entries = myPrizes;
 
         if (!args) {
-            const lines = entries.map(([, { name }], i) => `${i + 1}. ${name}`).join("\n");
-            this.bot.whisper(memberNumber, `🏆 Willing prizes:\n${lines}\nUse !claim 1, !claim 1 2, etc. to receive their passwords.`);
+            const lines = entries.map(([, { name, lockEndTime }], i) => {
+                const minsLeft = Math.max(0, Math.ceil((lockEndTime - Date.now()) / 60000));
+                return `${i + 1}. ${name} (${minsLeft} min remaining)`;
+            }).join("\n");
+            this.bot.whisper(memberNumber, `🏆 Claimable prizes:\n${lines}\nWhisper !claim 1 (or !claim 1 2) to receive their password.`);
             return;
         }
 
@@ -2956,18 +3018,40 @@ export class StripDiceGame implements GameHost {
             this.lastRollValue = null;
             this.rollStreakCount = 0;
 
-            // Accumulate per-player lock bonus in active multiplayer games.
+            // Accumulate lock bonus in active multiplayer games.
             if (this.activeMultiplayer) {
                 const currentPlayer = this.getCurrentPlayer();
                 if (currentPlayer) {
                     const bonus = diceMax === 100 ? 10 : 5;
-                    const prev = this.sixtyNineBonuses.get(currentPlayer.memberNumber) ?? 0;
-                    this.sixtyNineBonuses.set(currentPlayer.memberNumber, prev + bonus);
-                    const tag = diceMax === 100 ? " 🎰 D100 double bonus!" : "";
-                    this.bot.sendChat(
-                        `🎰 ${currentPlayer.name} earns +${bonus} min lock bonus for that 69.${tag} ` +
-                        `(running total: ${prev + bonus} min — applied to their lock if they lose)`
-                    );
+
+                    if (this.isTeamMode) {
+                        // Team mode: pool added to every losing player's lock at end game.
+                        if (this.teamSixtyNineBonus >= StripDiceGame.TEAM_69_CAP) {
+                            // Already capped — announce the cap flavor.
+                            this.bot.sendChat(pickRandomMessage(TEAM_69_CAP_MESSAGES));
+                        } else {
+                            const prev = this.teamSixtyNineBonus;
+                            this.teamSixtyNineBonus = Math.min(prev + bonus, StripDiceGame.TEAM_69_CAP);
+                            const added = this.teamSixtyNineBonus - prev; // may be less than bonus if we hit the cap
+                            const msg = pickRandomMessage(TEAM_69_MESSAGES)
+                                .replace("{bonus}", String(added))
+                                .replace("{total}", String(this.teamSixtyNineBonus));
+                            this.bot.sendChat(msg);
+                            if (this.teamSixtyNineBonus === StripDiceGame.TEAM_69_CAP) {
+                                this.bot.sendChat(`⚠️ The losing team's 69 pool has hit the 30-min cap — no more 69 time will be added.`);
+                            }
+                            log(`[LOCK TIME] Team 69 pool: +${added} → ${this.teamSixtyNineBonus}/${StripDiceGame.TEAM_69_CAP} min`);
+                        }
+                    } else {
+                        // Standard mode: per-player bonus, winner distributes to bound players.
+                        const prev = this.sixtyNineBonuses.get(currentPlayer.memberNumber) ?? 0;
+                        this.sixtyNineBonuses.set(currentPlayer.memberNumber, prev + bonus);
+                        const tag = diceMax === 100 ? " 🎰 D100 double bonus!" : "";
+                        this.bot.sendChat(
+                            `🎰 ${currentPlayer.name} earns +${bonus} min lock bonus for that 69.${tag} ` +
+                            `(running total: ${prev + bonus} min — applied to their lock if they lose)`
+                        );
+                    }
                 }
             }
             return;
@@ -3299,9 +3383,13 @@ export class StripDiceGame implements GameHost {
     // prize if they lose. In team mode, all players on a team must say yes
     // for that team's prize consent to count.
     private beginPrizeConsent(): void {
-        // Clear any leftover prize state from the previous game
-        this.prizePasswords.clear();
-        this.lastWinners.clear();
+        // Expire any prize passwords from previous games whose locks have run out.
+        // Active prizes (lock not yet expired) survive so winners can still claim them
+        // even after a new game starts. lastWinners is kept for the same reason.
+        const now = Date.now();
+        for (const [mn, entry] of this.prizePasswords.entries()) {
+            if (now > entry.lockEndTime) this.prizePasswords.delete(mn);
+        }
         this.prizeWillingPlayers.clear();
         this.prizeConsentTeams.clear();
 
@@ -3898,7 +3986,7 @@ export class StripDiceGame implements GameHost {
     ): any {
         return {
             ...item.property,
-            Difficulty: 20,
+            Difficulty: 50,
             Effect: [...(item.property.Effect || []), "Lock"],
             LockedBy: "TimerPasswordPadlock",
             LockMemberNumber: this.bot.getMemberNumber(),
@@ -5130,57 +5218,78 @@ export class StripDiceGame implements GameHost {
         }
     }
 
-    // Whisper the winner asking them to distribute their 69 bonus minutes
-    // (in 5-min chunks) to any bound player(s) they choose. Times out after
-    // 30 seconds and proceeds to the lock vote with whatever was assigned.
+    // Sends the numbered pick menu to the winner. `header` replaces the intro
+    // line when the menu loops after a pick; omit it for the opening message.
+    private send69Menu(winnerNumber: number, remainingMinutes: number, boundPlayers: Player[], header?: string): void {
+        const intro = header ?? `🎰 You rolled 69 — you have ${remainingMinutes} bonus minutes to hand out!\nEach pick adds 5 minutes to that player's lock.`;
+        const lines = boundPlayers.map((p, i) => `${i + 1}. ${p.name}`).join("\n");
+        this.bot.whisper(winnerNumber, `${intro}\n\n${lines}\n0. Skip — don't assign the remaining time`);
+    }
+
+    // Shows the numbered menu and starts the 30-second window. Timer resets
+    // after each valid pick so the winner has 30s per decision, not 30s total.
     private startWinner69Assignment(winner: Player, totalBonusMinutes: number, winners: Player[] | undefined, boundPlayers: Player[]): void {
-        const names = boundPlayers.map(p => p.name).join(", ");
-        this.bot.whisper(winner.memberNumber,
-            `🎰 You rolled 69 for a total of ${totalBonusMinutes} bonus min to assign! ` +
-            `Whisper a player's name to give them 5 min each (repeatable), or "skip" to skip. ` +
-            `Bound players: ${names}. You have 30 seconds.`
-        );
+        this.send69Menu(winner.memberNumber, totalBonusMinutes, boundPlayers);
         const timeout = setTimeout(() => {
             const phase = this.pendingWinner69Assignment;
             if (!phase) return;
             this.pendingWinner69Assignment = null;
+            this.bot.whisper(winner.memberNumber, "Time's up — moving on with whatever was assigned.");
             this.startEndGameLockVote(phase.winners, phase.boundPlayers);
         }, 30 * 1000);
         this.pendingWinner69Assignment = { winners, winnerNumber: winner.memberNumber, remainingMinutes: totalBonusMinutes, boundPlayers, timeout };
     }
 
-    // Handles the winner's name reply during the 69 bonus assignment phase.
+    // Handles the winner's numbered reply during the 69 bonus assignment phase.
     // Returns true if the message was consumed by this phase.
     private tryHandleWinner69Assignment(memberNumber: number, msg: string): boolean {
         const phase = this.pendingWinner69Assignment;
         if (!phase || phase.winnerNumber !== memberNumber) return false;
 
-        const msgLower = msg.trim().toLowerCase();
-        if (msgLower === "skip" || msgLower === "done" || msgLower === "no one" || msgLower === "none") {
+        const msgTrimmed = msg.trim();
+        const msgLower = msgTrimmed.toLowerCase();
+
+        // 0 or skip keywords — abandon remaining minutes.
+        if (msgTrimmed === "0" || msgLower === "skip" || msgLower === "done" || msgLower === "no one" || msgLower === "none") {
             clearTimeout(phase.timeout);
             this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, `Got it — skipping your remaining ${phase.remainingMinutes} minutes. On to the lock vote!`);
             this.startEndGameLockVote(phase.winners, phase.boundPlayers);
             return true;
         }
 
-        const match = phase.boundPlayers.find(p => p.name.toLowerCase().includes(msgLower));
-        if (!match) {
-            this.bot.whisper(memberNumber, `No bound player matching "${msg}". Try again or say "skip".`);
+        const idx = parseInt(msgTrimmed, 10);
+        if (isNaN(idx) || idx < 1 || idx > phase.boundPlayers.length) {
+            this.bot.whisper(memberNumber, `Pick a number 1–${phase.boundPlayers.length}, or 0 to skip.`);
             return true;
         }
 
-        const prev = this.sixtyNineBonuses.get(match.memberNumber) ?? 0;
-        this.sixtyNineBonuses.set(match.memberNumber, prev + 5);
+        const target = phase.boundPlayers[idx - 1];
+        const prev = this.sixtyNineBonuses.get(target.memberNumber) ?? 0;
+        this.sixtyNineBonuses.set(target.memberNumber, prev + 5);
         phase.remainingMinutes -= 5;
 
         if (phase.remainingMinutes <= 0) {
-            this.bot.whisper(memberNumber, `+5 min assigned to ${match.name}. All bonus minutes assigned — proceeding to vote!`);
             clearTimeout(phase.timeout);
             this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, `+5 min added to ${target.name}. All bonus minutes assigned — on to the lock vote!`);
             this.startEndGameLockVote(phase.winners, phase.boundPlayers);
-        } else {
-            this.bot.whisper(memberNumber, `+5 min → ${match.name}. ${phase.remainingMinutes} min left to assign. Name another player or say "skip".`);
+            return true;
         }
+
+        // Reset the 30-second window and loop the menu with updated remaining.
+        clearTimeout(phase.timeout);
+        phase.timeout = setTimeout(() => {
+            if (!this.pendingWinner69Assignment) return;
+            this.pendingWinner69Assignment = null;
+            this.bot.whisper(memberNumber, "Time's up — moving on with whatever was assigned.");
+            this.startEndGameLockVote(phase.winners, phase.boundPlayers);
+        }, 30 * 1000);
+
+        this.send69Menu(
+            memberNumber, phase.remainingMinutes, phase.boundPlayers,
+            `+5 min added to ${target.name}. ${phase.remainingMinutes} minutes left to assign.`
+        );
         return true;
     }
 
@@ -5261,6 +5370,10 @@ export class StripDiceGame implements GameHost {
         log(`[LOCK TIME] vote: more=${moreCount} less=${lessCount} delta=${voteDelta}, final base=${this.lockDurationMinutes} min`);
 
         // Log per-player 69 bonuses that will be added on top of the base.
+        if (this.isTeamMode && this.teamSixtyNineBonus > 0) {
+            log(`[LOCK TIME] team 69 pool: +${this.teamSixtyNineBonus} min applied to each loser`);
+            this.bot.sendChat(`🎰 Team 69 pool: +${this.teamSixtyNineBonus} min added to every losing player's lock.`);
+        }
         const playerBonuses = vote.boundPlayers
             .map(p => ({ name: p.name, bonus: this.sixtyNineBonuses.get(p.memberNumber) ?? 0 }))
             .filter(e => e.bonus > 0);
@@ -5350,9 +5463,10 @@ export class StripDiceGame implements GameHost {
                 return;
             }
 
-            // Per-player final lock duration = base + any 69-roll bonus earned/assigned.
+            // Per-player final lock duration = base + any 69-roll bonus earned/assigned
+            // + the team 69 pool (team mode only, flat add to every loser).
             const playerBonus = this.sixtyNineBonuses.get(player.memberNumber) ?? 0;
-            const playerLockMinutes = this.lockDurationMinutes + playerBonus;
+            const playerLockMinutes = this.lockDurationMinutes + playerBonus + this.teamSixtyNineBonus;
             const playerLockEndTime = Date.now() + (playerLockMinutes * 60 * 1000);
 
             for (let i = 0; i < player.bondageApplied; i++) {
@@ -5444,16 +5558,16 @@ export class StripDiceGame implements GameHost {
         if (isTeamPrize && winners) {
             // Register all winners so any of them can !claim
             for (const w of winners) this.lastWinners.add(w.memberNumber);
+            const teamWinnerNumbers = winners.map(w => w.memberNumber);
             const prizeLeashPlayers = boundPlayers.filter(p => p.prizeConsent === true);
             this.prizeWillingPlayers.clear();
             for (const prizePlayer of prizeLeashPlayers) {
                 this.prizeWillingPlayers.add(prizePlayer.memberNumber);
                 const password = generatePassword();
-                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password });
-
                 const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
                 const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
                 const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
+                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: teamWinnerNumbers });
 
                 if (prizePlayer.bondageOutfit) {
                     for (let i = 0; i < prizePlayer.bondageApplied; i++) {
@@ -5530,13 +5644,12 @@ export class StripDiceGame implements GameHost {
             for (const prizePlayer of prizeLeashPlayers) {
                 this.prizeWillingPlayers.add(prizePlayer.memberNumber);
                 const password = generatePassword();
-                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password });
-
                 // Use this prize player's personal lock duration (base + their 69 bonus)
                 // for the prize re-lock and leash.
                 const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
                 const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
                 const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
+                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: [winner.memberNumber] });
 
                 // Re-lock this player's existing bondage outfit with their own
                 // prize password instead of the shared game password, so the
@@ -5873,6 +5986,7 @@ export class StripDiceGame implements GameHost {
             this.pendingWinner69Assignment = null;
         }
         this.sixtyNineBonuses.clear();
+        this.teamSixtyNineBonus = 0;
         this.finisherCount = 0;
         this.activeLockEndTimes.clear();
         this.minPlayers = 2;
