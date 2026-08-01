@@ -67,6 +67,106 @@ export function emptySoloRecordsData(): SoloRecordsData {
 }
 
 // ============================================================
+// DURATION PARSING - plain-language time input for tournament setup.
+// Everything time-related in a tournament is admin-configured, so
+// short values must work as well as long ones: a full tournament
+// gets rehearsed with 1-hour rounds before a real one runs for days.
+// ============================================================
+const DURATION_UNITS: { pattern: RegExp; ms: number }[] = [
+    { pattern: /^(weeks?|wks?|w)$/, ms: 7 * 24 * 60 * 60 * 1000 },
+    { pattern: /^(days?|d)$/, ms: 24 * 60 * 60 * 1000 },
+    { pattern: /^(hours?|hrs?|h)$/, ms: 60 * 60 * 1000 },
+    { pattern: /^(minutes?|mins?|m)$/, ms: 60 * 1000 },
+    { pattern: /^(seconds?|secs?|s)$/, ms: 1000 },
+];
+
+// Parses "90 minutes", "1 hour", "48 hours", "3 days", "1 week", compact
+// forms ("90m", "36h", "2d"), and combinations ("1 day 12 hours"). A trailing
+// "from now" is ignored so setup answers can read naturally. Returns
+// milliseconds, or null if nothing parseable was found.
+export function parseDuration(input: string): number | null {
+    if (!input) return null;
+    const cleaned = input.toLowerCase().replace(/\bfrom\s+now\b/g, " ").replace(/,/g, " ").trim();
+    if (!cleaned) return null;
+
+    // Each match is a number followed by an optional unit word: "1 day", "36h".
+    const matches = [...cleaned.matchAll(/(\d+(?:\.\d+)?)\s*([a-z]+)?/g)];
+    if (matches.length === 0) return null;
+
+    let total = 0;
+    let matchedAny = false;
+
+    for (const [, rawAmount, rawUnit] of matches) {
+        const amount = parseFloat(rawAmount);
+        if (!isFinite(amount) || amount < 0) return null;
+
+        // A bare number with no unit is read as minutes — the most common
+        // thing an admin means when they type "15" for a punishment length.
+        if (!rawUnit) {
+            total += amount * 60 * 1000;
+            matchedAny = true;
+            continue;
+        }
+
+        const unit = DURATION_UNITS.find(u => u.pattern.test(rawUnit));
+        if (!unit) return null; // unrecognized unit — better to re-ask than guess
+        total += amount * unit.ms;
+        matchedAny = true;
+    }
+
+    if (!matchedAny || total <= 0) return null;
+    return Math.round(total);
+}
+
+// Renders a duration back as readable text for confirmation screens and
+// status whispers ("2 days 3 hours", "45 minutes"). Rounds to whole units
+// and shows at most the two largest non-zero ones.
+export function formatDuration(ms: number): string {
+    if (!isFinite(ms) || ms <= 0) return "0 minutes";
+
+    const units: { label: string; ms: number }[] = [
+        { label: "week", ms: 7 * 24 * 60 * 60 * 1000 },
+        { label: "day", ms: 24 * 60 * 60 * 1000 },
+        { label: "hour", ms: 60 * 60 * 1000 },
+        { label: "minute", ms: 60 * 1000 },
+        { label: "second", ms: 1000 },
+    ];
+
+    const parts: string[] = [];
+    let remaining = ms;
+    for (const unit of units) {
+        const count = Math.floor(remaining / unit.ms);
+        if (count > 0) {
+            parts.push(`${count} ${unit.label}${count === 1 ? "" : "s"}`);
+            remaining -= count * unit.ms;
+        }
+        if (parts.length === 2) break;
+    }
+
+    return parts.length > 0 ? parts.join(" ") : "less than a second";
+}
+
+// Parses either a duration ("3 days", meaning 3 days from `from`) or an
+// absolute date ("2026-08-10", treated as UTC midnight). "now" resolves to
+// `from`. Returns an epoch millisecond timestamp, or null if unparseable.
+export function parseWhen(input: string, from: number = Date.now()): number | null {
+    if (!input) return null;
+    const cleaned = input.trim().toLowerCase();
+    if (!cleaned) return null;
+
+    if (cleaned === "now" || cleaned === "immediately") return from;
+
+    const isoDate = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDate) {
+        const parsed = Date.parse(`${isoDate[1]}-${isoDate[2]}-${isoDate[3]}T00:00:00Z`);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    const duration = parseDuration(cleaned);
+    return duration === null ? null : from + duration;
+}
+
+// ============================================================
 // PASSWORD GENERATOR
 // ============================================================
 // Word bank, same approach as WD's END_GAME_LOCK_PASSWORD_WORDS (tested

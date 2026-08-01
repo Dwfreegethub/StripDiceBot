@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "tsc && node build/index.js"
+    "dev": "tsc && node build/index.js",
+    "sim": "tsc && node build/tournamentSim.js"
   },
   "keywords": [],
   "author": "",

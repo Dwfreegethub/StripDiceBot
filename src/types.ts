@@ -263,6 +263,96 @@ export interface OutfitSuggestion {
 }
 
 // ============================================================
+// TOURNAMENT MODE - Swiss pairing + double elimination over
+// asynchronous solo Survive matches. See design_tournament.md.
+// Every duration is admin-configured at setup; nothing here is
+// hardcoded to a particular tournament length.
+// ============================================================
+export type TournamentStatus = "registration" | "active" | "paused" | "complete" | "cancelled";
+
+// How a match was decided. "time" is the hidden tiebreaker — total elapsed
+// game time, fastest wins — and is only ever surfaced to players when it
+// actually decided their match.
+export type MatchDecidedBy = "points" | "rolls" | "time" | "forfeit" | "double-forfeit" | "bye" | "admin";
+
+export interface TournamentPlayer {
+    memberNumber: number;
+    name: string;
+    wins: number;
+    losses: number;
+    byesUsed: number;
+    eliminated: boolean;
+    withdrew: boolean;
+    // Member numbers already faced, so Swiss pairing can avoid rematches.
+    opponents: number[];
+    // Outstanding punishment time in ms. Persisted, so it survives restarts
+    // and can be served across several sittings.
+    punishMsRemaining: number;
+    // True while actively serving (bound + claimable in the room). The clock
+    // only runs while this is true; pausing banks the remainder.
+    serving: boolean;
+    // Epoch ms when the current serving stretch began; null when not serving.
+    servingSince: number | null;
+}
+
+// One completed tournament game. durationMs feeds the hidden time tiebreaker.
+export interface TournamentGameResult {
+    score: number;       // rolls survived — higher is better in Survive
+    durationMs: number;  // wall-clock length of the game
+    playedAt: string;    // ISO timestamp of completion
+}
+
+export interface TournamentMatchResult {
+    winner: number | null;  // null when both players forfeited
+    loser: number | null;   // null on a bye or double forfeit
+    pointsA: number;
+    pointsB: number;
+    decidedBy: MatchDecidedBy;
+}
+
+export interface TournamentMatch {
+    id: string;              // e.g. "r1-m1"
+    round: number;
+    playerA: number;
+    playerB: number | null;  // null = playerA received a bye
+    gamesA: TournamentGameResult[];
+    gamesB: TournamentGameResult[];
+    result: TournamentMatchResult | null;
+    disputed: boolean;
+    disputeReason: string | null;
+    adminResolution: string | null;
+}
+
+// Everything the admin chooses during !tournament setup. Kept in its own
+// object so a test tournament (1-hour rounds, 5-minute punishments) and a
+// real one differ only by these values.
+export interface TournamentConfig {
+    registrationOpensAt: string; // ISO
+    signUpDeadline: string;      // ISO
+    firstRoundStart: string;     // ISO
+    roundLengthMs: number;
+    gamesPerMatch: number;       // default 3
+    clothingCount: number;       // default 6
+    minPlayers: number;          // default 6
+    graceRounds: number;         // rounds with no punishment; default 1
+    firstLossPunishMs: number;   // default 15 min
+    eliminationPunishMs: number; // default 1 hour
+    allowsWithdrawal: boolean;
+}
+
+export interface TournamentState {
+    status: TournamentStatus;
+    createdBy: number;
+    config: TournamentConfig;
+    currentRound: number;
+    roundDeadline: string | null; // ISO; null before round 1 starts
+    players: TournamentPlayer[];
+    matches: TournamentMatch[];
+    champion: number | null;
+    runnerUp: number | null;
+}
+
+// ============================================================
 // COMMAND DISPATCH TABLE
 // ============================================================
 export type CommandHandler = (memberNumber: number, name: string, msg: string, message: string) => void;

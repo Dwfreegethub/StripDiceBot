@@ -4,13 +4,29 @@
 
 ---
 
-## Open Questions (blocking build)
+## Decisions (2026-07-31)
 
-1. **Records & penalty ladder** — do tournament games count toward daily/all-time solo records, and toward `attemptsToday` (which adds +2 min of bondage per loss per day)? Three games per match makes that ramp steeply.
-2. **Byes near the end** — a bye is a free win. With 3 players left all on 1 loss, one gets a free pass toward the final. Acceptable?
-3. **Grand final semantics** — "last 2 standing play one match" treats a 0-loss and a 1-loss finalist identically, which isn't strictly double elimination. Intentional simplification for a clean 1st/2nd?
-4. **Total tie** — if match points *and* total rolls are both tied, what breaks it?
-5. **First tournament scope** — run tournament #1 with punishment enabled, or as an all-grace event to test the format first? (30-day data: 519 solo games, 331 distinct players, but only **32 played 3+ games** — that's the realistic pool for a multi-week commitment.)
+1. **Tournament games are completely separate from solo records.** They never write daily/all-time records and never touch `attemptsToday`. A tournament game therefore never inherits the +2 min/loss/day solo penalty ramp — tournament lock times come only from the punishment table below.
+2. **Lock times are the ones in this document** (15 min first loss, 1 hour on elimination), not the solo penalty values.
+3. **Serving is player-controlled and interruptible.** A player serving punishment time can ask to stop, be released, leave, and come back later to serve the remainder. See *Serving Punishment Time*.
+4. **Tie-of-ties breaker: total elapsed time across the 3 games — fastest wins.** Applied only when match points *and* total rolls are both tied. **Not announced up front**; only revealed if it actually decides a match. Requires per-game duration tracking.
+5. **All durations are configured at setup**, in plain language, accepting minutes/hours/days (e.g. `1 hour` rounds for a test run). Nothing time-related is hardcoded.
+6. **Tournament #1's shape is undecided** — DW will choose once it is built. Expect a small test tournament before a real one, so short round lengths must work.
+
+---
+
+## Serving Punishment Time
+
+Punishment is **bound in the room + claimable** (prize mode), for the duration in the punishment table. Because an hour is a long time to be stuck, serving is interruptible:
+
+- The clock only runs while the player is **actively serving** — bound, in the room, and claimable.
+- A player may ask to stop early. The bot releases them and banks the remaining time; they keep whatever balance is left.
+- Returning later, they ask to serve again and the bot re-applies the bondage for the remaining balance.
+- Leaving the room while serving automatically pauses the clock and banks the remainder (same as asking to stop).
+- The balance persists across bot restarts — it is stored in `tournament.json`, not in memory.
+- BD stays locked for that player until the balance reaches zero.
+
+Commands (names TBD during build): one to begin/resume serving, one to stop and bank the remainder, and the existing `!tournament` status showing time left.
 
 ---
 
@@ -41,6 +57,7 @@ Each match consists of **3 solo games** between two assigned opponents played **
 - **Per-game result:** Win (1 pt), Draw (½ pt each), Loss (0 pt)
 - **Match winner:** Player with more points after 3 games
 - **Tiebreaker (match only):** If points are tied after 3 games, total rolls across all 3 games decides the winner. This tiebreaker applies only to that match — it does not carry into tournament standings.
+- **Second tiebreaker (hidden):** if points *and* total rolls are both tied, the player whose 3 games took less total elapsed time wins. This is deliberately **not advertised** — players are only told about it if it actually decides their match, so nobody plays to the clock. Per-game durations are recorded for every tournament game.
 
 The 3 games do not have to be played in one session. The bot tracks per-game scores in `tournament.json` so a player can play game 1, leave, and return later for games 2 and 3 within the round window.
 
@@ -110,7 +127,8 @@ The double-loss case (both no-show) can eliminate two players at once, which may
 
 When an odd number of players share the same record, one receives a bye:
 
-- **Who gets it:** Highest-ranked player in that record group who has not yet received a bye in this tournament. If all have received a bye, randomize.
+- **Who gets it:** Highest-ranked player who has not yet received a bye in this tournament (fewest byes wins the tie — deterministic rather than random, so pairing is reproducible in the simulator).
+- **One bye per round, maximum.** Original wording gave a bye to any odd *record group*, which hands out several free wins per round (6 players splitting 3/3 after round 1 would produce two). Instead the ranked field floats players down between record groups, and a bye only exists when the **total** active count is odd — standard Swiss behaviour. Enforced by a simulator invariant.
 - **Result:** Automatic win (1 match win), no games played, no roll score recorded
 - **Tiebreaker impact:** Bye rounds contribute 0 to total rolls — they do not inflate or penalize the tiebreaker
 
@@ -187,6 +205,7 @@ When the active field drops to a problematic size mid-tournament:
 
 - **Field reaches 2 players:** force the grand final immediately, regardless of records.
 - **Mathematically decided winner** (e.g., one player has 0 losses and the other has 2 after round results): bot auto-awards the tournament to the undisputed leader and announces the result. No need for an additional final.
+- **Empty field — both finalists no-show.** Surfaced by the simulator: if the last two active players *both* fail to play, the double-forfeit rule eliminates both and nobody is left to crown. This happened in roughly 1.5% of simulated tournaments (with a deliberately pessimistic no-show rate). `evaluateField()` reports `empty` for this case. **Unresolved:** award to the best record among the eliminated, replay the final, or freeze for admin decision? Needs a ruling before punishment-enabled tournaments run.
 - **Admin pause as safety net:** `!tournament pause` freezes advancement if an edge case arises that needs manual review. Use `!tournament resume` to continue. This is the fallback — the auto-rules above should handle most situations.
 
 ---
@@ -249,13 +268,18 @@ Log format: append-only to `tournament_game_log.txt` (gitignored), similar to `s
 
 Admin runs `!tournament setup` and the bot asks questions via sequential whispers:
 
-1. **Registration start** — "When does registration open? (e.g. `3 days from now` or `2026-08-10`)"
-2. **First round start** — "When does Round 1 begin? (same formats)"
-3. **Round length** — "How long is each round? (e.g. `48 hours`, `3 days`)"
-4. **Allow withdrawals?** — "Can players withdraw between rounds? (YES / NO)"
-5. **Confirmation** — Bot summarizes all settings and asks "Confirm? (YES / NO)"
+1. **Registration start** — "When does registration open? (e.g. `now`, `3 days`, or `2026-08-10`)"
+2. **Registration length** — "How long is the sign-up window? (e.g. `1 week`, `2 hours`)"
+3. **First round start** — "When does Round 1 begin? (same formats)"
+4. **Round length** — "How long is each round? (e.g. `48 hours`, `3 days`, `1 hour`)"
+5. **First-loss punishment** — "How long on display for a first loss? (e.g. `15 minutes`)"
+6. **Elimination punishment** — "How long on display when eliminated? (e.g. `1 hour`)"
+7. **Allow withdrawals?** — "Can players withdraw between rounds? (YES / NO)"
+8. **Confirmation** — Bot summarizes all settings and asks "Confirm? (YES / NO)"
 
-Date input: bot accepts both `X days from now` / `X hours from now` and explicit `YYYY-MM-DD` format. Internally stored as UTC ISO timestamps.
+**Duration input** accepts minutes, hours, days and weeks in plain language — `90 minutes`, `1 hour`, `48 hours`, `3 days`, `1 week`, compact forms (`90m`, `36h`, `2d`), and combinations (`1 day 12 hours`). A trailing `from now` is ignored. Absolute `YYYY-MM-DD` dates are also accepted for the two start times. Everything is stored internally as UTC ISO timestamps / millisecond durations.
+
+Short durations are explicitly supported so a full tournament can be rehearsed in an afternoon (e.g. 1-hour rounds, 5-minute punishments).
 
 After confirmation, bot announces registration open to the room and writes `tournament.json`.
 
