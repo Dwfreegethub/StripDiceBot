@@ -1,5 +1,6 @@
-2026-07-31T23:00:00
-Feedback now reaches us the moment you send it.
-Your feedback used to sit in a file until someone thought to go and read it. Now, if a keeper is in the room when you whisper !feedback, it lands in front of them immediately — so replies and fixes come faster.
-After a game finishes you may occasionally get a one-line nudge asking what you thought. It's random and only after a completed game, so it won't pester you every round — and !feedback still works any time without waiting to be asked.
-Behind the scenes: the admin !setstatus command can now set every feedback status, including "declined". Two statuses were missing from the list, so those updates could never be recorded — and therefore never whispered back to you — without hand-editing the file. If you sent something that quietly went nowhere, that's why; it should get a proper answer now.
+2026-08-06T22:00:00
+Fixed: prize lock passwords could be wrong. One password now opens everything.
+If you won a game and claimed a prize, the password you were given could fail to open some of their restraints. This happened to Candy claiming Oklin: the bot said the password was OBEDIENT, but several of Oklin's locks were actually set to PLAYFUL, that game's shared password.
+The cause: a prize player's restraints were locked twice. First with the game's shared password like everyone else, then locked again a minute later with their own private prize password. Anything that touched a lock in between — or any part of that second pass that didn't land — left them with a mix of both, while !claim only ever knew about the second one.
+Now a prize player's own password is decided before a single lock goes on, and every lock they receive uses it from the start, including the collar and leash and any lock the bot has to re-apply. There is no second pass to go wrong, and the password !claim gives you is the only one on them.
+Side effects, both good: end-game locking now sends about half as many item updates for prize players, so the whole sequence finishes faster and is less likely to hit Bondage Club's rate limit. And in team games, prize players were being given a shorter lock timer than everyone else because the shared 69-roll bonus was left out of their time — they now get the same duration as the rest of the losing team.
