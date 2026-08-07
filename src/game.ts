@@ -92,6 +92,16 @@ export class StripDiceGame implements GameHost {
     private pronounsCache: Map<number, string> = new Map();
     private lastClothing: Map<number, string[]> = new Map();
     private gamePassword: string = "";
+    // Per-player override of gamePassword for this game's end-game locks.
+    // A prize player's locks must all carry the one password !claim hands out,
+    // so their password is decided BEFORE any lock is applied and every apply
+    // path reads it from here. Previously the prize password was minted after
+    // the locks had already gone on with gamePassword, and the re-lock that
+    // fixed that up was a second, separate burst — so any path that re-applied
+    // a lock afterwards (verification retry, player-reported failure) silently
+    // reverted that player to gamePassword and left them with two different
+    // passwords on different items. Empty = use gamePassword.
+    private playerLockPasswords: Map<number, string> = new Map();
     private safewordMember: number | null = null;
     private prePauseState: GameState | null = null;
     private allowMidGameJoin: boolean = true;
@@ -2060,6 +2070,7 @@ export class StripDiceGame implements GameHost {
         if (this.prizeConsentTimer) { clearTimeout(this.prizeConsentTimer); this.prizeConsentTimer = null; }
         this.prizeWillingPlayers.clear();
         this.prizePasswords.clear();
+        this.playerLockPasswords.clear();
         this.lastWinners.clear();
         if (this.pendingPrizeSwap) { clearTimeout(this.pendingPrizeSwap.timeout); this.pendingPrizeSwap = null; }
 
@@ -4116,6 +4127,8 @@ export class StripDiceGame implements GameHost {
             LockedBy: "TimerPasswordPadlock",
             LockMemberNumber: this.bot.getMemberNumber(),
             LockMemberName: "GameBot",
+            // options.password is an explicit override; otherwise this is
+            // resolved per player by the caller via lockPasswordFor().
             Password: options.password ?? this.gamePassword,
             Hint: options.hint,
             LockSet: true,
@@ -5536,6 +5549,70 @@ export class StripDiceGame implements GameHost {
     // Actually applies the end-game locks. lockDurationMinutes is the shared
     // base (settled by the vote). Each bound player's final lock time may be
     // longer if they accumulated a 69-roll bonus during the game.
+    // The password a given player's end-game locks must use. Prize players get
+    // their own (so !claim hands out one key that opens everything on them);
+    // everyone else uses the shared game password.
+    private lockPasswordFor(memberNumber: number): string {
+        return this.playerLockPasswords.get(memberNumber) ?? this.gamePassword;
+    }
+
+    // Decides which bound players become claimable prizes and mints each one a
+    // password, registering it in playerLockPasswords so the main lock burst
+    // uses it directly. Returns the prize players so Phase 3 only has to add
+    // the collar and leash — it no longer re-locks anything, which removes both
+    // the duplicate emit burst and the window where a retry could revert a
+    // prize player to the shared game password.
+    private planEndGamePrizes(winners: Player[] | undefined, boundPlayers: Player[]): {
+        prizePlayers: Player[];
+        winnerLabel: string;
+    } {
+        this.playerLockPasswords.clear();
+
+        const hasWinners = !!winners && winners.length > 0;
+        if (!hasWinners) return { prizePlayers: [], winnerLabel: "" };
+
+        const isTeamPrize = this.isTeamMode && (() => {
+            const losingTeamId = boundPlayers[0]?.teamId as 1 | 2 | undefined;
+            return losingTeamId !== undefined && this.prizeConsentTeams.has(losingTeamId);
+        })();
+        const isSoloPrize = !this.isTeamMode && winners!.length === 1;
+        if (!isTeamPrize && !isSoloPrize) return { prizePlayers: [], winnerLabel: "" };
+
+        const winnerNumbers = winners!.map(w => w.memberNumber);
+        const prizePlayers = isTeamPrize
+            ? boundPlayers.filter(p => p.prizeConsent === true)
+            : boundPlayers.filter(p => p.prizeConsent === true && p.memberNumber !== winners![0].memberNumber);
+
+        this.prizeWillingPlayers.clear();
+        for (const w of winners!) this.lastWinners.add(w.memberNumber);
+
+        for (const prizePlayer of prizePlayers) {
+            this.prizeWillingPlayers.add(prizePlayer.memberNumber);
+            const password = generatePassword();
+            this.playerLockPasswords.set(prizePlayer.memberNumber, password);
+
+            // Same duration formula as the main lock loop, including the team
+            // 69 pool — the prize path used to omit teamSixtyNineBonus, which
+            // gave prize players a shorter timer than everyone else in team mode.
+            const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
+            const lockMinutes = this.lockDurationMinutes + prizeBonus + this.teamSixtyNineBonus;
+            const lockEndTime = Date.now() + (lockMinutes * 60 * 1000);
+
+            this.prizePasswords.set(prizePlayer.memberNumber, {
+                name: prizePlayer.name,
+                password,
+                lockEndTime,
+                claimableBy: winnerNumbers,
+            });
+            log(`[PRIZE] ${prizePlayer.name} (#${prizePlayer.memberNumber}) password=${password} — all their end-game locks use it`);
+        }
+
+        const winnerLabel = isTeamPrize
+            ? `the winning team (${winners!.map(w => w.name).join(", ")})`
+            : winners![0].name;
+        return { prizePlayers, winnerLabel };
+    }
+
     private finalizeEndGameLocks(winners?: Player[]): void {
         // Winners are freed, never locked — even a member of the winning team
         // who happened to get fully bound during the game (team mode). Without
@@ -5553,6 +5630,13 @@ export class StripDiceGame implements GameHost {
         }
 
         this.bot.sendChat(`🔒 Hold still everyone — applying everyone's end-game locks now, this'll take a few moments!`);
+
+        // Work out who the prizes are and mint their passwords BEFORE a single
+        // lock goes on, so every item that lands on a prize player carries the
+        // same password !claim will hand out. This has to happen up front: once
+        // a lock is applied with the wrong password, every later correction is
+        // a race against the verification retries.
+        const prizePlan = this.planEndGamePrizes(winners, boundPlayers);
 
         // Shared stagger counter: every emit in this end-game burst (winners'
         // item removal + each bound player's lock application) gets its own
@@ -5584,6 +5668,12 @@ export class StripDiceGame implements GameHost {
                     continue;
                 }
                 this.bot.sendChat("Sorry, no eligible outfits available — game cannot continue.");
+                // Prizes were planned before this loop, so drop them — nothing
+                // is being locked, and leaving the entries would advertise
+                // claimable players who were never actually bound.
+                this.prizePasswords.clear();
+                this.prizeWillingPlayers.clear();
+                this.playerLockPasswords.clear();
                 this.resetGame();
                 return;
             }
@@ -5620,7 +5710,11 @@ export class StripDiceGame implements GameHost {
                             hint: `Released in ${playerLockMinutes} minutes`,
                             removeItem: true,
                             showTimer: true,
-                            removeTimer: playerLockEndTime
+                            removeTimer: playerLockEndTime,
+                            // Prize players are locked with their own password
+                            // from the very first apply, so no later correction
+                            // is needed and nothing can leave them mismatched.
+                            password: this.lockPasswordFor(player.memberNumber),
                         })
                     );
                 }, delay);
@@ -5669,201 +5763,77 @@ export class StripDiceGame implements GameHost {
             this.sendLockVerificationWhisper(player, playerLockEnd2, allVerificationsCompleteDelay, playerLockMinutes2);
         }
 
-        // Phase 3: prize leash — apply a timed leash to willing non-winner players.
-        // Solo: single winner, any opted-in loser becomes a prize.
-        // Team: losers whose team had unanimous consent become prizes; all winners
-        //       get notified and can !claim to receive every password at once.
-        const isTeamPrize = this.isTeamMode && winners && winners.length > 0 && (() => {
-            // Determine which team lost (bound players' teamId)
-            const losingTeamId = boundPlayers[0]?.teamId as 1 | 2 | undefined;
-            return losingTeamId !== undefined && this.prizeConsentTeams.has(losingTeamId);
-        })();
-        const isSoloPrize = !this.isTeamMode && winners && winners.length === 1;
+        // Phase 3: prize leash. Every prize player's bondage was ALREADY locked
+        // with their own password in Phase 1 (see planEndGamePrizes), so all
+        // that's left here is the collar and leash that mark them as claimable.
+        //
+        // This used to re-apply their whole outfit a second time to swap the
+        // password over, which doubled the emit burst and — worse — left a
+        // window in which a verification retry could put the shared game
+        // password back on some items. That's how a prize player ended up with
+        // two different passwords and a claimer got a key that didn't work.
+        for (const prizePlayer of prizePlan.prizePlayers) {
+            const entry = this.prizePasswords.get(prizePlayer.memberNumber);
+            if (!entry) continue;
+            const { password, lockEndTime } = entry;
+            const minutesLeft = Math.max(1, Math.round((lockEndTime - Date.now()) / 60000));
 
-        if (isTeamPrize && winners) {
-            // Register all winners so any of them can !claim
-            for (const w of winners) this.lastWinners.add(w.memberNumber);
-            const teamWinnerNumbers = winners.map(w => w.memberNumber);
-            const prizeLeashPlayers = boundPlayers.filter(p => p.prizeConsent === true);
-            this.prizeWillingPlayers.clear();
-            for (const prizePlayer of prizeLeashPlayers) {
-                this.prizeWillingPlayers.add(prizePlayer.memberNumber);
-                const password = generatePassword();
-                const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
-                const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
-                const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
-                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: teamWinnerNumbers });
+            // The collar and leash carry the same password and timer as the
+            // rest of their locks, so everything releases together.
+            const neckLockProperty = {
+                Difficulty: 20,
+                Effect: ["Lock"],
+                LockedBy: "TimerPasswordPadlock",
+                LockMemberNumber: this.bot.getMemberNumber(),
+                LockMemberName: "GameBot",
+                Password: password,
+                Hint: `Prize for ${prizePlan.winnerLabel} — released in ${minutesLeft} min`,
+                LockSet: true,
+                RemoveItem: true,
+                ShowTimer: true,
+                EnableRandomInput: false,
+                MemberNumberList: [],
+                RemoveTimer: lockEndTime,
+            };
 
-                if (prizePlayer.bondageOutfit) {
-                    for (let i = 0; i < prizePlayer.bondageApplied; i++) {
-                        const storedItem = prizePlayer.bondageOutfit.items[i];
-                        if (!storedItem) continue;
-                        const cached = this.itemStateCache.get(`${prizePlayer.memberNumber}:${storedItem.group}`);
-                        const item: BondageItem = (cached && cached.Name)
-                            ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
-                            : storedItem;
-                        const relockDelay = stagger * END_GAME_EMIT_STAGGER_MS;
-                        setTimeout(() => {
-                            this.bot.applyItem(prizePlayer.memberNumber, item.group, item.name, item.color,
-                                this.buildLockedItemProperty(item, {
-                                    hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
-                                    removeItem: true, showTimer: true, removeTimer: prizePlayerLockEndTime, password,
-                                })
-                            );
-                        }, relockDelay);
-                        stagger++;
-                    }
-                }
-
-                // Shared lock property for the leash and, if we add one, the
-                // collar — so both carry the same password/timer and release
-                // together.
-                const neckLockProperty = {
-                    Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
-                    LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
-                    Password: password, Hint: `Prize for the winning team — released in ${prizePlayerLockMinutes} min`,
-                    LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
-                    MemberNumberList: [], RemoveTimer: prizePlayerLockEndTime,
-                };
-
-                // A leash needs a collar in ItemNeck to attach to — if this
-                // player isn't already wearing one, add the most popular collar
-                // first, locked to the same timer/password so it releases with
-                // the leash. Never overwrites an existing collar.
-                const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
-                    ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
-                if (!hasCollar) {
-                    const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
-                    setTimeout(() => {
-                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
-                    }, collarDelay);
-                    stagger++;
-                }
-
-                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
+            // A leash needs a collar in ItemNeck to attach to — if they aren't
+            // already wearing one, add the most popular collar first. Never
+            // overwrites an existing collar (including one they were bound in,
+            // which Phase 1 already locked under this same password).
+            const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
+                ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+            if (!hasCollar) {
+                const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
                 setTimeout(() => {
-                    this.bot.applyItem(prizePlayer.memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", neckLockProperty);
-                }, delay);
+                    this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
+                }, collarDelay);
                 stagger++;
-
-                this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for the winning team.`);
             }
 
-            if (prizeLeashPlayers.length > 0) {
-                const prizeNames = prizeLeashPlayers.map(p => p.name).join(", ");
-                for (const w of winners) {
-                    this.bot.whisper(w.memberNumber,
-                        `🏆 Willing prizes: ${prizeNames}. Any of you can whisper !claim to receive all their lock passwords at once.`
-                    );
-                }
-            }
+            const leashDelay = stagger * END_GAME_EMIT_STAGGER_MS;
+            setTimeout(() => {
+                this.bot.applyItem(
+                    prizePlayer.memberNumber,
+                    "ItemNeckRestraints",
+                    "CollarLeash",
+                    "#808080",
+                    neckLockProperty
+                );
+            }, leashDelay);
+            stagger++;
+
+            this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for ${prizePlan.winnerLabel}.`);
         }
 
-        if (isSoloPrize && winners && winners.length === 1) {
-            const winner = winners[0];
-            this.lastWinners.add(winner.memberNumber);
-            const prizeLeashPlayers = [...this.players.values()].filter(
-                p => p.prizeConsent === true && p.memberNumber !== winner.memberNumber
-            );
-            this.prizeWillingPlayers.clear();
-            for (const prizePlayer of prizeLeashPlayers) {
-                this.prizeWillingPlayers.add(prizePlayer.memberNumber);
-                const password = generatePassword();
-                // Use this prize player's personal lock duration (base + their 69 bonus)
-                // for the prize re-lock and leash.
-                const prizeBonus = this.sixtyNineBonuses.get(prizePlayer.memberNumber) ?? 0;
-                const prizePlayerLockMinutes = this.lockDurationMinutes + prizeBonus;
-                const prizePlayerLockEndTime = Date.now() + (prizePlayerLockMinutes * 60 * 1000);
-                this.prizePasswords.set(prizePlayer.memberNumber, { name: prizePlayer.name, password, lockEndTime: prizePlayerLockEndTime, claimableBy: [winner.memberNumber] });
-
-                // Re-lock this player's existing bondage outfit with their own
-                // prize password instead of the shared game password, so the
-                // one password !claim reveals unlocks everything on them —
-                // the whole outfit, not just the leash.
-                if (prizePlayer.bondageOutfit) {
-                    for (let i = 0; i < prizePlayer.bondageApplied; i++) {
-                        const storedItem = prizePlayer.bondageOutfit.items[i];
-                        if (!storedItem) continue;
-                        const cached = this.itemStateCache.get(`${prizePlayer.memberNumber}:${storedItem.group}`);
-                        const item: BondageItem = (cached && cached.Name)
-                            ? { group: storedItem.group, name: cached.Name, color: cached.Color, property: cached.Property ?? storedItem.property }
-                            : storedItem;
-
-                        const relockDelay = stagger * END_GAME_EMIT_STAGGER_MS;
-                        setTimeout(() => {
-                            this.bot.applyItem(
-                                prizePlayer.memberNumber,
-                                item.group,
-                                item.name,
-                                item.color,
-                                this.buildLockedItemProperty(item, {
-                                    hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
-                                    removeItem: true,
-                                    showTimer: true,
-                                    removeTimer: prizePlayerLockEndTime,
-                                    password,
-                                })
-                            );
-                        }, relockDelay);
-                        stagger++;
-                    }
-                }
-
-                // Shared lock property for the leash and, if we add one, the
-                // collar — so both carry the same password/timer and release
-                // together.
-                const neckLockProperty = {
-                    Difficulty: 20,
-                    Effect: ["Lock"],
-                    LockedBy: "TimerPasswordPadlock",
-                    LockMemberNumber: this.bot.getMemberNumber(),
-                    LockMemberName: "GameBot",
-                    Password: password,
-                    Hint: `Prize for ${winner.name} — released in ${prizePlayerLockMinutes} min`,
-                    LockSet: true,
-                    RemoveItem: true,
-                    ShowTimer: true,
-                    EnableRandomInput: false,
-                    MemberNumberList: [],
-                    RemoveTimer: prizePlayerLockEndTime,
-                };
-
-                // The leash attaches to a collar — if this player isn't already
-                // wearing one in ItemNeck, give them the most popular one first,
-                // locked to the same timer/password so it releases with the
-                // leash. Never overwrites an existing collar.
-                const hasCollar = this.characterDataCache.get(prizePlayer.memberNumber)?.Appearance
-                    ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
-                if (!hasCollar) {
-                    const collarDelay = stagger * END_GAME_EMIT_STAGGER_MS;
-                    setTimeout(() => {
-                        this.bot.applyItem(prizePlayer.memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
-                    }, collarDelay);
-                    stagger++;
-                }
-
-                const delay = stagger * END_GAME_EMIT_STAGGER_MS;
-                setTimeout(() => {
-                    this.bot.applyItem(
-                        prizePlayer.memberNumber,
-                        "ItemNeckRestraints",
-                        "CollarLeash",
-                        "#808080",
-                        neckLockProperty
-                    );
-                }, delay);
-                stagger++;
-
-                this.bot.sendChat(`🔒 ${prizePlayer.name} is leashed as a willing prize for ${winner.name}.`);
-            }
-
-            if (prizeLeashPlayers.length > 0) {
-                const prizeNames = prizeLeashPlayers.map(p => p.name).join(", ");
+        if (prizePlan.prizePlayers.length > 0) {
+            const prizeNames = prizePlan.prizePlayers.map(p => p.name).join(", ");
+            for (const winner of winners ?? []) {
                 this.bot.whisper(winner.memberNumber,
-                    `🏆 The following players are willing prizes: ${prizeNames}. Use !claim to see the list and request their lock passwords.`
+                    `🏆 Willing prizes: ${prizeNames}. Whisper !claim to see the list and get their lock passwords.`
                 );
             }
         }
+
 
         // Pause before the next game starts, so players have time to confirm
         // their end-game locks released/applied correctly.
@@ -5893,7 +5863,10 @@ export class StripDiceGame implements GameHost {
                 hint: `Released in ${remainingMinutes} minutes`,
                 removeItem: true,
                 showTimer: true,
-                removeTimer: lockEndTime
+                removeTimer: lockEndTime,
+                // Must match what the first apply used, or a retry would
+                // silently swap a prize player back to the game password.
+                password: this.lockPasswordFor(player.memberNumber),
             })
         );
         this.verifyEndGameLockApplied(player, item, lockEndTime, attempt);
@@ -6069,7 +6042,10 @@ export class StripDiceGame implements GameHost {
                         hint: `Released in ${pending.lockDurationMinutes} minutes`,
                         removeItem: true,
                         showTimer: true,
-                        removeTimer: newLockEndTime
+                        removeTimer: newLockEndTime,
+                        // Same reason as applyEndGameLockItem: a player-reported
+                        // lock failure must not change their password.
+                        password: this.lockPasswordFor(memberNumber),
                     })
                 );
             }, i * 300);
@@ -6137,6 +6113,12 @@ export class StripDiceGame implements GameHost {
             this.prizeConsentTimer = null;
         }
         this.prizeWillingPlayers.clear();
+        // NOT cleared here: playerLockPasswords and prizePasswords. resetGame()
+        // runs while a prize player is still locked and still claimable, so
+        // wiping their password would strand them — !claim would hand out
+        // nothing and any lock retry would fall back to a game password that
+        // has already been regenerated for the next game. Both are cleared on
+        // admin !reset, which genuinely ends everything.
         for (const pending of this.pendingLateJoinToysConsent.values()) {
             clearTimeout(pending.timeout);
         }
