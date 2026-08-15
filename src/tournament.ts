@@ -1550,6 +1550,27 @@ export class TournamentManager {
             this.host.bot.whisper(memberNumber, "There's no tournament to cancel.");
             return;
         }
+        // Free anyone mid-sentence BEFORE the state is dropped. Once it's null
+        // nothing can release them — checkServingCompletions early-returns —
+        // so they'd sit bound until BC's own timer lock expired, with no word
+        // from the bot. Cancelling a tournament must not leave people tied up.
+        const freed: string[] = [];
+        for (const player of this.state.players) {
+            if (!player.serving) continue;
+            this.releasePunishmentBondage(player.memberNumber);
+            player.serving = false;
+            player.servingSince = null;
+            player.disconnectedAt = null;
+            this.clearClaim(player);
+            freed.push(player.name);
+            this.notify(player.memberNumber,
+                "🏆 The tournament was cancelled — you've been released and you owe nothing further.");
+        }
+        if (freed.length > 0) {
+            logGameEvent(`[TOURNAMENT] cancel released ${freed.length} serving player(s): ${freed.join(", ")}`);
+            this.host.bot.sendChat(`⛓️ ${freed.join(", ")} released — the tournament was cancelled.`);
+        }
+
         const stamp = new Date().toISOString().replace(/[:.]/g, "-");
         this.state.status = "cancelled";
         this.host.storage.archiveTournament(this.state, stamp);
