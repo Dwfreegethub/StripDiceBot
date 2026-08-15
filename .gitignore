@@ -24,3 +24,9 @@ stripdicebot.err
 
 # Local log archives
 *.7z
+
+# Tournament runtime state
+tournament.json
+tournament_20*.json
+tournament_game_log.txt
+tournament_disputes.log

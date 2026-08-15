@@ -1,6 +1,115 @@
 # StripDiceBot — Solo Tournament Mode
 
-**Status:** Design complete, not yet implemented. Build after WinnersDice feature work settles down.
+**Status:** Playable end-to-end on the `tournament` branch, **never run live**. Everything below marked ✅ is built and covered by the simulator; ⬜ is not started. Branch is not merged to `dev`.
+
+---
+
+## Build Status (as of 2026-07-31)
+
+### ✅ Done
+
+**Plumbing**
+- `BCConnection.beep()` / `onAccountBeep()`, ported from SlaveParking/WinnersDice. `!testbeep <memberNumber|name> [message]` (admin) verifies delivery and warns if the target isn't mutually friended. Incoming beeps log their full payload.
+- `parseDuration()` / `parseWhen()` / `formatDuration()` in `util.ts` — plain-language times (`1 hour`, `48 hours`, `3 days`, `1 week`, `90m`, `2d`, `1 day 12 hours`, bare number = minutes).
+- Tournament types in `types.ts`; `tournament.json` load/save/archive plus an append-only `tournament_game_log.txt` in `storage.ts`. All tournament files gitignored.
+
+**Bracket logic** — `tournamentLogic.ts`, pure (no I/O, no `Date.now()`, no BC calls)
+- Swiss pairing with float-down between record groups, rematch avoidance, and **at most one bye per round** (see *Byes* — this deviates from the original per-record-group wording, which produced several free wins per round).
+- Match resolution: points → total rolls → **hidden elapsed-time tiebreaker** → `null` for admin review on a total dead heat.
+- Standings/ranking, field evaluation (continue / grand final / decided / empty), punishment scaling with configurable grace rounds.
+
+**Simulator** — `tournamentSim.ts`, run with `npm run sim` (~1 second)
+- 107 assertions plus 660 synthetic tournaments across field sizes 2–32, asserting every round that at most one bye exists, every active player is paired exactly once, nobody faces themselves, and nobody stays active past two losses.
+- Uses a stub `GameHost`, so setup, registration, round flow and serving are all exercised with no bot and no file writes.
+- Has already earned its keep: caught a double-forfeit bug that credited no losses, and surfaced the empty-field case.
+
+**Tournament manager** — `tournament.ts`
+- `!tournament setup` — 8-question admin interview, per-answer validation with re-ask, summary + yes/no confirm before anything is written, 5-min timeout, `cancel` aborts. Whisper-only (its answers are free text).
+- `!tournament register` — **friend-gated**: holds the signup, waits up to 10 min for the mutual friend link, completes automatically via `onFriendAdded()`. Already-friended players register in one step.
+- `!tournament withdraw`, `!tournament` / `status` (standings + a personal "what do I do next" block), `!tournament rules` (rendered from live config, so a test tournament states its own real times).
+- Admin `pause` / `resume` / `cancel` (archives to `tournament_<stamp>.json`), and `freeze(reason)` for rulings.
+- Round machinery, activity-driven (no scheduler): registration close → Round 1, deadline → force-resolve, punish, advance or finish. Byes auto-resolve on creation. Champion and runner-up have their punishment cleared.
+- `!tournament play` — full gating (registered, not eliminated/withdrawn, has a match, games left, owes no punishment), builds the game context.
+- Score recording with room commentary on who leads on total rolls; match resolution the moment both sides finish.
+- `!tournament serve` / `!tournament stop` with disconnect tolerance (see *Serving Punishment Time*). `canClaim()` limits claiming to other tournament players.
+- **Round status on entry** — an active participant walking into the room is whispered their round, time left, and their personal "what do I do next" block. Rate-limited (`TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS`, 15 min) so a flapping connection doesn't produce a wall of whispers, and skipped entirely for anyone owing punishment — that conversation takes priority and already states the debt.
+- **`!claim` for prisoners** — reuses the end-game prize machinery. Starting a sentence mints a per-prisoner password; `!claim` lists who's available (serving, unheld, in the room, not yourself), `!claim 1` takes one: the claimer gets the password, the prisoner gets a collar-and-leash on the same lock, and the room is told. Releasing their locks does **not** clear the sentence — the time is still owed. A claim ends when the sentence does, when they stop serving, or when the claimer leaves the room. End-game prizes take precedence over tournament prisoners on the shared `!claim` command, so the two never collide.
+
+**Solo integration** — the two managers never import each other; they meet on `GameHost`
+- `startTournamentGame` / `reportTournamentGame` / `tournamentPunishMs` / `applyTournamentPunishment` / `releaseTournamentPunishment`.
+- Tournament games: clothing count enforced exactly, **no solo records, no attempts ladder, no end-of-game bondage**, tournament-flavoured announcements.
+- A game whose player leaves is **parked** for 10 minutes: return and it resumes exactly where it was; miss it and the game is voided with no score and must be replayed.
+
+### ⬜ Not started
+
+| Item | Notes |
+|---|---|
+| Dispute system | `!tournament replay` / `deny` / `reverse`, the post-round "do you agree?" prompts, `tournament_disputes.log`. Recommend **skipping for tournament #1** — `!tournament pause` plus reading `tournament_game_log.txt` covers a rehearsal you're present for. |
+| Early round start vote | "Everyone finished — start the next round now?" Purely a convenience; rounds already close on their deadline. |
+| `!tournament advance` | Admin manual round advance, listed under Admin Commands. Useful for testing. |
+| Punishment bondage look | Undecided. Currently picks a random one of the nine themed solo sets, isolated behind `applyTournamentPunishment()` — swapping it touches one method. |
+
+### Deliberately not doing
+
+- **Clothing auto-detection.** The design says the bot checks the worn item count; it actually asks, as the solo flow always has. Self-declaration is the accepted v1 behaviour (see the `Emily: autodetect worn clothing` item in `todo.md`).
+- **Minimum-player enforcement.** 6 is advisory and stated as such in the setup summary; a smaller field still runs, so a 2-player rehearsal needs no special-casing. Below 2 the tournament auto-cancels.
+
+### Known gaps / risks
+
+- **Never field-tested.** Everything is simulator-verified only. The first live run should be a throwaway with short durations.
+- **Beeps are unproven on this bot.** `!testbeep` exists precisely to check delivery, and whether the message text rides along (WinnersDice's notes flag that as unverified). Nothing depends on a beep landing — every notification is recoverable via `!tournament` — but confirm before relying on them.
+- **In-memory state lost on restart:** a half-finished `!tournament setup` interview and any pending friend-gated registration. Both are cheap to redo. Everything else lives in `tournament.json`.
+- **Round advancement needs activity.** With no external scheduler, a dead-quiet room means rounds sit until someone shows up. Acceptable, but it means deadlines are "at or after", never exact.
+- **10-minute grace windows** (`TOURNAMENT_RESUME_GRACE_MS`) may be long relative to a 1-hour test round. Single constant, easy to change.
+
+### Suggested order from here
+
+1. **A throwaway live tournament** — 2–3 players, `now` / `5 minutes` / `now` / `1 hour` rounds, `0` grace rounds, tiny punishments. Exercises every path in an afternoon, and is the only thing that can prove any of this works against BC.
+2. Disputes and the early-start vote only if the format survives contact.
+3. The punishment bondage look, whenever it's decided (decision 16).
+
+(`!claim` and round-status-on-entry both shipped 2026-08-01 — see Done.)
+
+---
+
+## Decisions (2026-07-31)
+
+1. **Tournament games are completely separate from solo records.** They never write daily/all-time records and never touch `attemptsToday`. A tournament game therefore never inherits the +2 min/loss/day solo penalty ramp — tournament lock times come only from the punishment table below.
+2. **Lock times are the ones in this document** (15 min first loss, 1 hour on elimination), not the solo penalty values.
+3. **Serving is player-controlled and interruptible.** A player serving punishment time can ask to stop, be released, leave, and come back later to serve the remainder. See *Serving Punishment Time*.
+4. **Tie-of-ties breaker: total elapsed time across the 3 games — fastest wins.** Applied only when match points *and* total rolls are both tied. **Not announced up front**; only revealed if it actually decides a match. Requires per-game duration tracking.
+5. **All durations are configured at setup**, in plain language, accepting minutes/hours/days (e.g. `1 hour` rounds for a test run). Nothing time-related is hardcoded.
+6. **Tournament #1's shape is undecided** — DW will choose once it is built. Expect a small test tournament before a real one, so short round lengths must work.
+
+### Decisions (2026-08-01)
+
+7. **Only tournament players may claim prisoners** — not the whole room. Keeps the stakes inside the competition. (`canClaim()`.)
+8. **A claimer gets the prisoner's lock password and may release them early — but that does NOT clear the sentence.** The clock and the bondage are deliberately separate: letting someone out is a kindness, never an escape. Time still owed is still owed, and still blocks their next match.
+9. **End-game prizes take precedence over tournament prisoners on the shared `!claim` command.** Only a player with no claimable game prizes falls through to the tournament list, so the two systems never fight over the same word.
+10. **A claim ends when the sentence ends, when they stop serving, or when the claimer leaves the room.** In the last case the prisoner is announced as available again rather than staying held by someone who isn't there.
+11. **Byes are capped at one per round**, via float-down between record groups. The original per-record-group rule would issue several free wins in a single round. Bye recipient is the highest-ranked player with the fewest byes — deterministic, not random, so pairing is reproducible in the simulator.
+12. **An empty field freezes for an admin ruling.** If the last active players all forfeit there is nobody to crown; the bot refuses to guess (status `frozen` + `frozenReason`) rather than applying a rule nobody agreed to.
+13. **A tournament game whose player leaves is parked, not scored or discarded.** Return inside `TOURNAMENT_RESUME_GRACE_MS` (10 min) and it resumes exactly where it was; miss it and the game is voided with no score and must be replayed. A disconnect isn't punished; a rage-quit costs the whole run.
+14. **A short disconnect does not pause a sentence.** The clock runs through the grace window, and only if they fail to return is the sentence paused *retroactively as of the moment they vanished* — so a dropout costs nothing and logging off gains nothing.
+15. **Entering the room never binds anyone.** If punishment is owed the bot asks and waits for a yes. A player who was already bound and merely stepped out is not re-asked — they never stopped serving.
+16. **Punishment bondage look is still undecided** — currently a random one of the nine themed solo sets, isolated behind `applyTournamentPunishment()`/`releaseTournamentPunishment()` so swapping it touches one method.
+
+---
+
+## Serving Punishment Time
+
+Punishment is **bound in the room + claimable** (prize mode), for the duration in the punishment table. Because an hour is a long time to be stuck, serving is interruptible:
+
+- The clock runs while the player is **actively serving** — bound and claimable.
+- **Entering the room never binds anyone.** If time is owed the bot asks whether they're ready and waits for a yes. A player who was *already* bound and merely dropped out is not asked again — they never stopped serving.
+- A player may ask to stop early. The bot releases them and banks the remaining time; they keep whatever balance is left.
+- Returning later, they ask to serve again and the bot re-applies the bondage for the remaining balance.
+- **A short disconnect does not pause the clock.** BC drops people routinely and a dropped connection must not lengthen a sentence, so the time keeps running for the grace window (`TOURNAMENT_RESUME_GRACE_MS`, 10 min). Return inside it and nothing was interrupted. Fail to return and the sentence is paused **retroactively, as of the moment they vanished** — so the grace period is never credited to someone who simply logged off.
+- Pause-on-no-return is evaluated on activity ticks rather than a timer, so it still holds correctly across a bot restart.
+- The balance persists across bot restarts — it is stored in `tournament.json`, not in memory.
+- BD stays locked for that player until the balance reaches zero.
+
+Commands: `!tournament serve` begins or resumes, `!tournament stop` releases and banks the remainder, and `!tournament` shows the time left.
 
 ---
 
@@ -31,6 +140,7 @@ Each match consists of **3 solo games** between two assigned opponents played **
 - **Per-game result:** Win (1 pt), Draw (½ pt each), Loss (0 pt)
 - **Match winner:** Player with more points after 3 games
 - **Tiebreaker (match only):** If points are tied after 3 games, total rolls across all 3 games decides the winner. This tiebreaker applies only to that match — it does not carry into tournament standings.
+- **Second tiebreaker (hidden):** if points *and* total rolls are both tied, the player whose 3 games took less total elapsed time wins. This is deliberately **not advertised** — players are only told about it if it actually decides their match, so nobody plays to the clock. Per-game durations are recorded for every tournament game.
 
 The 3 games do not have to be played in one session. The bot tracks per-game scores in `tournament.json` so a player can play game 1, leave, and return later for games 2 and 3 within the round window.
 
@@ -50,7 +160,8 @@ The 3 games do not have to be played in one session. The bot tracks per-game sco
 - No maximum (open field — byes handle odd numbers)
 - Players are shown their registration confirmation via whisper
 - `!tournament` shows current registrations and time remaining in the sign-up window
-- **Players must be friended with the bot** to receive tournament announcements (round assignments, results, early-start votes, display time reminders). Bot whispers a friend request prompt at registration if not already friended.
+- **Players must be mutually friended with the bot** to receive tournament beeps (round assignments, results, early-start votes, display time reminders). BC's friend list is mutual-gated: the player adds the bot *and* the bot adds them back (BD already does this via `!friend` / `handleFriendRequest`). Bot prompts at registration if not already friended.
+- **Beeps are best-effort and online-only.** BC delivers a beep only if the target is logged in — an offline player simply never gets it. Nothing in the tournament may depend on a beep arriving: every notification must also be recoverable by the player on demand (`!tournament`) and re-delivered by whisper when they next enter the room. Beeps are a convenience, never the source of truth.
 - When a registered player enters the room during an active tournament, the bot whispers them their current round status (opponent, games completed, time remaining).
 
 ---
@@ -99,7 +210,8 @@ The double-loss case (both no-show) can eliminate two players at once, which may
 
 When an odd number of players share the same record, one receives a bye:
 
-- **Who gets it:** Highest-ranked player in that record group who has not yet received a bye in this tournament. If all have received a bye, randomize.
+- **Who gets it:** Highest-ranked player who has not yet received a bye in this tournament (fewest byes wins the tie — deterministic rather than random, so pairing is reproducible in the simulator).
+- **One bye per round, maximum.** Original wording gave a bye to any odd *record group*, which hands out several free wins per round (6 players splitting 3/3 after round 1 would produce two). Instead the ranked field floats players down between record groups, and a bye only exists when the **total** active count is odd — standard Swiss behaviour. Enforced by a simulator invariant.
 - **Result:** Automatic win (1 match win), no games played, no roll score recorded
 - **Tiebreaker impact:** Bye rounds contribute 0 to total rolls — they do not inflate or penalize the tiebreaker
 
@@ -132,10 +244,12 @@ When an odd number of players share the same record, one receives a bye:
 | 1st loss (Round 2+) | 15 min on display | Must be fully served before playing next round match |
 | 2nd loss (elimination) | 1 hour on display | Served after elimination; BD locked until complete |
 
-- **On display** means the player is put on display in the room and listed as a prize for others to interact with.
+- **"On display" means bound in the room and in prize mode** — the loser stays in the bondage the game already put them in, and is listed as claimable so anyone in the room can `!claim` them, take the leash, and move them around. It is not a separate display mechanic; it reuses the existing bondage + prize/claim machinery. Longer punishments are exactly when being grabbable matters most.
 - Display time does **not** need to be served consecutively — a player can leave and return, and the bot tracks remaining time.
 - **BD is locked** for the player until their display time is fully served. They cannot start or join a BD game while time is outstanding.
 - The 15-minute serve requirement before the next match creates real time pressure — a player who loses early in a round must finish their display time within the round window to stay competitive.
+
+**Reuse note:** a Survive game already ends with the player naked and, unless they beat the daily record, already applies themed/preset bondage on a timed lock (`SOLO_BASE_PENALTY_MINUTES`, currently 10 min +2 per repeat loss). Tournament punishment is therefore mostly a *duration change plus a claimable flag* on machinery that already exists — not a new subsystem. What is genuinely new: the claim registry must accept "claimable by anyone in the room" entries (today's `prizePasswords` is scoped to that game's winners via `claimableBy`), and remaining time must survive a bot restart.
 
 ### Implementation notes
 - Bot tracks `displayTimeRemainingMs` per player in `tournament.json`.
@@ -174,6 +288,7 @@ When the active field drops to a problematic size mid-tournament:
 
 - **Field reaches 2 players:** force the grand final immediately, regardless of records.
 - **Mathematically decided winner** (e.g., one player has 0 losses and the other has 2 after round results): bot auto-awards the tournament to the undisputed leader and announces the result. No need for an additional final.
+- **Empty field — both finalists no-show.** Surfaced by the simulator: if the last two active players *both* fail to play, the double-forfeit rule eliminates both and nobody is left to crown. This happened in roughly 1.5% of simulated tournaments (with a deliberately pessimistic no-show rate). `evaluateField()` reports `empty` for this case. **Unresolved:** award to the best record among the eliminated, replay the final, or freeze for admin decision? Needs a ruling before punishment-enabled tournaments run.
 - **Admin pause as safety net:** `!tournament pause` freezes advancement if an edge case arises that needs manual review. Use `!tournament resume` to continue. This is the fallback — the auto-rules above should handle most situations.
 
 ---
@@ -236,13 +351,18 @@ Log format: append-only to `tournament_game_log.txt` (gitignored), similar to `s
 
 Admin runs `!tournament setup` and the bot asks questions via sequential whispers:
 
-1. **Registration start** — "When does registration open? (e.g. `3 days from now` or `2026-08-10`)"
-2. **First round start** — "When does Round 1 begin? (same formats)"
-3. **Round length** — "How long is each round? (e.g. `48 hours`, `3 days`)"
-4. **Allow withdrawals?** — "Can players withdraw between rounds? (YES / NO)"
-5. **Confirmation** — Bot summarizes all settings and asks "Confirm? (YES / NO)"
+1. **Registration start** — "When does registration open? (e.g. `now`, `3 days`, or `2026-08-10`)"
+2. **Registration length** — "How long is the sign-up window? (e.g. `1 week`, `2 hours`)"
+3. **First round start** — "When does Round 1 begin? (same formats)"
+4. **Round length** — "How long is each round? (e.g. `48 hours`, `3 days`, `1 hour`)"
+5. **First-loss punishment** — "How long on display for a first loss? (e.g. `15 minutes`)"
+6. **Elimination punishment** — "How long on display when eliminated? (e.g. `1 hour`)"
+7. **Allow withdrawals?** — "Can players withdraw between rounds? (YES / NO)"
+8. **Confirmation** — Bot summarizes all settings and asks "Confirm? (YES / NO)"
 
-Date input: bot accepts both `X days from now` / `X hours from now` and explicit `YYYY-MM-DD` format. Internally stored as UTC ISO timestamps.
+**Duration input** accepts minutes, hours, days and weeks in plain language — `90 minutes`, `1 hour`, `48 hours`, `3 days`, `1 week`, compact forms (`90m`, `36h`, `2d`), and combinations (`1 day 12 hours`). A trailing `from now` is ignored. Absolute `YYYY-MM-DD` dates are also accepted for the two start times. Everything is stored internally as UTC ISO timestamps / millisecond durations.
+
+Short durations are explicitly supported so a full tournament can be rehearsed in an afternoon (e.g. 1-hour rounds, 5-minute punishments).
 
 After confirmation, bot announces registration open to the room and writes `tournament.json`.
 
@@ -259,6 +379,11 @@ After confirmation, bot announces registration open to the room and writes `tour
 | `!tournament play` | Registered player | Start your next tournament game for this round |
 | `!tournament status` | Any player | Alias for `!tournament` |
 | `!tournament withdraw` | Registered player | Withdraw from the tournament (if allowed and between rounds) |
+| `!tournament serve` | Player owing time | Begin or resume serving punishment (bound + claimable) |
+| `!tournament stop` | Player serving | Stop early; the remaining balance is kept for later |
+| `!tournament rules` | Any player | Full format explanation, rendered from the live config |
+
+All player commands work from room chat as well as whisper; replies are always whispered. `!tournament setup` is whisper-only, since its answers are free text.
 
 ---
 
@@ -310,7 +435,9 @@ Persists all tournament state across bot restarts. Structure (approximate):
 ## Implementation Notes
 
 - Build after WD feature work is settled
-- Solo game flow changes needed: tournament mode flag to lock bracket at 6, record per-game scores, suppress normal solo end announcements in favor of tournament-specific ones
+- **Tournament games reuse the existing Survive flow.** A tournament game *is* a solo Survive game — same rolls, same removal detection, same end-of-game bondage. The tournament layer adds a flag on the solo game that: locks the bracket at 6, reports the final score back to the tournament manager, and swaps the normal end-of-game messaging for tournament wording. Everything else (dice chain, wardrobe watching, lock+verify) is shared code, untouched.
+- **Decisions the shared flow forces** (see Open Questions): whether tournament games feed the daily/all-time records and the `attemptsToday` ladder — that ladder escalates the penalty by +2 min per loss per day, and a 3-game match means it ramps fast.
+- **Beep plumbing exists as of the tournament branch**: `BCConnection.beep()` + `onAccountBeep()`, ported from SlaveParking/WinnersDice, with `!testbeep <memberNumber|name> [message]` for admins to verify delivery (and to confirm the offline case fails silently).
 - Swiss pairing logic: sort active players by W-L record, pair top of each group against next, handle odd groups with byes
 - Round advancement: timestamp check on activity events (no external scheduler needed)
 - Dispute commands require admin to be in-room (same pattern as existing admin commands)

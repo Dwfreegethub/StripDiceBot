@@ -305,3 +305,30 @@ export const FEEDBACK_VALID_STATUSES: FeedbackItemStatus[] = [
 // Random so regulars aren't prompted after every game — SlaveParking uses the
 // same 1-in-5 rate across its own exit points.
 export const FEEDBACK_NUDGE_CHANCE = 0.20;
+
+// ============================================================
+// TOURNAMENT MODE - format defaults. Every *duration* is chosen by
+// the admin during !tournament setup (so a rehearsal can use 1-hour
+// rounds); only the structural defaults live here.
+// ============================================================
+export const TOURNAMENT_DEFAULT_GAMES_PER_MATCH = 3;
+export const TOURNAMENT_DEFAULT_CLOTHING = 6;      // fixed clothing count for tournament games
+export const TOURNAMENT_DEFAULT_MIN_PLAYERS = 6;   // below this the tournament won't start
+export const TOURNAMENT_DEFAULT_GRACE_ROUNDS = 1;  // rounds where losing costs nothing
+// How long an admin has to answer each !tournament setup question.
+export const TOURNAMENT_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
+// How long the bot holds a tournament registration open while waiting for the
+// player to send the friend request that completes it.
+export const TOURNAMENT_FRIEND_WAIT_MS = 10 * 60 * 1000;
+// How long a tournament game is held open when its player leaves the room
+// mid-game. Return inside this window and the game resumes exactly where it
+// was; miss it and the game is discarded entirely (no score recorded) and
+// must be replayed from the start. Sized to cover an ordinary BC reconnect.
+export const TOURNAMENT_RESUME_GRACE_MS = 10 * 60 * 1000;
+// How long the "ready to serve your punishment?" prompt stays open when a
+// player who owes time enters the room.
+export const TOURNAMENT_SERVE_PROMPT_MS = 2 * 60 * 1000;
+// How long before a player who re-enters the room gets their tournament round
+// status whispered again. Stops a flapping connection producing a wall of
+// whispers, while still reminding someone who genuinely comes back later.
+export const TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS = 15 * 60 * 1000;

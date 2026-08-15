@@ -10,7 +10,7 @@ import { readPendingUpdate, getSeenVersion } from "./pendingUpdate";
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
-    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry,
+    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry, TournamentGameContext,
 } from "./types";
 import {
     TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
@@ -35,6 +35,7 @@ import { GameHost } from "./host";
 import { BotStorage } from "./storage";
 import { SoloGameManager } from "./soloGame";
 import { FeedbackManager } from "./feedback";
+import { TournamentManager } from "./tournament";
 
 // ============================================================
 // GAME CLASS
@@ -236,6 +237,7 @@ export class StripDiceGame implements GameHost {
     public readonly storage: BotStorage = new BotStorage();
     public readonly solo: SoloGameManager;
     public readonly feedback: FeedbackManager;
+    public readonly tournament: TournamentManager;
 
     // ============================================================
     // TEAM MODE (2v2 / 3v3)
@@ -255,6 +257,7 @@ export class StripDiceGame implements GameHost {
         this.bot = bot;
         this.solo = new SoloGameManager(this);
         this.feedback = new FeedbackManager(this);
+        this.tournament = new TournamentManager(this);
         this.bondageUsage = this.storage.loadBondageUsage();
         this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
@@ -282,6 +285,17 @@ export class StripDiceGame implements GameHost {
         if (character) this.cacheCharacterData(character);
         if (memberNumber === this.bot.getMemberNumber()) return;
 
+        // No external scheduler — the tournament advances on room activity.
+        // Someone arriving is the most common trigger, and also the moment
+        // they'd want to be told about their round.
+        this.tournament.checkSchedule();
+        // A tournament game they walked out of mid-play is held for a grace
+        // window; getting back in time picks it up exactly where it was.
+        this.solo.resumeParkedGame(memberNumber);
+        // Owed punishment: resumes the clock if they're still bound, otherwise
+        // asks whether they're ready to start (never binds unasked).
+        this.tournament.onEnterRoom(memberNumber);
+
         const player = this.players.get(memberNumber);
         if (player?.pendingReturn) {
             player.pendingReturn = false;
@@ -303,6 +317,11 @@ export class StripDiceGame implements GameHost {
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
+        // Punishment only counts while they're here to be claimed — leaving
+        // banks whatever they've served so far. A departing claimer also
+        // releases whoever they were holding.
+        this.tournament.onLeaveRoom(memberNumber);
+        this.tournament.onAnyoneLeftRoom(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
 
         // If the team game host leaves during setup (before joining a team), auto-cancel.
@@ -599,6 +618,24 @@ export class StripDiceGame implements GameHost {
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
+        "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
+        // Tournament — longer forms first so "!tournament register" isn't
+        // swallowed by the bare "!tournament" status command. All of these work
+        // from room chat as well as whisper (replies are always whispered);
+        // only `setup` is whisper-only, because its follow-up answers are
+        // free text and would be noise in chat.
+        "!tournament setup": { handler: (mn) => this.tournament.handleSetup(mn), whisperOnly: true },
+        "!tournament register": { handler: (mn, name) => this.tournament.handleRegister(mn, name) },
+        "!tournament withdraw": { handler: (mn) => this.tournament.handleWithdraw(mn) },
+        "!tournament resume": { handler: (mn) => this.tournament.handleResume(mn) },
+        "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn) },
+        "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn) },
+        "!tournament status": { handler: (mn) => this.tournament.handleStatus(mn) },
+        "!tournament play": { handler: (mn, name) => this.tournament.handlePlay(mn, name) },
+        "!tournament serve": { handler: (mn) => this.tournament.handleServe(mn) },
+        "!tournament stop": { handler: (mn) => this.tournament.handleStop(mn) },
+        "!tournament rules": { handler: (mn) => this.tournament.handleRules(mn) },
+        "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
     };
 
     private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
@@ -623,6 +660,9 @@ export class StripDiceGame implements GameHost {
                 `You're already on my friend list! If you can't see me, add me from your own ` +
                 `friend list too — BC only shows us to each other when we've both added.`
             );
+            // Already friends but possibly mid-registration (e.g. they whispered
+            // !friend twice) — let the tournament finish its handshake anyway.
+            this.tournament.onFriendAdded(memberNumber, name);
             return;
         }
 
@@ -634,6 +674,9 @@ export class StripDiceGame implements GameHost {
             `when a game is running. If you haven't added me on your side yet, do that and ` +
             `I'll appear. Whisper !unfriend any time to undo this.`
         );
+
+        // Completes a tournament registration that was waiting on this link.
+        this.tournament.onFriendAdded(memberNumber, name);
     }
 
     private handleUnfriend(memberNumber: number): void {
@@ -703,6 +746,17 @@ export class StripDiceGame implements GameHost {
 
         // Yes/No confirmation for a pending admin proxy-feedback submission.
         if (this.feedback.tryHandleProxyYesNo(memberNumber, msg)) return;
+
+        // Admin partway through the !tournament setup interview — their plain
+        // whispers are answers ("1 hour", "yes"), so they must be intercepted
+        // before command dispatch. Commands still work: an answer starting
+        // with "!" falls through, and "cancel" aborts the interview.
+        if (this.tournament.isSettingUp(memberNumber) && !msg.startsWith("!")) {
+            if (this.tournament.handleSetupAnswer(memberNumber, message)) return;
+        }
+
+        // "Ready to serve your punishment?" yes/no, asked on entering the room.
+        if (this.tournament.tryHandleServePrompt(memberNumber, msg)) return;
 
         // Winner's 69 bonus assignment phase (before the lock-time vote) —
         // winner whispers a player name to give them 5 min, or "skip".
@@ -1908,6 +1962,46 @@ export class StripDiceGame implements GameHost {
         this.bot.whisper(memberNumber, `Next roll forced to ${n}. Will clear after use.`);
     }
 
+    // !testbeep <memberNumber|name> [message] — admin-only. Beeps the target so
+    // we can confirm (a) beeps arrive at all and (b) the Message text rides
+    // along. Beeps only reach players who are ONLINE, so this also doubles as
+    // the way to check the offline case: beep someone who has logged off and
+    // confirm nothing lands. Name lookup only works for people in the room —
+    // pass a member number to reach anyone else.
+    private handleTestBeep(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const tokens = message.trim().slice("!testbeep".length).trim().split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) {
+            this.bot.whisper(memberNumber, "Usage: !testbeep <memberNumber|name> [message]");
+            return;
+        }
+
+        const first = tokens[0].replace(/^@/, "");
+        let target: number;
+        let targetName: string;
+
+        if (/^\d{3,}$/.test(first)) {
+            target = Number(first);
+            targetName = this.nameCache.get(target) ?? `#${target}`;
+        } else {
+            const match = this.matchRoomMemberByName(first);
+            if (!match) {
+                this.bot.whisper(memberNumber, `No one in the room matches "${first}" — pass a member number to beep someone outside the room.`);
+                return;
+            }
+            target = match.memberNumber;
+            targetName = match.name;
+        }
+
+        const text = tokens.slice(1).join(" ") || "StripDiceBot test beep — reply to this so we can check the incoming path.";
+        this.bot.beep(target, text);
+
+        const friendNote = this.bot.isFriend(target) ? "" : " (⚠️ not on my friend list — they may not see it)";
+        this.bot.whisper(memberNumber, `Beeped ${targetName} (#${target})${friendNote}. Have them reply so we can see the incoming shape in the log.`);
+        logGameEvent(`[TESTBEEP] admin #${memberNumber} → ${targetName} (#${target}): "${text}"`);
+    }
+
     private handleLockTime(memberNumber: number, message: string): void {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can set the lock duration.");
@@ -1988,7 +2082,14 @@ export class StripDiceGame implements GameHost {
     // Team mode: any winner claiming delivers ALL passwords to ALL winners at once.
     // Solo mode: !claim lists prizes; !claim 1 2 delivers passwords by index.
     private handleClaim(memberNumber: number, message: string): void {
+        const claimArgs = message.trim().replace(/^!claim\s*/i, "").trim();
+
+        // End-game prizes take precedence — they're tied to a game that just
+        // finished and expire quickly. Only when this player has none does
+        // !claim mean the tournament's prisoners, so the two never fight over
+        // the same command.
         if (!this.lastWinners.has(memberNumber)) {
+            if (this.tournament.tryHandleClaim(memberNumber, claimArgs)) return;
             this.bot.whisper(memberNumber, "Only the most recent winner(s) can use !claim.");
             return;
         }
@@ -2869,6 +2970,14 @@ export class StripDiceGame implements GameHost {
             `!help solo - Solo whisper game & leaderboard commands\n` +
             `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n`;
 
+        // Only advertised while a tournament actually exists — there's nothing
+        // for a player to do with these commands otherwise, and a permanent
+        // line for a feature that's dormant most of the time is just noise.
+        if (this.tournament.hasTournament()) {
+            text += `!tournament - Tournament standings, your match and time left — one is running now!\n`;
+            text += `!tournament rules - How the tournament works\n`;
+        }
+
         if (this.isAdmin(memberNumber)) {
             text += `!help admin - Admin commands\n`;
         }
@@ -2954,7 +3063,12 @@ export class StripDiceGame implements GameHost {
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)`;
+            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
+            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
+            `--- Tournament ---\n` +
+            `!tournament setup - Create a tournament (asks 8 questions; durations in plain language)\n` +
+            `!tournament pause / resume - Freeze or restart round advancement\n` +
+            `!tournament cancel - Cancel and archive the current tournament`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -6506,6 +6620,79 @@ export class StripDiceGame implements GameHost {
         if (this.turnOrder.length === 0) return undefined;
         const memberNumber = this.turnOrder[this.currentTurnIndex];
         return this.players.get(memberNumber);
+    }
+
+    // GameHost: tournament ⇄ solo bridge. The two managers never import each
+    // other; the game owns both and passes messages between them.
+    public startTournamentGame(memberNumber: number, name: string, ctx: TournamentGameContext): string | null {
+        return this.solo.startTournamentGame(memberNumber, name, ctx);
+    }
+
+    public reportTournamentGame(memberNumber: number, score: number, durationMs: number): void {
+        this.tournament.recordGameResult(memberNumber, score, durationMs);
+        // A finished game is also an activity tick — it may be the thing that
+        // closes out a round whose deadline quietly passed.
+        this.tournament.checkSchedule();
+    }
+
+    public tournamentPunishMs(memberNumber: number): number {
+        return this.tournament.punishMsFor(memberNumber);
+    }
+
+    // GameHost: bind a player for tournament punishment. The final look is
+    // still undecided (design_tournament.md), so this reuses the solo themed
+    // bondage sets for now — one random theme, locked for the sentence. When
+    // a dedicated tournament outfit exists, only this method changes.
+    public applyTournamentPunishment(memberNumber: number, durationMs: number, password: string): void {
+        const minutes = Math.max(1, Math.ceil(durationMs / 60000));
+        this.solo.applyTournamentBondage(memberNumber, minutes, password);
+    }
+
+    // GameHost: free a player from tournament punishment. removeAllItems
+    // already covers ItemNeck/ItemNeckRestraints, so the claim leash and any
+    // collar the bot added come off with everything else.
+    public releaseTournamentPunishment(memberNumber: number): void {
+        this.removeAllItems(memberNumber);
+    }
+
+    // GameHost: leash a claimed prisoner. Same collar-then-leash sequence the
+    // end-game prize path uses, on the same lock/password as the rest of their
+    // punishment so it all releases together. Never overwrites an existing
+    // collar — if they're already wearing one, the leash just attaches to it.
+    public attachTournamentLeash(memberNumber: number, password: string, lockEndTime: number): void {
+        const minutesLeft = Math.max(1, Math.ceil((lockEndTime - Date.now()) / 60000));
+        const neckLockProperty = {
+            Difficulty: 20, Effect: ["Lock"], LockedBy: "TimerPasswordPadlock",
+            LockMemberNumber: this.bot.getMemberNumber(), LockMemberName: "GameBot",
+            Password: password, Hint: `Tournament prisoner — released in ${minutesLeft} min`,
+            LockSet: true, RemoveItem: true, ShowTimer: true, EnableRandomInput: false,
+            MemberNumberList: [], RemoveTimer: lockEndTime,
+        };
+
+        const hasCollar = this.characterDataCache.get(memberNumber)?.Appearance
+            ?.some((item: any) => item?.Group === "ItemNeck" && item?.Name);
+
+        let stagger = 0;
+        if (!hasCollar) {
+            setTimeout(() => {
+                this.bot.applyItem(memberNumber, "ItemNeck", this.pickTopCollarName(), "Default", neckLockProperty);
+            }, stagger * END_GAME_EMIT_STAGGER_MS);
+            stagger++;
+        }
+        setTimeout(() => {
+            this.bot.applyItem(memberNumber, "ItemNeckRestraints", "CollarLeash", "#808080", neckLockProperty);
+        }, stagger * END_GAME_EMIT_STAGGER_MS);
+    }
+
+    // GameHost: is this member currently in the room? Tournament messaging is
+    // whisper-if-present, beep-if-not (and beeps only reach online players).
+    public isInRoom(memberNumber: number): boolean {
+        return this.roomMembers.has(memberNumber);
+    }
+
+    // GameHost: everyone in the room except the bot itself.
+    public getRoomMembers(): number[] {
+        return [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
     }
 
     public getNameFor(memberNumber: number): string | undefined {

@@ -219,6 +219,9 @@ export interface SoloGameState {
     startTime: string;        // ISO timestamp when this solo game began
     awaitingRemoval: boolean; // true after losing an item, until the player confirms it's off
     inactivityTimer: NodeJS.Timeout | null; // soft nudge if the player goes quiet
+    // Set when this game counts toward a tournament match; null for a normal
+    // solo game. See TournamentGameContext for what it changes.
+    tournamentCtx: TournamentGameContext | null;
 }
 
 // One line of game_log.json (newline-delimited JSON), appended on every
@@ -260,6 +263,133 @@ export interface OutfitSuggestion {
     name: string;
     description: string;
     timestamp: string;
+}
+
+// ============================================================
+// TOURNAMENT MODE - Swiss pairing + double elimination over
+// asynchronous solo Survive matches. See design_tournament.md.
+// Every duration is admin-configured at setup; nothing here is
+// hardcoded to a particular tournament length.
+// ============================================================
+// "frozen" is distinct from "paused": paused is an admin choosing to stop the
+// clock, frozen is the bot refusing to guess. Currently reachable when the last
+// active players all forfeit and there is nobody left to crown — the result
+// waits for an admin ruling rather than being decided by a rule nobody agreed to.
+export type TournamentStatus = "registration" | "active" | "paused" | "frozen" | "complete" | "cancelled";
+
+// How a match was decided. "time" is the hidden tiebreaker — total elapsed
+// game time, fastest wins — and is only ever surfaced to players when it
+// actually decided their match.
+export type MatchDecidedBy = "points" | "rolls" | "time" | "forfeit" | "double-forfeit" | "bye" | "admin";
+
+export interface TournamentPlayer {
+    memberNumber: number;
+    name: string;
+    wins: number;
+    losses: number;
+    byesUsed: number;
+    eliminated: boolean;
+    withdrew: boolean;
+    // Member numbers already faced, so Swiss pairing can avoid rematches.
+    opponents: number[];
+    // Outstanding punishment time in ms. Persisted, so it survives restarts
+    // and can be served across several sittings.
+    punishMsRemaining: number;
+    // True while actively serving (bound + claimable in the room). The clock
+    // only runs while this is true; pausing banks the remainder.
+    serving: boolean;
+    // Epoch ms when the current serving stretch began; null when not serving.
+    servingSince: number | null;
+    // Password on this player's punishment locks, handed to whoever claims
+    // them so they can release them early if they choose. Regenerated each
+    // time a sentence starts; null when not serving.
+    lockPassword: string | null;
+    // Who currently holds this prisoner, if anyone. Cleared when the sentence
+    // ends, when they stop serving, or when the claimer leaves the room.
+    claimedBy: number | null;
+    claimedByName: string | null;
+    // Epoch ms when they dropped out of the room *while serving*. The clock
+    // deliberately keeps running through a short disconnect — a dropped
+    // connection shouldn't lengthen a sentence. If they don't make it back
+    // within the grace window the sentence is paused retroactively, as of
+    // this moment, so logging off can never be used to serve time.
+    disconnectedAt: number | null;
+}
+
+// Attached to a solo game that is being played as part of a tournament match.
+// Its presence is what makes the solo flow behave differently: fixed clothing
+// count, no solo records, no attempts ladder, no end-of-game bondage, and
+// tournament-flavoured room announcements instead of the usual solo ones.
+export interface TournamentGameContext {
+    round: number;
+    matchId: string;
+    opponentName: string | null; // null on a bye (shouldn't happen — byes play no games)
+    gameNumber: number;          // 1-based: which game of the match this is
+    totalGames: number;
+    requiredClothing: number;
+    // Reserved: DW may later want bondage during tournament games as a way to
+    // add rolls. Kept as a flag so turning it on is a config change, not a
+    // rewrite of the suppression logic.
+    allowBondage: boolean;
+}
+
+// One completed tournament game. durationMs feeds the hidden time tiebreaker.
+export interface TournamentGameResult {
+    score: number;       // rolls survived — higher is better in Survive
+    durationMs: number;  // wall-clock length of the game
+    playedAt: string;    // ISO timestamp of completion
+}
+
+export interface TournamentMatchResult {
+    winner: number | null;  // null when both players forfeited
+    loser: number | null;   // null on a bye or double forfeit
+    pointsA: number;
+    pointsB: number;
+    decidedBy: MatchDecidedBy;
+}
+
+export interface TournamentMatch {
+    id: string;              // e.g. "r1-m1"
+    round: number;
+    playerA: number;
+    playerB: number | null;  // null = playerA received a bye
+    gamesA: TournamentGameResult[];
+    gamesB: TournamentGameResult[];
+    result: TournamentMatchResult | null;
+    disputed: boolean;
+    disputeReason: string | null;
+    adminResolution: string | null;
+}
+
+// Everything the admin chooses during !tournament setup. Kept in its own
+// object so a test tournament (1-hour rounds, 5-minute punishments) and a
+// real one differ only by these values.
+export interface TournamentConfig {
+    registrationOpensAt: string; // ISO
+    signUpDeadline: string;      // ISO
+    firstRoundStart: string;     // ISO
+    roundLengthMs: number;
+    gamesPerMatch: number;       // default 3
+    clothingCount: number;       // default 6
+    minPlayers: number;          // default 6
+    graceRounds: number;         // rounds with no punishment; default 1
+    firstLossPunishMs: number;   // default 15 min
+    eliminationPunishMs: number; // default 1 hour
+    allowsWithdrawal: boolean;
+}
+
+export interface TournamentState {
+    status: TournamentStatus;
+    createdBy: number;
+    config: TournamentConfig;
+    currentRound: number;
+    roundDeadline: string | null; // ISO; null before round 1 starts
+    players: TournamentPlayer[];
+    matches: TournamentMatch[];
+    champion: number | null;
+    runnerUp: number | null;
+    // Why the tournament froze, shown to the admin who has to rule on it.
+    frozenReason: string | null;
 }
 
 // ============================================================

@@ -11,7 +11,7 @@ import * as path from "path";
 import { log } from "./logger";
 import {
     ChangelogEntry, FeedbackStatusEntry, GameLogEntry, ItemSettingsLibrary, OutfitSuggestion,
-    PlayerRecord, SoloRecordsData,
+    PlayerRecord, SoloRecordsData, TournamentState,
 } from "./types";
 import { CHANGELOG_MAX_ENTRIES, GAME_LOG_RETENTION_MS } from "./constants";
 import { emptySoloRecordsData, utcDateString } from "./util";
@@ -40,6 +40,8 @@ export class BotStorage {
     private readonly itemSettingsPath = path.join(this.baseDir, "item_settings.json");
     private readonly bondageUsagePath = path.join(this.baseDir, "bondage_usage.json");
     private readonly outfitCandidatesPath = path.join(this.baseDir, "outfit_candidates.json");
+    private readonly tournamentPath = path.join(this.baseDir, "tournament.json");
+    private readonly tournamentLogPath = path.join(this.baseDir, "tournament_game_log.txt");
     private readonly changelogPath = path.join(this.baseDir, "changelog.json");
 
     // ---- changelog ---------------------------------------------------
@@ -309,6 +311,52 @@ export class BotStorage {
             fs.writeFileSync(this.bondageUsagePath, JSON.stringify(usage, null, 2), "utf8");
         } catch (err) {
             log(`ERROR: Failed to write bondage_usage.json: ${err}`);
+        }
+    }
+
+    // ---- tournament ------------------------------------------------------------
+
+    // Whole tournament state: config, players, matches, punishment balances.
+    // Returns null when no tournament has ever been created (or the file is
+    // unreadable) — callers treat that as "no tournament running".
+    loadTournament(): TournamentState | null {
+        try {
+            if (!fs.existsSync(this.tournamentPath)) return null;
+            return JSON.parse(fs.readFileSync(this.tournamentPath, "utf8"));
+        } catch (err) {
+            log(`ERROR: Could not read tournament.json — treating as no tournament: ${err}`);
+            return null;
+        }
+    }
+
+    saveTournament(state: TournamentState): void {
+        try {
+            fs.writeFileSync(this.tournamentPath, JSON.stringify(state, null, 2), "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write tournament.json: ${err}`);
+        }
+    }
+
+    // Archives a finished/cancelled tournament so a new one can start with a
+    // clean file, without losing the history.
+    archiveTournament(state: TournamentState, stamp: string): void {
+        try {
+            const archivePath = path.join(this.baseDir, `tournament_${stamp}.json`);
+            fs.writeFileSync(archivePath, JSON.stringify(state, null, 2), "utf8");
+            if (fs.existsSync(this.tournamentPath)) fs.unlinkSync(this.tournamentPath);
+            log(`Archived tournament to tournament_${stamp}.json`);
+        } catch (err) {
+            log(`ERROR: Failed to archive tournament.json: ${err}`);
+        }
+    }
+
+    // Append-only detail log: every tournament game, match resolution and
+    // dispute, so an admin can reconstruct what happened when ruling.
+    appendTournamentLog(line: string): void {
+        try {
+            fs.appendFileSync(this.tournamentLogPath, line.endsWith("\n") ? line : line + "\n", "utf8");
+        } catch (err) {
+            log(`ERROR: Failed to write tournament_game_log.txt: ${err}`);
         }
     }
 

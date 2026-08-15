@@ -12,7 +12,7 @@
 import { BCConnection } from "./connection";
 import { BotStorage } from "./storage";
 import { FeedbackManager } from "./feedback";
-import { BondageItem, BondageOutfit, PendingLockApplyCheck } from "./types";
+import { BondageItem, BondageOutfit, PendingLockApplyCheck, TournamentGameContext } from "./types";
 
 export interface GameHost {
     readonly bot: BCConnection;
@@ -48,6 +48,14 @@ export interface GameHost {
     // the full rationale (deliberately ignores body/genital data).
     resolveClothingPath(memberNumber: number): "male" | "female";
 
+    // True if this member is currently in the room. Tournament delivery is
+    // whisper-first for people who are present and beep-fallback for those who
+    // aren't — beeps only reach players who are online, so neither path is
+    // guaranteed and both are best-effort.
+    isInRoom(memberNumber: number): boolean;
+    // Everyone currently in the room, bot excluded.
+    getRoomMembers(): number[];
+
     // Cached room-member name, if seen.
     getNameFor(memberNumber: number): string | undefined;
     // Cached name with a "Player #N" fallback.
@@ -57,6 +65,34 @@ export interface GameHost {
 
     // Sets the feedbackGiven flag on a player's persistent record.
     markFeedbackGiven(memberNumber: number): void;
+
+    // ---- tournament bridge -------------------------------------------------
+    // The tournament and solo managers never import each other; they meet
+    // here. The tournament asks the game to start a solo game in tournament
+    // mode, and the solo game reports the finished score back the same way.
+
+    // Starts a tournament-mode solo game. Returns null on success, or a
+    // player-facing reason it couldn't start (already playing, etc).
+    startTournamentGame(memberNumber: number, name: string, ctx: TournamentGameContext): string | null;
+
+    // Reports a finished tournament game. durationMs is wall-clock length,
+    // which feeds the hidden time tiebreaker.
+    reportTournamentGame(memberNumber: number, score: number, durationMs: number): void;
+
+    // Punishment time this member still owes, in ms. Used to gate BD play.
+    tournamentPunishMs(memberNumber: number): number;
+
+    // Binds a player for tournament punishment, locked for `durationMs` under
+    // `password` so whoever claims them can let them out early. The look is not
+    // final — see design_tournament.md; it currently reuses the themed sets.
+    applyTournamentPunishment(memberNumber: number, durationMs: number, password: string): void;
+    // Frees a player from tournament punishment early (served in full, or
+    // paused via !tournament stop). Also removes the claim leash.
+    releaseTournamentPunishment(memberNumber: number): void;
+    // Puts a leash (and a collar to hang it from, if they aren't wearing one)
+    // on a claimed prisoner, locked to the same password and timer as the rest
+    // of their punishment so it all comes off together.
+    attachTournamentLeash(memberNumber: number, password: string, lockEndTime: number): void;
 
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;
