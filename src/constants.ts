@@ -332,3 +332,9 @@ export const TOURNAMENT_SERVE_PROMPT_MS = 2 * 60 * 1000;
 // status whispered again. Stops a flapping connection producing a wall of
 // whispers, while still reminding someone who genuinely comes back later.
 export const TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS = 15 * 60 * 1000;
+
+// How often the tournament re-checks its own schedule. Round advancement used
+// to happen only on room activity (a member joining, a tournament game ending),
+// which meant a quiet room with everyone already present could sit past a
+// deadline indefinitely — including the very first "start Round 1" transition.
+export const TOURNAMENT_TICK_MS = 60 * 1000;

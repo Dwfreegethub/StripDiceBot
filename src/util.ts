@@ -189,3 +189,19 @@ const PASSWORD_WORDS = [
 export function generatePassword(): string {
     return PASSWORD_WORDS[Math.floor(Math.random() * PASSWORD_WORDS.length)];
 }
+
+// Renders an ISO timestamp in US Central, matching the bot's log timestamps
+// and what players actually think in. Tournament times used to be shown with
+// toUTCString(), which is the same instant but reads hours off from what the
+// admin typed and from every other time the bot prints.
+export function formatLocalTime(iso: string): string {
+    const CENTRAL_OFFSET_MS = 5 * 60 * 60 * 1000;
+    const d = new Date(Date.parse(iso) - CENTRAL_OFFSET_MS);
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let h = d.getUTCHours();
+    const ampm = h >= 12 ? "pm" : "am";
+    h = h % 12 || 12;
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${days[d.getUTCDay()]} ${d.getUTCDate()} ${months[d.getUTCMonth()]}, ${h}:${mm}${ampm} Central`;
+}

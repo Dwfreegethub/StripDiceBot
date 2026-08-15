@@ -7,7 +7,7 @@
 // persistence, messaging, and the command handlers. Anything it
 // needs from the game goes through GameHost — never import game.ts.
 // ============================================================
-import { log, logGameEvent } from "./logger";
+import { log, logError, logGameEvent } from "./logger";
 import { GameHost } from "./host";
 import {
     TournamentConfig, TournamentGameContext, TournamentMatch, TournamentPlayer, TournamentState,
@@ -16,13 +16,13 @@ import {
     activePlayers, applyResult, evaluateField, findPlayer, isActive, matchFor,
     pairRound, punishRemaining, punishmentForLoss, rankPlayers, recordPairing, resolveMatch,
 } from "./tournamentLogic";
-import { formatDuration, generatePassword, parseDuration, parseWhen } from "./util";
+import { formatDuration, formatLocalTime, generatePassword, parseDuration, parseWhen } from "./util";
 import {
     TOURNAMENT_DEFAULT_CLOTHING, TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
     TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS, TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_RESUME_GRACE_MS,
     TOURNAMENT_SERVE_PROMPT_MS,
-    TOURNAMENT_SETUP_TIMEOUT_MS,
+    TOURNAMENT_SETUP_TIMEOUT_MS, TOURNAMENT_TICK_MS,
 } from "./constants";
 
 // One question in the admin setup interview. `apply` stores the parsed answer;
@@ -63,7 +63,7 @@ const SETUP_STEPS: SetupStep[] = [
             if (when === null) return "I couldn't read that as a time.";
             const deadline = Date.parse(draft.signUpDeadline!);
             if (when < deadline) {
-                return `That's before sign-ups close (${new Date(deadline).toUTCString()}).`;
+                return `That's before sign-ups close (${formatLocalTime(new Date(deadline).toISOString())}).`;
             }
             draft.firstRoundStart = new Date(when).toISOString();
             return null;
@@ -161,6 +161,20 @@ export class TournamentManager {
         if (this.state) {
             log(`Tournament loaded: status=${this.state.status}, round=${this.state.currentRound}, players=${this.state.players.length}`);
         }
+
+        // Advancement used to happen ONLY on room activity — a member joining
+        // or a tournament game ending. With everyone already sitting in the
+        // room and nobody coming or going, a deadline could pass and nothing
+        // would fire, including the very first "start Round 1" transition.
+        // A plain timer makes the schedule actually time-driven; checkSchedule
+        // returns immediately when there's nothing to do, so the cost is nil.
+        setInterval(() => {
+            try {
+                this.checkSchedule();
+            } catch (err) {
+                logError(`Tournament tick failed: ${err}`);
+            }
+        }, TOURNAMENT_TICK_MS);
     }
 
     // ---- queries used by game.ts dispatch ---------------------------------
@@ -301,7 +315,7 @@ export class TournamentManager {
     }
 
     private summariseDraft(draft: Partial<TournamentConfig>): string {
-        const when = (iso?: string) => iso ? new Date(iso).toUTCString() : "—";
+        const when = (iso?: string) => iso ? formatLocalTime(iso) : "—";
         const punish = (ms?: number) => (ms && ms > 0) ? formatDuration(ms) : "none";
         return "🏆 Tournament summary\n" +
             `Registration opens: ${when(draft.registrationOpensAt)}\n` +
@@ -482,7 +496,7 @@ export class TournamentManager {
         this.host.sendLongWhisper(memberNumber,
             `🏆 You're registered for the tournament! (${this.state.players.length} signed up)\n` +
             `Sign-ups close in ${formatDuration(Math.max(0, closes - now))}, and Round 1 begins ` +
-            `${new Date(this.state.config.firstRoundStart).toUTCString()}.\n` +
+            `${formatLocalTime(this.state.config.firstRoundStart)}.\n` +
             `We're friends, so I'll beep you when your round starts — though beeps only reach you if ` +
             `you're online, so check !tournament if you've been away.\n` +
             `Whisper !tournament rules for the full format, or !tournament any time for status.`);
@@ -760,7 +774,7 @@ export class TournamentManager {
         }
         if (this.state.status === "registration") {
             this.host.bot.whisper(memberNumber,
-                `The tournament hasn't started yet — Round 1 begins ${new Date(this.state.config.firstRoundStart).toUTCString()}.`);
+                `The tournament hasn't started yet — Round 1 begins ${formatLocalTime(this.state.config.firstRoundStart)}.`);
             return;
         }
         if (this.state.status === "paused" || this.state.status === "frozen") {
@@ -1346,7 +1360,7 @@ export class TournamentManager {
                 }
                 lines.push(`Signed up (${this.state.players.length}): ${this.state.players.map(p => p.name).join(", ") || "nobody yet"}`);
                 lines.push(`Minimum to start: ${this.state.config.minPlayers}`);
-                lines.push(`Round 1 begins: ${new Date(this.state.config.firstRoundStart).toUTCString()}`);
+                lines.push(`Round 1 begins: ${formatLocalTime(this.state.config.firstRoundStart)}`);
                 break;
             }
             case "active": {
