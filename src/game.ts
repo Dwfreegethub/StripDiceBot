@@ -2970,6 +2970,14 @@ export class StripDiceGame implements GameHost {
             `!help solo - Solo whisper game & leaderboard commands\n` +
             `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n`;
 
+        // Only advertised while a tournament actually exists — there's nothing
+        // for a player to do with these commands otherwise, and a permanent
+        // line for a feature that's dormant most of the time is just noise.
+        if (this.tournament.hasTournament()) {
+            text += `!tournament - Tournament standings, your match and time left — one is running now!\n`;
+            text += `!tournament rules - How the tournament works\n`;
+        }
+
         if (this.isAdmin(memberNumber)) {
             text += `!help admin - Admin commands\n`;
         }
@@ -3056,7 +3064,11 @@ export class StripDiceGame implements GameHost {
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
             `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
-            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)`;
+            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
+            `--- Tournament ---\n` +
+            `!tournament setup - Create a tournament (asks 8 questions; durations in plain language)\n` +
+            `!tournament pause / resume - Freeze or restart round advancement\n` +
+            `!tournament cancel - Cancel and archive the current tournament`;
 
         this.sendLongWhisper(memberNumber, text);
     }
