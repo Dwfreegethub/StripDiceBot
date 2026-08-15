@@ -627,6 +627,7 @@ export class StripDiceGame implements GameHost {
         "!tournament setup": { handler: (mn) => this.tournament.handleSetup(mn), whisperOnly: true },
         "!tournament register": { handler: (mn, name) => this.tournament.handleRegister(mn, name) },
         "!tournament withdraw": { handler: (mn) => this.tournament.handleWithdraw(mn) },
+        "!tournament advance": { handler: (mn) => this.tournament.handleAdvance(mn) },
         "!tournament resume": { handler: (mn) => this.tournament.handleResume(mn) },
         "!tournament cancel": { handler: (mn) => this.tournament.handleCancel(mn) },
         "!tournament pause": { handler: (mn) => this.tournament.handlePause(mn) },
@@ -3067,6 +3068,7 @@ export class StripDiceGame implements GameHost {
             `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
             `--- Tournament ---\n` +
             `!tournament setup - Create a tournament (asks 8 questions; durations in plain language)\n` +
+            `!tournament advance - Start Round 1 now, or close the current round early (unplayed games count as losses)\n` +
             `!tournament pause / resume - Freeze or restart round advancement\n` +
             `!tournament cancel - Cancel and archive the current tournament`;
 

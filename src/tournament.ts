@@ -1441,6 +1441,60 @@ export class TournamentManager {
 
     // ---- admin controls -------------------------------------------------------
 
+    // Admin force-advance, mainly for testing. Two meanings depending on where
+    // the tournament is:
+    //   registration -> start Round 1 NOW, ignoring the sign-up deadline and
+    //                   the scheduled first-round time.
+    //   active       -> close the current round NOW. Anything unplayed scores
+    //                   as a loss, exactly as it would at the real deadline,
+    //                   so this is destructive mid-round and says so.
+    public handleAdvance(memberNumber: number): void {
+        if (!this.host.requireAdmin(memberNumber)) return;
+        if (!this.state) {
+            this.host.bot.whisper(memberNumber, "There's no tournament to advance.");
+            return;
+        }
+        if (this.state.status === "paused" || this.state.status === "frozen") {
+            this.host.bot.whisper(memberNumber,
+                `The tournament is ${this.state.status} — whisper !tournament resume first.`);
+            return;
+        }
+        if (this.state.status === "complete" || this.state.status === "cancelled") {
+            this.host.bot.whisper(memberNumber, "This tournament is already over.");
+            return;
+        }
+
+        const now = Date.now();
+
+        if (this.state.status === "registration") {
+            const field = this.state.players.length;
+            if (field < 2) {
+                this.host.bot.whisper(memberNumber,
+                    `Only ${field} player${field === 1 ? "" : "s"} registered — you need at least 2 to start. ` +
+                    `(Starting now would just auto-cancel it.)`);
+                return;
+            }
+            logGameEvent(`[TOURNAMENT] admin #${memberNumber} force-started the tournament early (${field} players)`);
+            this.host.bot.whisper(memberNumber,
+                `Starting now with ${field} player(s), ignoring the scheduled start time.`);
+            this.host.bot.sendChat("🏆 Registration is closed — the tournament is starting now!");
+            this.beginTournament(now);
+            return;
+        }
+
+        // Active: close the round early.
+        const round = this.state.currentRound;
+        const outstanding = this.state.matches
+            .filter(m => m.round === round && m.result === null && m.playerB !== null).length;
+        logGameEvent(`[TOURNAMENT] admin #${memberNumber} force-closed round ${round} (${outstanding} match(es) unresolved)`);
+        this.host.bot.whisper(memberNumber,
+            outstanding > 0
+                ? `Closing Round ${round} now. ${outstanding} match(es) hadn't finished — unplayed games score as losses, same as hitting the deadline.`
+                : `Closing Round ${round} now.`);
+        this.host.bot.sendChat(`🏆 Round ${round} has been closed early by an admin.`);
+        this.finalizeRound(now);
+    }
+
     public handlePause(memberNumber: number): void {
         if (!this.host.requireAdmin(memberNumber)) return;
         if (!this.state || !this.hasTournament()) {

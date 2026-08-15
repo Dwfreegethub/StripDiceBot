@@ -744,7 +744,49 @@ function testEndToEnd(): void {
     check(!said.some(s => s.includes("Tournament — Round")),
         "a player owing punishment gets the serve prompt, not a status dump");
 
-    console.log("  53 assertions");
+    // ---- admin force-advance ----
+    // The rehearsal path: create a tournament with a long window, then start it
+    // immediately rather than waiting for the sign-up deadline to elapse.
+    const { host: aHost, getSaved: aSaved } = makeStubHost([ADMIN]);
+    const aManager = new TournamentManager(aHost);
+    aManager.handleSetup(ADMIN);
+    // A deliberately long window — a week of registration, round 1 in a week.
+    for (const ans of ["now", "1 week", "1 week", "48 hours", "15 minutes", "1 hour", "1", "yes"]) {
+        aManager.handleSetupAnswer(ADMIN, ans);
+    }
+    aManager.handleSetupAnswer(ADMIN, "yes");
+
+    // With fewer than 2 registered, advancing must refuse rather than
+    // auto-cancelling the tournament out from under the admin.
+    aManager.handleRegister(401, "Ana");
+    aManager.handleAdvance(ADMIN);
+    check(aSaved()!.status === "registration", "advance refuses below 2 players", aSaved()!.status);
+
+    aManager.handleRegister(402, "Bo");
+    aManager.handleRegister(403, "Cy");
+
+    // Normal scheduling would not start this for a week.
+    aManager.checkSchedule(Date.now());
+    check(aSaved()!.status === "registration", "a long window does not start on its own");
+
+    // Force it.
+    aManager.handleAdvance(ADMIN);
+    let s = aSaved()!;
+    check(s.status === "active", "advance force-starts the tournament", s.status);
+    check(s.currentRound === 1, "advance starts at Round 1", String(s.currentRound));
+    check(s.matches.filter(m => m.round === 1).length >= 1, "Round 1 is paired");
+
+    // Advancing again closes the round early; nothing was played, so both
+    // sides of each match forfeit exactly as they would at the deadline.
+    aManager.handleAdvance(ADMIN);
+    s = aSaved()!;
+    check(s.matches.filter(m => m.round === 1).every(m => m.result !== null),
+        "advance closes an active round, resolving every match");
+    check(s.currentRound > 1 || s.status !== "active",
+        "the tournament moves on after a forced round close",
+        `round ${s.currentRound}, status ${s.status}`);
+
+    console.log("  60 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

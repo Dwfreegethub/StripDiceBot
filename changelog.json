@@ -40,5 +40,11 @@
     "headline": "Real life has gotten in the way lately — thank you all for your patience. Updates and fixes are in the works and coming soon! 🎲",
     "detail": "",
     "major": true
+  },
+  {
+    "version": "2026-08-12T18:00:00",
+    "headline": "Tournament mode is installed and being tested — nothing changes for you yet.",
+    "detail": "Tournament support is now on the bot but completely dormant: unless an admin actually starts one, nothing about the room, your games, or your commands behaves any differently. You'll see !tournament in the help only while a tournament is actually running.\nThe plan is a small test tournament with a few volunteers first, on very short rounds, before anything real is announced. If you'd like to be one of the guinea pigs, say so in the room.\nFormat, when it does run: Swiss pairing with double elimination. Each round you're paired with someone on a similar record and you each play 3 solo Survive games on your own time — no need to be online together. Most rolls survived wins. Lose twice and you're out. The last two meet in a grand final.",
+    "major": false
   }
 ]
