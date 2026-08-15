@@ -806,6 +806,12 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        // Solo/tournament setup: "same outfit as last time?" — must be checked
+        // before the yes/no clothing Q&A below, since it accepts yes/no too.
+        if (this.solo.hasPendingOutfitChoice(memberNumber)) {
+            if (this.solo.handleOutfitChoice(memberNumber, msg)) return;
+        }
+
         // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
         if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
             this.solo.handleClothingAnswer(memberNumber, msg);
@@ -6640,6 +6646,18 @@ export class StripDiceGame implements GameHost {
         if (this.turnOrder.length === 0) return undefined;
         const memberNumber = this.turnOrder[this.currentTurnIndex];
         return this.players.get(memberNumber);
+    }
+
+    // GameHost: the multiplayer game's outfit memory, shared with solo and
+    // tournament games so a player only declares their outfit once per session
+    // whichever mode they're in.
+    public getLastClothing(memberNumber: number): string[] | undefined {
+        const last = this.lastClothing.get(memberNumber);
+        return last && last.length > 0 ? [...last] : undefined;
+    }
+
+    public setLastClothing(memberNumber: number, clothing: string[]): void {
+        if (clothing.length > 0) this.lastClothing.set(memberNumber, [...clothing]);
     }
 
     // GameHost: tournament ⇄ solo bridge. The two managers never import each

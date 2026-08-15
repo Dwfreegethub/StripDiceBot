@@ -730,10 +730,25 @@ export class TournamentManager {
                 const ms = punishmentForLoss(this.state, player.losses, round);
                 if (ms <= 0) continue;
                 player.punishMsRemaining += ms;
-                this.notify(mn,
-                    `⛓️ That loss costs you ${formatDuration(ms)} bound and claimable in the room. ` +
+
+                const owed = `⛓️ That loss costs you ${formatDuration(ms)} bound and claimable in the room. ` +
                     `You owe ${formatDuration(player.punishMsRemaining)} in total, and you can't play ` +
-                    `your next match until it's served.`);
+                    `your next match until it's served.`;
+
+                // In the room: tell them and immediately offer to start, so
+                // there's no gap where they know they owe time but not how to
+                // begin. Away: beep the result and set expectations, since a
+                // beep is all we can reach them with and they'll be prompted
+                // properly by onEnterRoom when they next walk in.
+                if (this.host.isInRoom(mn)) {
+                    this.host.sendLongWhisper(mn, owed);
+                    this.promptToServe(mn, player);
+                } else if (this.host.bot.isFriend(mn)) {
+                    this.host.bot.beep(mn,
+                        `Tournament: you lost your Round ${round} match and owe ` +
+                        `${formatDuration(player.punishMsRemaining)} bound and claimable. ` +
+                        `Come to the room and I'll ask if you're ready to serve it.`);
+                }
             }
         }
     }

@@ -786,7 +786,51 @@ function testEndToEnd(): void {
         "the tournament moves on after a forced round close",
         `round ${s.currentRound}, status ${s.status}`);
 
-    console.log("  60 assertions");
+    // ---- losing prompts to serve, or beeps if away ----
+    // In the room: they should be told the debt AND immediately offered the
+    // chance to start, so there's no gap where they know they owe time but not
+    // how to begin. Away: a beep, since that's all we can reach them with.
+    const { host: pHost, getSaved: pSaved, said: pSaid } = makeStubHost([ADMIN]);
+    let inRoom = new Set<number>();
+    pHost.isInRoom = (mn: number) => inRoom.has(mn);
+    const pManager = new TournamentManager(pHost);
+    pManager.handleSetup(ADMIN);
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes"]) {
+        pManager.handleSetupAnswer(ADMIN, a);
+    }
+    pManager.handleSetupAnswer(ADMIN, "yes");
+    for (const [mn, nm] of [[501, "Present"], [502, "Away"]] as [number, string][]) {
+        pManager.handleRegister(mn, nm);
+    }
+
+    inRoom = new Set([501]);              // 501 present, 502 away
+    pManager.checkSchedule(Date.now() + 2 * 60 * 1000);
+    check(pSaved()!.status === "active", "round started for the punishment test");
+
+    // 501 wins, 502 loses (no grace rounds, so punishment applies at once).
+    const pm = pSaved()!.matches.find(m => m.playerB !== null)!;
+    const winner = 501, loser = 502;
+    for (let g = 0; g < 3; g++) pManager.recordGameResult(pm.playerA === winner ? winner : loser, pm.playerA === winner ? 30 : 5, 60_000);
+    for (let g = 0; g < 3; g++) pManager.recordGameResult(pm.playerA === winner ? loser : winner, pm.playerA === winner ? 5 : 30, 60_000);
+
+    pSaid.length = 0;
+    pManager.handleAdvance(ADMIN);   // force-close the round deterministically
+
+    const loserOwes = pSaved()!.players.find(p => p.memberNumber === loser)!.punishMsRemaining;
+    check(loserOwes > 0, "the loser owes punishment time", `${loserOwes}ms`);
+    check(pSaid.some(s => s.includes("[beep]")),
+        "an absent loser is beeped their result");
+    check(pSaid.some(s => s.includes("[beep]") && /come to the room/i.test(s)),
+        "the beep tells them they'll be asked when they arrive");
+
+    // Now the present-player path: walking in gets the serve prompt.
+    inRoom.add(loser);
+    pSaid.length = 0;
+    pManager.onEnterRoom(loser);
+    check(pSaid.some(s => /ready to start/i.test(s)),
+        "entering the room asks whether they're ready to serve");
+
+    console.log("  65 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

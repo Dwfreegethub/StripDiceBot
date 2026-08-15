@@ -66,6 +66,12 @@ export interface GameHost {
     // Sets the feedbackGiven flag on a player's persistent record.
     markFeedbackGiven(memberNumber: number): void;
 
+    // The outfit this member last declared, in any mode. Shared with the
+    // multiplayer game's "same outfit as last time?" memory, so a declaration
+    // made in one mode carries into the other. In-memory: a restart forgets it.
+    getLastClothing(memberNumber: number): string[] | undefined;
+    setLastClothing(memberNumber: number, clothing: string[]): void;
+
     // ---- tournament bridge -------------------------------------------------
     // The tournament and solo managers never import each other; they meet
     // here. The tournament asks the game to start a solo game in tournament
