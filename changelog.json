@@ -28,5 +28,17 @@
     "headline": "Team mode fix: the whole winning team is now fully unbound at the end — including a teammate who got bound during the game.",
     "detail": "Before, if someone on the winning team had been fully bound before their team clinched the win, they were still getting locked at game end like a loser. The bot freed them once, but then re-locked them a moment later when it applied everyone's end-game locks, so they ended up stuck. Now every member of the winning team is stripped and left free, and only the losing team gets locked.",
     "major": true
+  },
+  {
+    "version": "2026-08-06T22:00:00",
+    "headline": "Fixed: prize lock passwords could be wrong. One password now opens everything.",
+    "detail": "If you won a game and claimed a prize, the password you were given could fail to open some of their restraints. This happened to Candy claiming Oklin: the bot said the password was OBEDIENT, but several of Oklin's locks were actually set to PLAYFUL, that game's shared password.\nThe cause: a prize player's restraints were locked twice. First with the game's shared password like everyone else, then locked again a minute later with their own private prize password. Anything that touched a lock in between — or any part of that second pass that didn't land — left them with a mix of both, while !claim only ever knew about the second one.\nNow a prize player's own password is decided before a single lock goes on, and every lock they receive uses it from the start, including the collar and leash and any lock the bot has to re-apply. There is no second pass to go wrong, and the password !claim gives you is the only one on them.\nSide effects, both good: end-game locking now sends about half as many item updates for prize players, so the whole sequence finishes faster and is less likely to hit Bondage Club's rate limit. And in team games, prize players were being given a shorter lock timer than everyone else because the shared 69-roll bonus was left out of their time — they now get the same duration as the rest of the losing team.",
+    "major": true
+  },
+  {
+    "version": "2026-08-12T12:00:00",
+    "headline": "Real life has gotten in the way lately — thank you all for your patience. Updates and fixes are in the works and coming soon! 🎲",
+    "detail": "",
+    "major": true
   }
 ]

@@ -83,7 +83,17 @@
     "memberNumber": 113,
     "name": "Ruby",
     "firstSeen": "2026-06-17T04:01:44.303-05:00",
-    "lastSeen": "2026-06-17T04:01:44.303-05:00",
+    "lastSeen": "2026-08-09T16:29:00.413-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "152": {
+    "memberNumber": 152,
+    "name": "Gracie",
+    "firstSeen": "2026-08-09T20:35:33.787-05:00",
+    "lastSeen": "2026-08-09T20:35:33.787-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -123,7 +133,7 @@
     "memberNumber": 171,
     "name": "Mj",
     "firstSeen": "2026-06-16T22:34:27.821-05:00",
-    "lastSeen": "2026-08-03T18:22:50.945-05:00",
+    "lastSeen": "2026-08-08T07:41:02.247-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -133,7 +143,7 @@
     "memberNumber": 290,
     "name": "Emilie",
     "firstSeen": "2026-07-11T23:23:33.948-05:00",
-    "lastSeen": "2026-07-24T21:57:44.577-05:00",
+    "lastSeen": "2026-08-11T12:20:11.158-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -199,6 +209,17 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "541": {
+    "memberNumber": 541,
+    "name": "Kirsty",
+    "firstSeen": "2026-08-09T17:34:24.361-05:00",
+    "lastSeen": "2026-08-09T17:43:46.574-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
+  },
   "649": {
     "memberNumber": 649,
     "name": "Patty",
@@ -243,7 +264,7 @@
     "memberNumber": 768,
     "name": "Kia",
     "firstSeen": "2026-07-12T17:16:48.016-05:00",
-    "lastSeen": "2026-07-12T17:16:48.016-05:00",
+    "lastSeen": "2026-08-08T07:43:48.986-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -293,7 +314,7 @@
     "memberNumber": 1122,
     "name": "Hannah",
     "firstSeen": "2026-06-11T13:04:38.139-05:00",
-    "lastSeen": "2026-07-21T04:12:38.571-05:00",
+    "lastSeen": "2026-08-13T02:20:40.608-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -314,6 +335,26 @@
     "name": "Eve",
     "firstSeen": "2026-06-14T03:29:27.791-05:00",
     "lastSeen": "2026-07-05T01:56:41.836-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "1197": {
+    "memberNumber": 1197,
+    "name": "Saimi",
+    "firstSeen": "2026-08-11T07:55:26.799-05:00",
+    "lastSeen": "2026-08-11T07:55:26.799-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "1269": {
+    "memberNumber": 1269,
+    "name": "Geena",
+    "firstSeen": "2026-08-09T20:45:31.069-05:00",
+    "lastSeen": "2026-08-09T20:45:31.069-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -424,7 +465,7 @@
     "memberNumber": 2238,
     "name": "Tarah Lo",
     "firstSeen": "2026-07-08T10:12:47.712-05:00",
-    "lastSeen": "2026-07-21T23:25:50.330-05:00",
+    "lastSeen": "2026-08-11T10:35:32.796-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -454,7 +495,17 @@
     "memberNumber": 2258,
     "name": "yuri",
     "firstSeen": "2026-06-23T11:47:08.816-05:00",
-    "lastSeen": "2026-06-23T11:47:08.816-05:00",
+    "lastSeen": "2026-08-07T12:02:20.423-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "2299": {
+    "memberNumber": 2299,
+    "name": "riley",
+    "firstSeen": "2026-08-12T04:40:29.164-05:00",
+    "lastSeen": "2026-08-12T04:40:29.164-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -494,7 +545,7 @@
     "memberNumber": 2394,
     "name": "Sailor Saturn",
     "firstSeen": "2026-06-13T00:29:57.620-05:00",
-    "lastSeen": "2026-07-24T00:11:13.420-05:00",
+    "lastSeen": "2026-08-06T22:48:20.531-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -516,6 +567,16 @@
     "name": "sara",
     "firstSeen": "2026-06-23T00:19:21.254-05:00",
     "lastSeen": "2026-06-23T00:19:21.254-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "2509": {
+    "memberNumber": 2509,
+    "name": "𝕹𝖔𝖈𝖙𝖚𝖗𝖓𝖆",
+    "firstSeen": "2026-08-08T10:30:51.046-05:00",
+    "lastSeen": "2026-08-08T10:30:51.046-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -621,6 +682,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "3358": {
+    "memberNumber": 3358,
+    "name": "Elisa",
+    "firstSeen": "2026-08-11T07:33:14.310-05:00",
+    "lastSeen": "2026-08-11T07:33:14.310-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "3360": {
     "memberNumber": 3360,
     "name": "Lyra",
@@ -721,11 +792,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "4136": {
+    "memberNumber": 4136,
+    "name": "Andy",
+    "firstSeen": "2026-08-08T17:53:10.023-05:00",
+    "lastSeen": "2026-08-08T17:53:10.023-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "4212": {
     "memberNumber": 4212,
     "name": "Blake B Hunter",
     "firstSeen": "2026-06-20T14:02:46.211-05:00",
-    "lastSeen": "2026-08-01T15:02:48.526-05:00",
+    "lastSeen": "2026-08-09T00:56:55.443-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -755,7 +836,7 @@
     "memberNumber": 4342,
     "name": "hellen",
     "firstSeen": "2026-07-29T00:31:18.667-05:00",
-    "lastSeen": "2026-08-03T17:48:56.063-05:00",
+    "lastSeen": "2026-08-12T01:27:30.010-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -795,7 +876,7 @@
     "memberNumber": 4953,
     "name": "Nel",
     "firstSeen": "2026-08-05T18:04:48.331-05:00",
-    "lastSeen": "2026-08-05T18:04:48.331-05:00",
+    "lastSeen": "2026-08-07T17:34:41.472-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -956,11 +1037,12 @@
     "memberNumber": 6159,
     "name": "Lin",
     "firstSeen": "2026-07-11T21:30:18.281-05:00",
-    "lastSeen": "2026-07-11T21:52:01.425-05:00",
+    "lastSeen": "2026-08-09T18:33:44.456-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "6175": {
     "memberNumber": 6175,
@@ -997,7 +1079,7 @@
     "memberNumber": 6659,
     "name": "Maike",
     "firstSeen": "2026-06-11T15:13:28.323-05:00",
-    "lastSeen": "2026-06-11T15:13:28.323-05:00",
+    "lastSeen": "2026-08-09T15:53:57.418-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -1193,6 +1275,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "8876": {
+    "memberNumber": 8876,
+    "name": "Sayaka",
+    "firstSeen": "2026-08-10T16:55:42.411-05:00",
+    "lastSeen": "2026-08-10T16:55:42.411-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "8966": {
     "memberNumber": 8966,
     "name": "Astra",
@@ -1218,6 +1310,16 @@
     "name": "Emmy",
     "firstSeen": "2026-06-17T04:01:09.714-05:00",
     "lastSeen": "2026-06-17T04:01:09.714-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "9585": {
+    "memberNumber": 9585,
+    "name": "Tori",
+    "firstSeen": "2026-08-12T10:25:36.803-05:00",
+    "lastSeen": "2026-08-12T15:46:20.654-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -1407,10 +1509,20 @@
     "memberNumber": 11927,
     "name": "Sparkle",
     "firstSeen": "2026-06-23T20:15:50.114-05:00",
-    "lastSeen": "2026-08-01T11:44:48.797-05:00",
+    "lastSeen": "2026-08-09T01:05:50.662-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "12193": {
+    "memberNumber": 12193,
+    "name": "Penny",
+    "firstSeen": "2026-08-09T01:47:11.246-05:00",
+    "lastSeen": "2026-08-09T01:47:11.246-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "12708": {
@@ -1437,12 +1549,12 @@
     "memberNumber": 13746,
     "name": "Miqo'te Suki",
     "firstSeen": "2026-07-12T09:38:58.738-05:00",
-    "lastSeen": "2026-07-31T07:24:49.658-05:00",
-    "gamesPlayed": 4,
-    "gamesWon": 2,
-    "gamesLost": 2,
+    "lastSeen": "2026-08-08T08:07:28.210-05:00",
+    "gamesPlayed": 8,
+    "gamesWon": 3,
+    "gamesLost": 5,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "13760": {
     "memberNumber": 13760,
@@ -1706,11 +1818,21 @@
     "gamesLost": 1,
     "feedbackGiven": false
   },
+  "16661": {
+    "memberNumber": 16661,
+    "name": "Eva",
+    "firstSeen": "2026-08-07T13:34:06.081-05:00",
+    "lastSeen": "2026-08-07T13:34:06.081-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "16682": {
     "memberNumber": 16682,
-    "name": "Damazonia",
+    "name": "Calisa bliss",
     "firstSeen": "2026-07-20T23:54:58.595-05:00",
-    "lastSeen": "2026-07-20T23:54:58.595-05:00",
+    "lastSeen": "2026-08-08T12:36:09.776-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -1760,7 +1882,17 @@
     "memberNumber": 17261,
     "name": "Serenity",
     "firstSeen": "2026-07-19T08:48:11.217-05:00",
-    "lastSeen": "2026-07-31T19:28:27.063-05:00",
+    "lastSeen": "2026-08-10T20:27:09.923-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "18072": {
+    "memberNumber": 18072,
+    "name": "Susan",
+    "firstSeen": "2026-08-10T16:19:52.404-05:00",
+    "lastSeen": "2026-08-10T16:19:52.404-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -1900,11 +2032,12 @@
     "memberNumber": 19956,
     "name": "Hallie",
     "firstSeen": "2026-06-14T09:17:47.630-05:00",
-    "lastSeen": "2026-06-14T09:17:47.630-05:00",
+    "lastSeen": "2026-08-08T08:27:20.061-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "20454": {
     "memberNumber": 20454,
@@ -1926,6 +2059,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "20594": {
+    "memberNumber": 20594,
+    "name": "Bell",
+    "firstSeen": "2026-08-07T01:57:07.542-05:00",
+    "lastSeen": "2026-08-07T01:57:07.542-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "20643": {
     "memberNumber": 20643,
     "name": "Jason",
@@ -1940,7 +2083,7 @@
     "memberNumber": 20821,
     "name": "sia",
     "firstSeen": "2026-06-21T08:18:14.349-05:00",
-    "lastSeen": "2026-06-21T08:18:14.349-05:00",
+    "lastSeen": "2026-08-09T09:08:53.156-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -1955,6 +2098,16 @@
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "21283": {
+    "memberNumber": 21283,
+    "name": "Ancilla",
+    "firstSeen": "2026-08-09T12:29:27.959-05:00",
+    "lastSeen": "2026-08-09T12:29:27.959-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "21534": {
     "memberNumber": 21534,
@@ -2090,7 +2243,7 @@
     "memberNumber": 22799,
     "name": "Sam",
     "firstSeen": "2026-06-11T13:43:42.332-05:00",
-    "lastSeen": "2026-07-23T09:43:28.534-05:00",
+    "lastSeen": "2026-08-07T12:51:44.271-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -2140,7 +2293,7 @@
     "memberNumber": 23236,
     "name": "Azurea",
     "firstSeen": "2026-07-05T09:16:06.994-05:00",
-    "lastSeen": "2026-08-02T19:27:17.749-05:00",
+    "lastSeen": "2026-08-07T17:32:05.349-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2200,12 +2353,12 @@
     "memberNumber": 23624,
     "name": "Mari Isanzi",
     "firstSeen": "2026-08-05T14:19:13.909-05:00",
-    "lastSeen": "2026-08-05T14:29:30.090-05:00",
+    "lastSeen": "2026-08-06T23:47:16.716-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "23639": {
     "memberNumber": 23639,
@@ -2236,6 +2389,16 @@
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "23747": {
+    "memberNumber": 23747,
+    "name": "Nana",
+    "firstSeen": "2026-08-09T16:25:49.861-05:00",
+    "lastSeen": "2026-08-09T16:25:49.861-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "23764": {
     "memberNumber": 23764,
@@ -2307,6 +2470,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "24944": {
+    "memberNumber": 24944,
+    "name": "Cindy",
+    "firstSeen": "2026-08-08T21:10:43.290-05:00",
+    "lastSeen": "2026-08-08T21:10:43.290-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "24949": {
     "memberNumber": 24949,
     "name": "Shive",
@@ -2317,11 +2490,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "25054": {
+    "memberNumber": 25054,
+    "name": "Elsie",
+    "firstSeen": "2026-08-07T21:12:11.363-05:00",
+    "lastSeen": "2026-08-07T21:12:11.363-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "25346": {
     "memberNumber": 25346,
-    "name": "Saya",
+    "name": "Dom",
     "firstSeen": "2026-07-07T14:59:17.169-05:00",
-    "lastSeen": "2026-07-16T04:36:54.398-05:00",
+    "lastSeen": "2026-08-13T03:20:43.122-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2457,6 +2640,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "27723": {
+    "memberNumber": 27723,
+    "name": "larissa",
+    "firstSeen": "2026-08-07T13:17:53.806-05:00",
+    "lastSeen": "2026-08-07T14:18:44.407-05:00",
+    "gamesPlayed": 3,
+    "gamesWon": 1,
+    "gamesLost": 2,
+    "feedbackGiven": false
+  },
   "28056": {
     "memberNumber": 28056,
     "name": "liss",
@@ -2467,11 +2660,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "28469": {
+    "memberNumber": 28469,
+    "name": "Stephanie",
+    "firstSeen": "2026-08-08T23:32:25.517-05:00",
+    "lastSeen": "2026-08-08T23:32:25.517-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "28507": {
     "memberNumber": 28507,
     "name": "Sable",
     "firstSeen": "2026-07-11T23:43:44.202-05:00",
-    "lastSeen": "2026-07-11T23:43:44.202-05:00",
+    "lastSeen": "2026-08-08T23:35:06.453-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2491,7 +2694,7 @@
     "memberNumber": 28697,
     "name": "Jessica",
     "firstSeen": "2026-07-23T09:25:51.063-05:00",
-    "lastSeen": "2026-07-23T09:25:51.063-05:00",
+    "lastSeen": "2026-08-07T11:55:11.593-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2671,7 +2874,7 @@
     "memberNumber": 32649,
     "name": "Aurel",
     "firstSeen": "2026-08-05T12:12:09.433-05:00",
-    "lastSeen": "2026-08-05T12:12:09.433-05:00",
+    "lastSeen": "2026-08-11T12:04:04.849-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2681,12 +2884,12 @@
     "memberNumber": 32949,
     "name": "Rei",
     "firstSeen": "2026-07-25T22:44:02.004-05:00",
-    "lastSeen": "2026-07-27T07:10:20.955-05:00",
+    "lastSeen": "2026-08-09T14:43:36.005-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "33049": {
     "memberNumber": 33049,
@@ -2732,11 +2935,12 @@
     "memberNumber": 33527,
     "name": "Lesh",
     "firstSeen": "2026-07-30T19:37:18.013-05:00",
-    "lastSeen": "2026-07-31T19:55:25.854-05:00",
-    "gamesPlayed": 2,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-08T12:26:16.335-05:00",
+    "gamesPlayed": 3,
+    "gamesWon": 1,
     "gamesLost": 2,
-    "feedbackGiven": false
+    "feedbackGiven": true,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "33551": {
     "memberNumber": 33551,
@@ -2793,6 +2997,16 @@
     "name": "Luna",
     "firstSeen": "2026-07-21T07:11:22.369-05:00",
     "lastSeen": "2026-07-21T07:11:22.369-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "34777": {
+    "memberNumber": 34777,
+    "name": "Summer",
+    "firstSeen": "2026-08-08T11:56:26.023-05:00",
+    "lastSeen": "2026-08-08T11:56:26.023-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -2978,6 +3192,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "36730": {
+    "memberNumber": 36730,
+    "name": "Benio",
+    "firstSeen": "2026-08-10T22:44:19.897-05:00",
+    "lastSeen": "2026-08-10T22:44:19.897-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "36799": {
     "memberNumber": 36799,
     "name": "Trophy",
@@ -3072,7 +3296,7 @@
     "memberNumber": 38069,
     "name": "𝕁𝕦𝕝𝕚𝕒",
     "firstSeen": "2026-06-21T12:34:32.910-05:00",
-    "lastSeen": "2026-06-21T12:34:32.910-05:00",
+    "lastSeen": "2026-08-09T07:14:07.435-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3102,7 +3326,7 @@
     "memberNumber": 38344,
     "name": "Simi",
     "firstSeen": "2026-06-11T16:45:54.417-05:00",
-    "lastSeen": "2026-07-27T14:54:45.742-05:00",
+    "lastSeen": "2026-08-08T14:39:20.837-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -3153,7 +3377,7 @@
     "memberNumber": 38735,
     "name": "Susan",
     "firstSeen": "2026-06-16T21:58:52.711-05:00",
-    "lastSeen": "2026-08-02T00:56:34.275-05:00",
+    "lastSeen": "2026-08-10T00:05:09.730-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3363,17 +3587,28 @@
     "memberNumber": 42254,
     "name": "Lupa",
     "firstSeen": "2026-06-14T22:13:23.971-05:00",
-    "lastSeen": "2026-07-06T17:11:45.509-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-08T11:20:33.751-05:00",
+    "gamesPlayed": 1,
     "gamesWon": 0,
-    "gamesLost": 0,
-    "feedbackGiven": false
+    "gamesLost": 1,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "42271": {
     "memberNumber": 42271,
     "name": "siss",
     "firstSeen": "2026-07-28T07:44:07.345-05:00",
     "lastSeen": "2026-07-28T07:44:07.345-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "42403": {
+    "memberNumber": 42403,
+    "name": "Lewd",
+    "firstSeen": "2026-08-12T22:54:47.756-05:00",
+    "lastSeen": "2026-08-12T22:54:47.756-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3479,6 +3714,27 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "44538": {
+    "memberNumber": 44538,
+    "name": "Ash",
+    "firstSeen": "2026-08-10T16:40:33.998-05:00",
+    "lastSeen": "2026-08-10T16:40:33.998-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "44699": {
+    "memberNumber": 44699,
+    "name": "jamie",
+    "firstSeen": "2026-08-10T15:42:39.850-05:00",
+    "lastSeen": "2026-08-10T15:45:13.785-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
+  },
   "44896": {
     "memberNumber": 44896,
     "name": "Silva",
@@ -3489,11 +3745,31 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "44945": {
+    "memberNumber": 44945,
+    "name": "Annie Amber",
+    "firstSeen": "2026-08-09T14:37:32.966-05:00",
+    "lastSeen": "2026-08-09T14:37:32.966-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "45298": {
     "memberNumber": 45298,
     "name": "property",
     "firstSeen": "2026-07-05T23:46:37.381-05:00",
     "lastSeen": "2026-07-05T23:46:37.381-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "45299": {
+    "memberNumber": 45299,
+    "name": "Eda",
+    "firstSeen": "2026-08-12T01:43:06.013-05:00",
+    "lastSeen": "2026-08-12T01:43:06.013-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3547,6 +3823,16 @@
     "gamesPlayed": 4,
     "gamesWon": 2,
     "gamesLost": 2,
+    "feedbackGiven": false
+  },
+  "46140": {
+    "memberNumber": 46140,
+    "name": "Nola",
+    "firstSeen": "2026-08-07T03:13:43.275-05:00",
+    "lastSeen": "2026-08-07T03:13:43.275-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "46186": {
@@ -3603,7 +3889,7 @@
     "memberNumber": 46860,
     "name": "Sofy",
     "firstSeen": "2026-07-22T11:22:41.326-05:00",
-    "lastSeen": "2026-07-22T11:22:41.326-05:00",
+    "lastSeen": "2026-08-11T02:39:15.425-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3683,7 +3969,7 @@
     "memberNumber": 48228,
     "name": "Aburibon",
     "firstSeen": "2026-06-14T16:36:21.880-05:00",
-    "lastSeen": "2026-08-06T19:16:51.327-05:00",
+    "lastSeen": "2026-08-12T17:39:10.902-05:00",
     "gamesPlayed": 11,
     "gamesWon": 5,
     "gamesLost": 6,
@@ -3884,7 +4170,7 @@
     "memberNumber": 51392,
     "name": "Kayla",
     "firstSeen": "2026-06-14T04:08:01.167-05:00",
-    "lastSeen": "2026-07-15T11:23:31.194-05:00",
+    "lastSeen": "2026-08-08T08:07:56.754-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -3924,7 +4210,7 @@
     "memberNumber": 51866,
     "name": "Marie",
     "firstSeen": "2026-06-11T14:51:29.338-05:00",
-    "lastSeen": "2026-07-22T11:52:43.262-05:00",
+    "lastSeen": "2026-08-07T15:54:58.572-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -4221,6 +4507,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "56449": {
+    "memberNumber": 56449,
+    "name": "Lua",
+    "firstSeen": "2026-08-08T12:05:16.849-05:00",
+    "lastSeen": "2026-08-08T12:05:16.849-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "56489": {
     "memberNumber": 56489,
     "name": "Ina",
@@ -4341,6 +4637,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "58070": {
+    "memberNumber": 58070,
+    "name": "Chloe",
+    "firstSeen": "2026-08-11T02:19:31.662-05:00",
+    "lastSeen": "2026-08-11T02:19:31.662-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "58292": {
     "memberNumber": 58292,
     "name": "Lilian",
@@ -4405,7 +4711,7 @@
     "memberNumber": 58983,
     "name": "Lexi",
     "firstSeen": "2026-06-14T15:46:04.159-05:00",
-    "lastSeen": "2026-07-14T14:58:07.635-05:00",
+    "lastSeen": "2026-08-09T14:45:20.019-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -4547,6 +4853,16 @@
     "name": "Mistress Diane",
     "firstSeen": "2026-07-10T18:03:47.149-05:00",
     "lastSeen": "2026-07-10T18:03:47.149-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "61855": {
+    "memberNumber": 61855,
+    "name": "Xiang",
+    "firstSeen": "2026-08-08T10:10:07.884-05:00",
+    "lastSeen": "2026-08-08T10:10:07.884-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -4846,7 +5162,7 @@
     "memberNumber": 66084,
     "name": "Lana",
     "firstSeen": "2026-06-13T06:35:46.994-05:00",
-    "lastSeen": "2026-06-13T06:35:46.994-05:00",
+    "lastSeen": "2026-08-12T06:40:31.344-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -4946,11 +5262,21 @@
     "memberNumber": 66729,
     "name": "arella",
     "firstSeen": "2026-06-11T20:29:28.042-05:00",
-    "lastSeen": "2026-06-20T20:42:13.293-05:00",
+    "lastSeen": "2026-08-13T01:05:06.598-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "66779": {
+    "memberNumber": 66779,
+    "name": "Dylly",
+    "firstSeen": "2026-08-11T02:42:08.221-05:00",
+    "lastSeen": "2026-08-13T01:02:38.863-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "66886": {
     "memberNumber": 66886,
@@ -5042,6 +5368,16 @@
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "67433": {
+    "memberNumber": 67433,
+    "name": "𝕂𝕝𝕒𝕦𝕕𝕚𝕒",
+    "firstSeen": "2026-08-09T14:34:44.335-05:00",
+    "lastSeen": "2026-08-09T14:34:44.335-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "67498": {
     "memberNumber": 67498,
@@ -5213,6 +5549,16 @@
     "gamesLost": 1,
     "feedbackGiven": false
   },
+  "70712": {
+    "memberNumber": 70712,
+    "name": "XY",
+    "firstSeen": "2026-08-08T07:42:42.447-05:00",
+    "lastSeen": "2026-08-08T07:42:42.447-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "70801": {
     "memberNumber": 70801,
     "name": "KAM",
@@ -5228,6 +5574,16 @@
     "name": "Carlia",
     "firstSeen": "2026-07-06T08:50:03.113-05:00",
     "lastSeen": "2026-07-14T08:45:25.637-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "71010": {
+    "memberNumber": 71010,
+    "name": "Sissy Foxy Yena",
+    "firstSeen": "2026-08-09T22:24:30.638-05:00",
+    "lastSeen": "2026-08-09T22:24:30.638-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5253,6 +5609,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "71632": {
+    "memberNumber": 71632,
+    "name": "Zara Vines",
+    "firstSeen": "2026-08-08T09:53:45.093-05:00",
+    "lastSeen": "2026-08-08T09:53:45.093-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "72273": {
     "memberNumber": 72273,
     "name": "魚",
@@ -5267,7 +5633,7 @@
     "memberNumber": 72313,
     "name": "𝐅𝐚𝐥𝐥𝐞𝐧'𝐬 𝐌𝐚𝐢𝐝",
     "firstSeen": "2026-07-13T22:29:21.527-05:00",
-    "lastSeen": "2026-07-13T22:29:21.527-05:00",
+    "lastSeen": "2026-08-11T07:26:53.461-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5277,7 +5643,7 @@
     "memberNumber": 72340,
     "name": "Yuen",
     "firstSeen": "2026-08-04T04:16:29.414-05:00",
-    "lastSeen": "2026-08-04T04:16:29.414-05:00",
+    "lastSeen": "2026-08-08T21:18:15.024-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5327,7 +5693,7 @@
     "memberNumber": 73405,
     "name": "Queen Adele IV",
     "firstSeen": "2026-07-24T15:48:38.211-05:00",
-    "lastSeen": "2026-07-28T11:56:07.537-05:00",
+    "lastSeen": "2026-08-11T09:18:35.669-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5473,6 +5839,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "76544": {
+    "memberNumber": 76544,
+    "name": "Jules",
+    "firstSeen": "2026-08-07T05:10:53.019-05:00",
+    "lastSeen": "2026-08-07T05:10:53.019-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "76675": {
     "memberNumber": 76675,
     "name": "Mariy",
@@ -5497,9 +5873,9 @@
     "memberNumber": 76705,
     "name": "Nadine",
     "firstSeen": "2026-06-14T22:54:55.942-05:00",
-    "lastSeen": "2026-07-20T22:32:36.230-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-09T17:10:10.159-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -5507,7 +5883,7 @@
     "memberNumber": 76870,
     "name": "Olivia",
     "firstSeen": "2026-06-21T18:32:29.496-05:00",
-    "lastSeen": "2026-06-21T18:32:29.496-05:00",
+    "lastSeen": "2026-08-11T14:54:00.059-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5527,7 +5903,7 @@
     "memberNumber": 77197,
     "name": "Laki",
     "firstSeen": "2026-06-11T16:18:57.680-05:00",
-    "lastSeen": "2026-07-11T23:09:20.294-05:00",
+    "lastSeen": "2026-08-08T07:45:39.161-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -5657,12 +6033,12 @@
     "memberNumber": 78656,
     "name": "Bella",
     "firstSeen": "2026-07-30T05:17:54.265-05:00",
-    "lastSeen": "2026-08-01T23:44:25.000-05:00",
+    "lastSeen": "2026-08-07T04:12:31.515-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "79371": {
     "memberNumber": 79371,
@@ -5678,7 +6054,17 @@
     "memberNumber": 79375,
     "name": "Mayu",
     "firstSeen": "2026-07-28T23:53:29.581-05:00",
-    "lastSeen": "2026-08-04T06:14:23.432-05:00",
+    "lastSeen": "2026-08-08T12:30:36.338-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "79426": {
+    "memberNumber": 79426,
+    "name": "Aspen",
+    "firstSeen": "2026-08-08T06:18:19.120-05:00",
+    "lastSeen": "2026-08-08T06:18:19.120-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -5708,12 +6094,12 @@
     "memberNumber": 80289,
     "name": "Teagan",
     "firstSeen": "2026-07-25T19:52:49.321-05:00",
-    "lastSeen": "2026-08-03T06:31:07.623-05:00",
-    "gamesPlayed": 3,
+    "lastSeen": "2026-08-08T17:51:12.527-05:00",
+    "gamesPlayed": 4,
     "gamesWon": 1,
-    "gamesLost": 2,
+    "gamesLost": 3,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "80364": {
     "memberNumber": 80364,
@@ -5909,11 +6295,12 @@
     "memberNumber": 82342,
     "name": "Anna",
     "firstSeen": "2026-08-06T12:36:15.072-05:00",
-    "lastSeen": "2026-08-06T12:36:15.072-05:00",
+    "lastSeen": "2026-08-11T14:20:19.547-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "82560": {
     "memberNumber": 82560,
@@ -6065,6 +6452,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "85038": {
+    "memberNumber": 85038,
+    "name": "Vera",
+    "firstSeen": "2026-08-12T02:50:51.163-05:00",
+    "lastSeen": "2026-08-12T02:50:51.163-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "85668": {
     "memberNumber": 85668,
     "name": "Akino",
@@ -6079,7 +6476,7 @@
     "memberNumber": 85897,
     "name": "Anna",
     "firstSeen": "2026-06-12T09:10:36.872-05:00",
-    "lastSeen": "2026-08-06T21:13:15.627-05:00",
+    "lastSeen": "2026-08-12T15:31:35.605-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -6126,6 +6523,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "86534": {
+    "memberNumber": 86534,
+    "name": "Kelli Pony",
+    "firstSeen": "2026-08-09T14:33:27.481-05:00",
+    "lastSeen": "2026-08-09T16:09:00.417-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "86559": {
     "memberNumber": 86559,
     "name": "Molly",
@@ -6140,7 +6547,17 @@
     "memberNumber": 86607,
     "name": "L",
     "firstSeen": "2026-07-19T10:34:24.366-05:00",
-    "lastSeen": "2026-07-19T10:34:24.366-05:00",
+    "lastSeen": "2026-08-07T11:01:16.839-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "86627": {
+    "memberNumber": 86627,
+    "name": "sunny",
+    "firstSeen": "2026-08-11T09:27:46.122-05:00",
+    "lastSeen": "2026-08-11T09:51:09.088-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6160,12 +6577,12 @@
     "memberNumber": 87215,
     "name": "mia",
     "firstSeen": "2026-06-11T18:04:21.205-05:00",
-    "lastSeen": "2026-08-05T18:38:49.156-05:00",
+    "lastSeen": "2026-08-10T10:54:06.643-05:00",
     "gamesPlayed": 6,
     "gamesWon": 3,
     "feedbackGiven": true,
     "gamesLost": 3,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "87256": {
     "memberNumber": 87256,
@@ -6371,7 +6788,7 @@
     "memberNumber": 90268,
     "name": "Soosoo",
     "firstSeen": "2026-06-22T13:04:37.758-05:00",
-    "lastSeen": "2026-06-22T13:04:37.758-05:00",
+    "lastSeen": "2026-08-08T11:51:57.604-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6467,6 +6884,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "91591": {
+    "memberNumber": 91591,
+    "name": "toto",
+    "firstSeen": "2026-08-08T08:03:50.992-05:00",
+    "lastSeen": "2026-08-08T08:03:50.992-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "91747": {
     "memberNumber": 91747,
     "name": "𝓙𝔂𝓷𝔁",
@@ -6531,7 +6958,7 @@
     "memberNumber": 92505,
     "name": "Becca",
     "firstSeen": "2026-07-22T00:53:59.164-05:00",
-    "lastSeen": "2026-07-22T00:53:59.164-05:00",
+    "lastSeen": "2026-08-11T14:33:12.666-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6692,7 +7119,7 @@
     "memberNumber": 94355,
     "name": "Elizabeth",
     "firstSeen": "2026-06-14T09:14:47.219-05:00",
-    "lastSeen": "2026-06-14T09:14:47.219-05:00",
+    "lastSeen": "2026-08-13T01:05:45.575-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6762,7 +7189,7 @@
     "memberNumber": 95657,
     "name": "𝓢𝓲𝓼𝓼𝔂",
     "firstSeen": "2026-06-11T18:38:04.052-05:00",
-    "lastSeen": "2026-06-15T21:06:50.364-05:00",
+    "lastSeen": "2026-08-10T18:01:31.555-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -6932,7 +7359,7 @@
     "memberNumber": 98266,
     "name": "Rae",
     "firstSeen": "2026-06-16T01:17:01.261-05:00",
-    "lastSeen": "2026-06-16T01:22:10.365-05:00",
+    "lastSeen": "2026-08-07T12:29:38.074-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6958,11 +7385,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "99052": {
+    "memberNumber": 99052,
+    "name": "Screwdriver",
+    "firstSeen": "2026-08-11T08:20:13.653-05:00",
+    "lastSeen": "2026-08-11T08:20:13.653-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "99752": {
     "memberNumber": 99752,
     "name": "Margarett",
     "firstSeen": "2026-07-09T03:34:36.626-05:00",
-    "lastSeen": "2026-07-09T03:34:36.626-05:00",
+    "lastSeen": "2026-08-08T07:54:23.530-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -6972,11 +7409,12 @@
     "memberNumber": 100135,
     "name": "Layottu",
     "firstSeen": "2026-06-17T21:21:10.960-05:00",
-    "lastSeen": "2026-06-22T07:29:10.123-05:00",
+    "lastSeen": "2026-08-08T12:13:51.570-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "100512": {
     "memberNumber": 100512,
@@ -7138,11 +7576,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "102649": {
+    "memberNumber": 102649,
+    "name": "Kisha",
+    "firstSeen": "2026-08-07T17:19:37.861-05:00",
+    "lastSeen": "2026-08-08T17:36:28.148-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "102776": {
     "memberNumber": 102776,
     "name": "Judy",
     "firstSeen": "2026-07-28T13:53:02.204-05:00",
-    "lastSeen": "2026-08-03T15:53:03.746-05:00",
+    "lastSeen": "2026-08-08T17:42:56.467-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -7219,6 +7667,16 @@
     "feedbackGiven": false,
     "gamesLost": 0
   },
+  "104151": {
+    "memberNumber": 104151,
+    "name": "Ella",
+    "firstSeen": "2026-08-12T10:02:07.433-05:00",
+    "lastSeen": "2026-08-12T10:02:07.433-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "104165": {
     "memberNumber": 104165,
     "name": "Sierra",
@@ -7268,6 +7726,16 @@
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "104858": {
+    "memberNumber": 104858,
+    "name": "Shirley",
+    "firstSeen": "2026-08-09T11:07:35.110-05:00",
+    "lastSeen": "2026-08-12T21:54:06.601-05:00",
+    "gamesPlayed": 4,
+    "gamesWon": 2,
+    "gamesLost": 2,
     "feedbackGiven": false
   },
   "104869": {
@@ -7390,6 +7858,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "105970": {
+    "memberNumber": 105970,
+    "name": "蜜瓜蛋糕",
+    "firstSeen": "2026-08-07T01:55:09.442-05:00",
+    "lastSeen": "2026-08-07T01:55:09.442-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "106042": {
     "memberNumber": 106042,
     "name": "Lilit",
@@ -7430,6 +7908,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "106370": {
+    "memberNumber": 106370,
+    "name": "Ayaka",
+    "firstSeen": "2026-08-11T02:40:33.995-05:00",
+    "lastSeen": "2026-08-11T02:40:33.995-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "106376": {
     "memberNumber": 106376,
     "name": "Chloe",
@@ -7454,7 +7942,7 @@
     "memberNumber": 106389,
     "name": "Seles",
     "firstSeen": "2026-07-05T11:38:31.265-05:00",
-    "lastSeen": "2026-07-26T14:07:47.241-05:00",
+    "lastSeen": "2026-08-09T11:29:28.267-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -7504,12 +7992,12 @@
     "memberNumber": 106923,
     "name": "plenk",
     "firstSeen": "2026-06-11T16:26:48.652-05:00",
-    "lastSeen": "2026-08-06T18:08:03.665-05:00",
-    "gamesPlayed": 23,
-    "gamesWon": 8,
+    "lastSeen": "2026-08-12T16:11:40.738-05:00",
+    "gamesPlayed": 24,
+    "gamesWon": 9,
     "feedbackGiven": false,
     "gamesLost": 14,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "107299": {
     "memberNumber": 107299,
@@ -7597,12 +8085,12 @@
     "memberNumber": 108547,
     "name": "Candy",
     "firstSeen": "2026-07-12T21:45:40.330-05:00",
-    "lastSeen": "2026-08-06T20:32:39.861-05:00",
+    "lastSeen": "2026-08-12T22:08:56.047-05:00",
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "108822": {
     "memberNumber": 108822,
@@ -7638,7 +8126,7 @@
     "memberNumber": 109088,
     "name": "Chris",
     "firstSeen": "2026-06-14T04:42:32.855-05:00",
-    "lastSeen": "2026-08-03T15:47:13.957-05:00",
+    "lastSeen": "2026-08-07T04:22:08.837-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -7678,7 +8166,7 @@
     "memberNumber": 109403,
     "name": "Ferox",
     "firstSeen": "2026-07-30T18:21:20.909-05:00",
-    "lastSeen": "2026-08-01T11:44:59.236-05:00",
+    "lastSeen": "2026-08-12T14:41:50.166-05:00",
     "gamesPlayed": 2,
     "gamesWon": 0,
     "gamesLost": 2,
@@ -7698,7 +8186,7 @@
     "memberNumber": 109601,
     "name": "Paul",
     "firstSeen": "2026-07-10T16:59:19.780-05:00",
-    "lastSeen": "2026-08-05T18:50:25.821-05:00",
+    "lastSeen": "2026-08-11T09:53:41.912-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -7748,7 +8236,7 @@
     "memberNumber": 111117,
     "name": "harry",
     "firstSeen": "2026-07-31T08:09:22.145-05:00",
-    "lastSeen": "2026-08-01T08:50:09.228-05:00",
+    "lastSeen": "2026-08-08T02:23:35.846-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -7848,9 +8336,9 @@
     "memberNumber": 112234,
     "name": "Margery",
     "firstSeen": "2026-06-13T15:30:24.658-05:00",
-    "lastSeen": "2026-07-23T15:13:18.254-05:00",
-    "gamesPlayed": 1,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-07T03:09:47.226-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 1,
     "gamesLost": 1,
     "feedbackGiven": false
   },
@@ -7944,6 +8432,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "113424": {
+    "memberNumber": 113424,
+    "name": "𝒥𝒥",
+    "firstSeen": "2026-08-08T10:01:42.024-05:00",
+    "lastSeen": "2026-08-09T16:30:54.791-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "113514": {
     "memberNumber": 113514,
     "name": "Fee",
@@ -7979,6 +8477,16 @@
     "name": "Gurl",
     "firstSeen": "2026-07-04T06:15:30.311-05:00",
     "lastSeen": "2026-07-04T06:15:30.311-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "113801": {
+    "memberNumber": 113801,
+    "name": "Corrin",
+    "firstSeen": "2026-08-08T10:30:15.558-05:00",
+    "lastSeen": "2026-08-08T10:31:26.753-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8084,6 +8592,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "115270": {
+    "memberNumber": 115270,
+    "name": "Jenny",
+    "firstSeen": "2026-08-11T15:43:14.327-05:00",
+    "lastSeen": "2026-08-11T15:43:14.327-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "115302": {
     "memberNumber": 115302,
     "name": "Roxy",
@@ -8098,7 +8616,7 @@
     "memberNumber": 115452,
     "name": "Laura",
     "firstSeen": "2026-06-21T14:17:00.199-05:00",
-    "lastSeen": "2026-06-21T14:17:00.199-05:00",
+    "lastSeen": "2026-08-11T16:34:45.475-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8108,11 +8626,12 @@
     "memberNumber": 115480,
     "name": "Tammy",
     "firstSeen": "2026-07-04T05:31:29.193-05:00",
-    "lastSeen": "2026-07-04T05:31:29.193-05:00",
+    "lastSeen": "2026-08-07T22:35:29.560-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "115684": {
     "memberNumber": 115684,
@@ -8149,7 +8668,7 @@
     "memberNumber": 116071,
     "name": "uyu",
     "firstSeen": "2026-07-29T02:50:31.712-05:00",
-    "lastSeen": "2026-07-29T02:53:15.058-05:00",
+    "lastSeen": "2026-08-11T10:20:39.034-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8229,7 +8748,7 @@
     "memberNumber": 116663,
     "name": "alllll",
     "firstSeen": "2026-07-12T02:47:39.346-05:00",
-    "lastSeen": "2026-07-12T02:47:39.346-05:00",
+    "lastSeen": "2026-08-09T15:56:56.487-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8274,6 +8793,17 @@
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "117551": {
+    "memberNumber": 117551,
+    "name": "Azelia",
+    "firstSeen": "2026-08-09T01:14:39.850-05:00",
+    "lastSeen": "2026-08-11T12:49:51.140-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "117598": {
     "memberNumber": 117598,
@@ -8329,7 +8859,7 @@
     "memberNumber": 117942,
     "name": "Phoenix",
     "firstSeen": "2026-07-10T05:49:42.637-05:00",
-    "lastSeen": "2026-07-29T10:15:22.718-05:00",
+    "lastSeen": "2026-08-08T19:34:52.838-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -8365,11 +8895,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "118132": {
+    "memberNumber": 118132,
+    "name": "Rosie",
+    "firstSeen": "2026-08-11T09:39:55.298-05:00",
+    "lastSeen": "2026-08-11T09:39:55.298-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "118193": {
     "memberNumber": 118193,
     "name": "Sahra",
     "firstSeen": "2026-06-13T10:12:08.064-05:00",
-    "lastSeen": "2026-08-05T18:22:41.023-05:00",
+    "lastSeen": "2026-08-09T16:07:04.145-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8405,11 +8945,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "118435": {
+    "memberNumber": 118435,
+    "name": "Ayaka",
+    "firstSeen": "2026-08-07T00:29:41.457-05:00",
+    "lastSeen": "2026-08-07T00:29:41.457-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "118548": {
     "memberNumber": 118548,
     "name": "M",
     "firstSeen": "2026-07-06T00:33:16.117-05:00",
-    "lastSeen": "2026-07-06T00:33:16.117-05:00",
+    "lastSeen": "2026-08-11T05:01:30.653-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8440,6 +8990,16 @@
     "name": "Bianca",
     "firstSeen": "2026-06-15T00:38:16.995-05:00",
     "lastSeen": "2026-06-21T22:18:50.901-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "119116": {
+    "memberNumber": 119116,
+    "name": "Esme",
+    "firstSeen": "2026-08-07T15:20:04.570-05:00",
+    "lastSeen": "2026-08-07T15:20:04.570-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8600,7 +9160,7 @@
     "memberNumber": 120897,
     "name": "Ruri",
     "firstSeen": "2026-07-23T16:42:06.927-05:00",
-    "lastSeen": "2026-07-23T16:48:40.664-05:00",
+    "lastSeen": "2026-08-12T17:19:28.574-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8730,7 +9290,7 @@
     "memberNumber": 121671,
     "name": "Kaitie",
     "firstSeen": "2026-07-11T21:22:33.651-05:00",
-    "lastSeen": "2026-07-14T20:49:39.554-05:00",
+    "lastSeen": "2026-08-09T21:00:28.446-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8790,7 +9350,7 @@
     "memberNumber": 122178,
     "name": "𝑯𝒊𝒏𝒂",
     "firstSeen": "2026-06-15T07:45:02.373-05:00",
-    "lastSeen": "2026-08-03T15:56:49.976-05:00",
+    "lastSeen": "2026-08-08T10:13:39.560-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8800,7 +9360,7 @@
     "memberNumber": 122259,
     "name": "black fox",
     "firstSeen": "2026-06-11T14:18:41.333-05:00",
-    "lastSeen": "2026-08-01T12:25:55.309-05:00",
+    "lastSeen": "2026-08-09T15:54:31.512-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -8940,7 +9500,7 @@
     "memberNumber": 123662,
     "name": "Ann",
     "firstSeen": "2026-06-15T18:47:59.782-05:00",
-    "lastSeen": "2026-06-15T18:47:59.782-05:00",
+    "lastSeen": "2026-08-11T07:25:38.969-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -8976,6 +9536,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "123910": {
+    "memberNumber": 123910,
+    "name": "Leandro",
+    "firstSeen": "2026-08-10T09:32:55.179-05:00",
+    "lastSeen": "2026-08-10T09:32:55.179-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "123947": {
     "memberNumber": 123947,
     "name": "Nancy",
@@ -9001,6 +9571,16 @@
     "name": "Hana",
     "firstSeen": "2026-06-22T23:08:16.088-05:00",
     "lastSeen": "2026-08-02T22:45:36.108-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "124353": {
+    "memberNumber": 124353,
+    "name": "lexteur",
+    "firstSeen": "2026-08-11T21:12:02.135-05:00",
+    "lastSeen": "2026-08-11T21:12:02.135-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9116,6 +9696,36 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "125492": {
+    "memberNumber": 125492,
+    "name": "Lila Cassandier",
+    "firstSeen": "2026-08-09T22:20:12.124-05:00",
+    "lastSeen": "2026-08-09T22:20:52.323-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "125514": {
+    "memberNumber": 125514,
+    "name": "Alice Angel",
+    "firstSeen": "2026-08-08T03:32:20.405-05:00",
+    "lastSeen": "2026-08-08T03:32:20.405-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "125573": {
+    "memberNumber": 125573,
+    "name": "Kitty",
+    "firstSeen": "2026-08-08T08:02:21.198-05:00",
+    "lastSeen": "2026-08-08T08:02:21.198-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "125850": {
     "memberNumber": 125850,
     "name": "Fallenger",
@@ -9123,6 +9733,16 @@
     "lastSeen": "2026-07-14T18:10:52.267-05:00",
     "gamesPlayed": 3,
     "gamesWon": 3,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "125857": {
+    "memberNumber": 125857,
+    "name": "Alicedom",
+    "firstSeen": "2026-08-08T08:03:11.878-05:00",
+    "lastSeen": "2026-08-08T10:03:29.419-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -9135,6 +9755,16 @@
     "gamesWon": 2,
     "feedbackGiven": false,
     "gamesLost": 4
+  },
+  "125929": {
+    "memberNumber": 125929,
+    "name": "Jan",
+    "firstSeen": "2026-08-08T07:09:14.337-05:00",
+    "lastSeen": "2026-08-08T07:09:14.337-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "125982": {
     "memberNumber": 125982,
@@ -9160,7 +9790,7 @@
     "memberNumber": 126124,
     "name": "Nael",
     "firstSeen": "2026-06-12T00:02:00.996-05:00",
-    "lastSeen": "2026-07-31T23:32:55.740-05:00",
+    "lastSeen": "2026-08-11T08:58:06.239-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -9170,7 +9800,7 @@
     "memberNumber": 126434,
     "name": "Lauren",
     "firstSeen": "2026-07-11T19:40:55.905-05:00",
-    "lastSeen": "2026-07-11T19:40:55.905-05:00",
+    "lastSeen": "2026-08-09T20:53:40.264-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9180,7 +9810,7 @@
     "memberNumber": 126447,
     "name": "renne",
     "firstSeen": "2026-07-30T01:06:35.257-05:00",
-    "lastSeen": "2026-07-30T01:55:26.974-05:00",
+    "lastSeen": "2026-08-08T13:00:21.915-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9231,6 +9861,16 @@
     "name": "Carol Slave",
     "firstSeen": "2026-07-07T05:45:41.241-05:00",
     "lastSeen": "2026-07-07T05:45:41.241-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "127338": {
+    "memberNumber": 127338,
+    "name": "白澜冉",
+    "firstSeen": "2026-08-09T00:00:23.033-05:00",
+    "lastSeen": "2026-08-09T00:00:23.033-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9326,11 +9966,41 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "128190": {
+    "memberNumber": 128190,
+    "name": "Kori",
+    "firstSeen": "2026-08-07T01:38:04.080-05:00",
+    "lastSeen": "2026-08-07T01:38:04.080-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "128210": {
     "memberNumber": 128210,
     "name": "Dina",
     "firstSeen": "2026-08-02T01:00:36.674-05:00",
     "lastSeen": "2026-08-02T01:01:41.992-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "128455": {
+    "memberNumber": 128455,
+    "name": "Winter",
+    "firstSeen": "2026-08-12T08:07:06.144-05:00",
+    "lastSeen": "2026-08-12T08:07:06.144-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "128758": {
+    "memberNumber": 128758,
+    "name": "Lupa",
+    "firstSeen": "2026-08-08T11:10:22.686-05:00",
+    "lastSeen": "2026-08-12T07:00:28.258-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9361,6 +10031,16 @@
     "name": "𝕽𝖊𝖒𝖎𝖑𝖎𝖆",
     "firstSeen": "2026-06-16T10:37:40.107-05:00",
     "lastSeen": "2026-06-16T10:37:40.107-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "128867": {
+    "memberNumber": 128867,
+    "name": "Miss Isabella",
+    "firstSeen": "2026-08-07T22:58:11.670-05:00",
+    "lastSeen": "2026-08-07T22:58:11.670-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9470,7 +10150,7 @@
     "memberNumber": 130590,
     "name": "Emma",
     "firstSeen": "2026-06-12T16:57:31.290-05:00",
-    "lastSeen": "2026-07-29T00:27:31.158-05:00",
+    "lastSeen": "2026-08-11T09:37:15.995-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9550,7 +10230,7 @@
     "memberNumber": 132336,
     "name": "Andrea",
     "firstSeen": "2026-07-05T02:14:22.871-05:00",
-    "lastSeen": "2026-07-24T10:49:08.880-05:00",
+    "lastSeen": "2026-08-07T13:26:10.622-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9600,7 +10280,7 @@
     "memberNumber": 132893,
     "name": "Goddess Nia",
     "firstSeen": "2026-06-21T07:58:12.359-05:00",
-    "lastSeen": "2026-07-28T10:26:21.489-05:00",
+    "lastSeen": "2026-08-07T11:56:16.070-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9630,7 +10310,7 @@
     "memberNumber": 133104,
     "name": "layla",
     "firstSeen": "2026-07-29T22:36:29.712-05:00",
-    "lastSeen": "2026-07-29T22:36:29.712-05:00",
+    "lastSeen": "2026-08-09T13:23:08.577-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9650,11 +10330,12 @@
     "memberNumber": 133255,
     "name": "Christopher",
     "firstSeen": "2026-07-24T20:38:09.036-05:00",
-    "lastSeen": "2026-07-24T20:41:45.133-05:00",
-    "gamesPlayed": 1,
+    "lastSeen": "2026-08-09T16:50:27.798-05:00",
+    "gamesPlayed": 2,
     "gamesWon": 0,
-    "gamesLost": 1,
-    "feedbackGiven": false
+    "gamesLost": 2,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "133292": {
     "memberNumber": 133292,
@@ -9670,7 +10351,7 @@
     "memberNumber": 133370,
     "name": "Ayato",
     "firstSeen": "2026-07-19T20:09:26.786-05:00",
-    "lastSeen": "2026-08-06T16:24:11.369-05:00",
+    "lastSeen": "2026-08-09T22:52:58.204-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
@@ -9701,9 +10382,9 @@
     "memberNumber": 133653,
     "name": "sam",
     "firstSeen": "2026-07-15T04:55:50.924-05:00",
-    "lastSeen": "2026-07-15T04:55:50.924-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-12T21:53:53.785-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -9741,7 +10422,7 @@
     "memberNumber": 134353,
     "name": "Natalie",
     "firstSeen": "2026-06-12T18:46:49.477-05:00",
-    "lastSeen": "2026-06-12T18:46:49.477-05:00",
+    "lastSeen": "2026-08-09T18:47:49.998-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9781,7 +10462,17 @@
     "memberNumber": 134719,
     "name": "Debora",
     "firstSeen": "2026-06-13T08:40:10.340-05:00",
-    "lastSeen": "2026-08-05T08:09:42.941-05:00",
+    "lastSeen": "2026-08-09T15:54:13.018-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "134847": {
+    "memberNumber": 134847,
+    "name": "Steven",
+    "firstSeen": "2026-08-11T12:57:48.743-05:00",
+    "lastSeen": "2026-08-11T12:57:48.743-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9822,6 +10513,16 @@
     "name": "Erin",
     "firstSeen": "2026-07-14T23:40:43.240-05:00",
     "lastSeen": "2026-07-14T23:40:43.240-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "135131": {
+    "memberNumber": 135131,
+    "name": "suzy",
+    "firstSeen": "2026-08-09T18:49:14.284-05:00",
+    "lastSeen": "2026-08-09T18:49:14.284-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -9901,12 +10602,12 @@
     "memberNumber": 136698,
     "name": "Sterre",
     "firstSeen": "2026-06-11T16:53:45.011-05:00",
-    "lastSeen": "2026-08-04T07:28:07.642-05:00",
-    "gamesPlayed": 4,
+    "lastSeen": "2026-08-11T09:32:46.783-05:00",
+    "gamesPlayed": 5,
     "gamesWon": 2,
     "feedbackGiven": false,
-    "gamesLost": 2,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "gamesLost": 3,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "136741": {
     "memberNumber": 136741,
@@ -10062,12 +10763,12 @@
     "memberNumber": 138651,
     "name": "Pizza Christ",
     "firstSeen": "2026-06-15T05:13:34.333-05:00",
-    "lastSeen": "2026-08-05T17:12:44.797-05:00",
+    "lastSeen": "2026-08-12T16:15:50.501-05:00",
     "gamesPlayed": 20,
     "gamesWon": 10,
     "gamesLost": 10,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "138764": {
     "memberNumber": 138764,
@@ -10154,6 +10855,16 @@
     "name": "Nico",
     "firstSeen": "2026-07-07T13:57:19.727-05:00",
     "lastSeen": "2026-07-11T20:22:54.366-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "139671": {
+    "memberNumber": 139671,
+    "name": "Leonie",
+    "firstSeen": "2026-08-07T12:09:42.507-05:00",
+    "lastSeen": "2026-08-08T01:27:03.784-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -10394,7 +11105,7 @@
     "memberNumber": 141727,
     "name": "eve",
     "firstSeen": "2026-06-17T06:27:05.769-05:00",
-    "lastSeen": "2026-07-21T05:59:15.499-05:00",
+    "lastSeen": "2026-08-07T18:01:44.080-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -10545,6 +11256,16 @@
     "name": "Denna",
     "firstSeen": "2026-07-17T17:33:46.353-05:00",
     "lastSeen": "2026-07-17T17:33:46.353-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "143617": {
+    "memberNumber": 143617,
+    "name": "Naughty Cindy",
+    "firstSeen": "2026-08-07T11:39:24.084-05:00",
+    "lastSeen": "2026-08-07T11:39:24.084-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -10710,6 +11431,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "144898": {
+    "memberNumber": 144898,
+    "name": "Olivia",
+    "firstSeen": "2026-08-10T19:37:16.502-05:00",
+    "lastSeen": "2026-08-10T19:37:16.502-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "144991": {
     "memberNumber": 144991,
     "name": "Almora",
@@ -10790,6 +11521,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "146193": {
+    "memberNumber": 146193,
+    "name": "Kelsi",
+    "firstSeen": "2026-08-09T18:45:18.312-05:00",
+    "lastSeen": "2026-08-09T18:45:18.312-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "146322": {
     "memberNumber": 146322,
     "name": "tom",
@@ -10855,6 +11596,16 @@
     "name": "Yan-chan",
     "firstSeen": "2026-07-28T02:06:27.858-05:00",
     "lastSeen": "2026-07-28T02:06:27.858-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "146802": {
+    "memberNumber": 146802,
+    "name": "Vanya",
+    "firstSeen": "2026-08-12T11:29:46.596-05:00",
+    "lastSeen": "2026-08-12T11:29:46.596-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11064,7 +11815,7 @@
     "memberNumber": 148918,
     "name": "Mona",
     "firstSeen": "2026-07-12T01:47:36.439-05:00",
-    "lastSeen": "2026-08-03T01:03:26.283-05:00",
+    "lastSeen": "2026-08-12T02:56:35.226-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11075,7 +11826,7 @@
     "memberNumber": 148956,
     "name": "Gasrel",
     "firstSeen": "2026-08-05T10:25:27.765-05:00",
-    "lastSeen": "2026-08-06T16:21:18.065-05:00",
+    "lastSeen": "2026-08-10T10:30:22.399-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
@@ -11185,7 +11936,7 @@
     "memberNumber": 150045,
     "name": "fofo",
     "firstSeen": "2026-06-23T15:01:42.811-05:00",
-    "lastSeen": "2026-06-23T15:01:42.811-05:00",
+    "lastSeen": "2026-08-09T23:03:48.912-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11221,11 +11972,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "150891": {
+    "memberNumber": 150891,
+    "name": "Octopus",
+    "firstSeen": "2026-08-09T03:20:52.171-05:00",
+    "lastSeen": "2026-08-09T03:20:52.171-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "150941": {
     "memberNumber": 150941,
     "name": "Eliska",
     "firstSeen": "2026-08-05T08:53:41.346-05:00",
-    "lastSeen": "2026-08-05T08:53:41.346-05:00",
+    "lastSeen": "2026-08-07T15:28:54.266-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11255,20 +12016,31 @@
     "memberNumber": 151011,
     "name": "holly",
     "firstSeen": "2026-06-12T01:53:32.475-05:00",
-    "lastSeen": "2026-08-01T05:46:26.219-05:00",
+    "lastSeen": "2026-08-09T22:41:59.556-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
-    "gamesLost": 0
+    "gamesLost": 0,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
+  },
+  "151051": {
+    "memberNumber": 151051,
+    "name": "Stephane",
+    "firstSeen": "2026-08-09T22:01:32.693-05:00",
+    "lastSeen": "2026-08-09T22:01:32.693-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "151059": {
     "memberNumber": 151059,
     "name": "Sarah",
     "firstSeen": "2026-06-12T19:19:04.866-05:00",
-    "lastSeen": "2026-06-22T16:19:42.351-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-08T04:17:37.792-05:00",
+    "gamesPlayed": 1,
     "gamesWon": 0,
-    "gamesLost": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "151088": {
@@ -11435,7 +12207,7 @@
     "memberNumber": 152513,
     "name": "Blackie",
     "firstSeen": "2026-07-11T21:49:42.265-05:00",
-    "lastSeen": "2026-07-22T12:02:34.872-05:00",
+    "lastSeen": "2026-08-08T09:52:38.814-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11569,6 +12341,26 @@
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "153738": {
+    "memberNumber": 153738,
+    "name": "Fabian",
+    "firstSeen": "2026-08-08T08:37:13.523-05:00",
+    "lastSeen": "2026-08-08T08:37:13.523-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "153741": {
+    "memberNumber": 153741,
+    "name": "Foxy",
+    "firstSeen": "2026-08-08T08:38:23.425-05:00",
+    "lastSeen": "2026-08-08T08:38:23.425-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "153825": {
@@ -11791,6 +12583,16 @@
     "feedbackGiven": false,
     "gamesLost": 0
   },
+  "156141": {
+    "memberNumber": 156141,
+    "name": "Stachu",
+    "firstSeen": "2026-08-07T01:52:39.404-05:00",
+    "lastSeen": "2026-08-07T13:39:40.445-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "156282": {
     "memberNumber": 156282,
     "name": "Kenna",
@@ -11905,7 +12707,7 @@
     "memberNumber": 158038,
     "name": "Jenny",
     "firstSeen": "2026-06-17T08:41:17.540-05:00",
-    "lastSeen": "2026-07-23T23:39:10.159-05:00",
+    "lastSeen": "2026-08-09T02:05:36.452-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -11925,7 +12727,7 @@
     "memberNumber": 158064,
     "name": "Mira",
     "firstSeen": "2026-07-04T19:39:04.037-05:00",
-    "lastSeen": "2026-07-20T15:39:05.234-05:00",
+    "lastSeen": "2026-08-09T19:35:17.673-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -11971,6 +12773,16 @@
     "feedbackGiven": false,
     "gamesLost": 0
   },
+  "158862": {
+    "memberNumber": 158862,
+    "name": "Aria",
+    "firstSeen": "2026-08-09T22:29:17.406-05:00",
+    "lastSeen": "2026-08-09T22:29:17.406-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "158979": {
     "memberNumber": 158979,
     "name": "Mia",
@@ -11990,6 +12802,17 @@
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "159222": {
+    "memberNumber": 159222,
+    "name": "Lizzie",
+    "firstSeen": "2026-08-09T05:42:15.525-05:00",
+    "lastSeen": "2026-08-09T05:45:29.479-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "159328": {
     "memberNumber": 159328,
@@ -12055,7 +12878,7 @@
     "memberNumber": 160318,
     "name": "Hix",
     "firstSeen": "2026-08-03T19:12:27.792-05:00",
-    "lastSeen": "2026-08-03T19:12:27.792-05:00",
+    "lastSeen": "2026-08-11T10:23:05.912-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12195,7 +13018,7 @@
     "memberNumber": 161575,
     "name": "flora",
     "firstSeen": "2026-07-04T21:05:56.819-05:00",
-    "lastSeen": "2026-07-22T17:30:33.943-05:00",
+    "lastSeen": "2026-08-09T17:01:40.797-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -12238,7 +13061,7 @@
     "memberNumber": 162076,
     "name": "Maysa",
     "firstSeen": "2026-07-14T03:37:39.254-05:00",
-    "lastSeen": "2026-07-14T03:37:39.254-05:00",
+    "lastSeen": "2026-08-12T16:06:41.247-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12248,7 +13071,7 @@
     "memberNumber": 162137,
     "name": "MiSa",
     "firstSeen": "2026-07-10T06:30:01.936-05:00",
-    "lastSeen": "2026-07-31T07:30:36.573-05:00",
+    "lastSeen": "2026-08-08T04:43:58.071-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12301,6 +13124,16 @@
     "lastSeen": "2026-06-20T18:48:17.064-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "162423": {
+    "memberNumber": 162423,
+    "name": "ART",
+    "firstSeen": "2026-08-09T08:51:59.254-05:00",
+    "lastSeen": "2026-08-09T08:51:59.254-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -12378,7 +13211,7 @@
     "memberNumber": 163159,
     "name": "Ari",
     "firstSeen": "2026-06-22T18:29:00.941-05:00",
-    "lastSeen": "2026-06-22T18:29:00.941-05:00",
+    "lastSeen": "2026-08-07T15:35:01.270-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -12559,7 +13392,7 @@
     "memberNumber": 164491,
     "name": "Stevie",
     "firstSeen": "2026-06-13T08:57:28.206-05:00",
-    "lastSeen": "2026-08-04T07:34:02.829-05:00",
+    "lastSeen": "2026-08-12T14:53:42.660-05:00",
     "gamesPlayed": 2,
     "gamesWon": 0,
     "gamesLost": 2,
@@ -12579,7 +13412,7 @@
     "memberNumber": 164587,
     "name": "Lorien",
     "firstSeen": "2026-06-11T18:42:17.459-05:00",
-    "lastSeen": "2026-07-06T13:44:12.928-05:00",
+    "lastSeen": "2026-08-15T13:37:21.566-05:00",
     "gamesPlayed": 2,
     "gamesWon": 2,
     "feedbackGiven": false,
@@ -12619,10 +13452,20 @@
     "memberNumber": 165384,
     "name": "Hannah",
     "firstSeen": "2026-08-03T17:46:14.392-05:00",
-    "lastSeen": "2026-08-06T18:09:34.728-05:00",
+    "lastSeen": "2026-08-12T10:56:49.061-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "165391": {
+    "memberNumber": 165391,
+    "name": "Miss Naya",
+    "firstSeen": "2026-08-07T11:22:57.339-05:00",
+    "lastSeen": "2026-08-07T12:30:47.739-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "165426": {
@@ -12630,6 +13473,26 @@
     "name": "Fumiko",
     "firstSeen": "2026-07-22T02:04:09.642-05:00",
     "lastSeen": "2026-07-22T02:04:09.642-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "165485": {
+    "memberNumber": 165485,
+    "name": "Mei",
+    "firstSeen": "2026-08-09T22:51:16.595-05:00",
+    "lastSeen": "2026-08-10T01:23:23.435-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "165490": {
+    "memberNumber": 165490,
+    "name": "Gray",
+    "firstSeen": "2026-08-10T21:17:26.872-05:00",
+    "lastSeen": "2026-08-10T21:17:26.872-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12659,10 +13522,10 @@
     "memberNumber": 165650,
     "name": "Lilou",
     "firstSeen": "2026-06-13T13:48:23.444-05:00",
-    "lastSeen": "2026-08-01T05:08:22.549-05:00",
-    "gamesPlayed": 5,
-    "gamesWon": 3,
-    "gamesLost": 2,
+    "lastSeen": "2026-08-07T13:34:27.061-05:00",
+    "gamesPlayed": 7,
+    "gamesWon": 4,
+    "gamesLost": 3,
     "feedbackGiven": false
   },
   "165700": {
@@ -12729,7 +13592,7 @@
     "memberNumber": 166216,
     "name": "Mia",
     "firstSeen": "2026-06-16T14:43:15.275-05:00",
-    "lastSeen": "2026-06-16T15:54:26.569-05:00",
+    "lastSeen": "2026-08-08T17:54:50.864-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12749,7 +13612,7 @@
     "memberNumber": 166266,
     "name": "Lei",
     "firstSeen": "2026-06-17T09:22:16.194-05:00",
-    "lastSeen": "2026-06-17T09:22:16.194-05:00",
+    "lastSeen": "2026-08-10T16:13:38.121-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12769,11 +13632,11 @@
     "memberNumber": 166471,
     "name": "Beautiful LILY",
     "firstSeen": "2026-06-11T22:05:12.536-05:00",
-    "lastSeen": "2026-06-15T02:58:49.932-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-11T09:51:22.041-05:00",
+    "gamesPlayed": 1,
     "gamesWon": 0,
     "feedbackGiven": false,
-    "gamesLost": 0
+    "gamesLost": 1
   },
   "166702": {
     "memberNumber": 166702,
@@ -12787,9 +13650,9 @@
   },
   "166704": {
     "memberNumber": 166704,
-    "name": "Miss Zahia",
+    "name": "Zahia",
     "firstSeen": "2026-07-14T05:34:59.895-05:00",
-    "lastSeen": "2026-07-16T10:25:50.381-05:00",
+    "lastSeen": "2026-08-07T17:22:09.887-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
@@ -12815,6 +13678,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "166783": {
+    "memberNumber": 166783,
+    "name": "honey",
+    "firstSeen": "2026-08-08T04:02:03.059-05:00",
+    "lastSeen": "2026-08-08T04:02:03.059-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "166990": {
     "memberNumber": 166990,
     "name": "Hana QT",
@@ -12829,7 +13702,17 @@
     "memberNumber": 167001,
     "name": "Natsumi",
     "firstSeen": "2026-07-03T17:03:52.356-05:00",
-    "lastSeen": "2026-07-06T03:50:41.557-05:00",
+    "lastSeen": "2026-08-10T16:11:45.451-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "167042": {
+    "memberNumber": 167042,
+    "name": "darkSoul",
+    "firstSeen": "2026-08-07T16:26:44.181-05:00",
+    "lastSeen": "2026-08-07T16:26:44.181-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -12855,15 +13738,25 @@
     "gamesLost": 2,
     "feedbackGiven": false
   },
+  "167174": {
+    "memberNumber": 167174,
+    "name": "Amelia",
+    "firstSeen": "2026-08-09T12:30:55.607-05:00",
+    "lastSeen": "2026-08-09T12:30:55.607-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "167330": {
     "memberNumber": 167330,
     "name": "Anna",
     "firstSeen": "2026-06-11T14:26:25.567-05:00",
-    "lastSeen": "2026-08-06T16:50:50.602-05:00",
-    "gamesPlayed": 1,
+    "lastSeen": "2026-08-08T17:44:08.483-05:00",
+    "gamesPlayed": 2,
     "gamesWon": 1,
     "feedbackGiven": false,
-    "gamesLost": 0,
+    "gamesLost": 1,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
   "167432": {
@@ -12880,11 +13773,12 @@
     "memberNumber": 167433,
     "name": "Heli",
     "firstSeen": "2026-07-03T15:14:35.921-05:00",
-    "lastSeen": "2026-07-10T17:03:19.570-05:00",
+    "lastSeen": "2026-08-12T14:17:03.759-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "167435": {
     "memberNumber": 167435,
@@ -13006,6 +13900,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "168016": {
+    "memberNumber": 168016,
+    "name": "Kharma",
+    "firstSeen": "2026-08-09T16:14:45.680-05:00",
+    "lastSeen": "2026-08-09T16:14:45.680-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "168032": {
     "memberNumber": 168032,
     "name": "Whit",
@@ -13060,18 +13964,28 @@
     "memberNumber": 168368,
     "name": "Fallen Angel",
     "firstSeen": "2026-06-17T02:02:41.112-05:00",
-    "lastSeen": "2026-08-05T12:07:49.494-05:00",
-    "gamesPlayed": 1,
-    "gamesWon": 0,
-    "gamesLost": 1,
+    "lastSeen": "2026-08-12T16:24:44.287-05:00",
+    "gamesPlayed": 10,
+    "gamesWon": 6,
+    "gamesLost": 4,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "168383": {
     "memberNumber": 168383,
     "name": "Loona",
     "firstSeen": "2026-07-29T22:01:40.673-05:00",
     "lastSeen": "2026-07-29T22:01:40.673-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "168520": {
+    "memberNumber": 168520,
+    "name": "Emma",
+    "firstSeen": "2026-08-07T11:30:04.390-05:00",
+    "lastSeen": "2026-08-12T15:57:26.181-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13141,12 +14055,12 @@
     "memberNumber": 169155,
     "name": "Kelly",
     "firstSeen": "2026-07-26T05:29:11.564-05:00",
-    "lastSeen": "2026-08-02T04:05:41.850-05:00",
+    "lastSeen": "2026-08-10T21:23:59.027-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "169186": {
     "memberNumber": 169186,
@@ -13212,7 +14126,7 @@
     "memberNumber": 169430,
     "name": "Swew",
     "firstSeen": "2026-07-10T16:13:43.091-05:00",
-    "lastSeen": "2026-08-02T13:53:57.691-05:00",
+    "lastSeen": "2026-08-13T01:07:05.716-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13262,7 +14176,7 @@
     "memberNumber": 169962,
     "name": "Lola",
     "firstSeen": "2026-07-13T23:44:40.090-05:00",
-    "lastSeen": "2026-07-13T23:44:40.090-05:00",
+    "lastSeen": "2026-08-13T01:11:07.675-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13372,10 +14286,10 @@
     "memberNumber": 171050,
     "name": "Aren",
     "firstSeen": "2026-06-22T11:26:02.387-05:00",
-    "lastSeen": "2026-07-29T17:54:32.456-05:00",
-    "gamesPlayed": 1,
+    "lastSeen": "2026-08-07T11:12:07.761-05:00",
+    "gamesPlayed": 2,
     "gamesWon": 0,
-    "gamesLost": 1,
+    "gamesLost": 2,
     "feedbackGiven": false
   },
   "171147": {
@@ -13478,6 +14392,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "171914": {
+    "memberNumber": 171914,
+    "name": "Alex",
+    "firstSeen": "2026-08-07T16:08:08.365-05:00",
+    "lastSeen": "2026-08-07T16:08:08.365-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "172204": {
     "memberNumber": 172204,
     "name": "Kitty Mary",
@@ -13512,7 +14436,7 @@
     "memberNumber": 172544,
     "name": "Reina",
     "firstSeen": "2026-07-19T08:26:40.013-05:00",
-    "lastSeen": "2026-07-21T06:25:06.744-05:00",
+    "lastSeen": "2026-08-08T07:49:18.623-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13612,11 +14536,12 @@
     "memberNumber": 173445,
     "name": "Mia",
     "firstSeen": "2026-06-13T02:25:10.494-05:00",
-    "lastSeen": "2026-06-13T12:22:04.919-05:00",
+    "lastSeen": "2026-08-08T09:44:44.131-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "173533": {
     "memberNumber": 173533,
@@ -13633,6 +14558,16 @@
     "name": "Yec",
     "firstSeen": "2026-06-14T13:46:39.288-05:00",
     "lastSeen": "2026-08-03T14:43:49.582-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "173682": {
+    "memberNumber": 173682,
+    "name": "Anya",
+    "firstSeen": "2026-08-09T14:36:56.643-05:00",
+    "lastSeen": "2026-08-09T14:36:56.643-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13772,7 +14707,7 @@
     "memberNumber": 174922,
     "name": "Ella",
     "firstSeen": "2026-07-14T21:20:50.136-05:00",
-    "lastSeen": "2026-07-14T21:56:52.476-05:00",
+    "lastSeen": "2026-08-11T18:07:18.171-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13893,7 +14828,7 @@
     "memberNumber": 175930,
     "name": "Kat",
     "firstSeen": "2026-06-17T02:42:34.562-05:00",
-    "lastSeen": "2026-06-17T05:32:52.922-05:00",
+    "lastSeen": "2026-08-08T09:10:26.838-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -13903,12 +14838,12 @@
     "memberNumber": 176084,
     "name": "Bichota",
     "firstSeen": "2026-08-04T06:24:52.946-05:00",
-    "lastSeen": "2026-08-05T21:52:15.126-05:00",
+    "lastSeen": "2026-08-12T02:56:42.438-05:00",
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "176086": {
     "memberNumber": 176086,
@@ -14025,7 +14960,7 @@
     "memberNumber": 176745,
     "name": "Tanya",
     "firstSeen": "2026-07-21T03:58:46.681-05:00",
-    "lastSeen": "2026-08-05T10:26:47.952-05:00",
+    "lastSeen": "2026-08-07T15:06:18.005-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -14051,6 +14986,16 @@
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "176806": {
+    "memberNumber": 176806,
+    "name": "Cammy",
+    "firstSeen": "2026-08-12T11:12:21.008-05:00",
+    "lastSeen": "2026-08-12T11:12:21.008-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "176815": {
     "memberNumber": 176815,
@@ -14246,12 +15191,12 @@
     "memberNumber": 178413,
     "name": "Liriel",
     "firstSeen": "2026-07-07T16:07:39.139-05:00",
-    "lastSeen": "2026-08-06T10:19:57.233-05:00",
+    "lastSeen": "2026-08-08T11:57:55.868-05:00",
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "178505": {
     "memberNumber": 178505,
@@ -14398,7 +15343,7 @@
     "memberNumber": 179352,
     "name": "Rebecca",
     "firstSeen": "2026-07-26T09:14:58.055-05:00",
-    "lastSeen": "2026-07-26T09:14:58.055-05:00",
+    "lastSeen": "2026-08-08T08:54:30.048-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14428,7 +15373,7 @@
     "memberNumber": 179502,
     "name": "Jarmie",
     "firstSeen": "2026-07-05T23:43:03.927-05:00",
-    "lastSeen": "2026-07-28T22:28:50.411-05:00",
+    "lastSeen": "2026-08-09T21:42:08.916-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14449,6 +15394,16 @@
     "name": "Cσɾʂҽƚα",
     "firstSeen": "2026-06-13T01:10:44.245-05:00",
     "lastSeen": "2026-07-12T22:47:09.420-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "180027": {
+    "memberNumber": 180027,
+    "name": "Sikik",
+    "firstSeen": "2026-08-11T20:21:23.851-05:00",
+    "lastSeen": "2026-08-11T20:21:23.851-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14550,6 +15505,16 @@
     "name": "Auri",
     "firstSeen": "2026-06-23T11:07:21.572-05:00",
     "lastSeen": "2026-07-30T03:55:05.897-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "180979": {
+    "memberNumber": 180979,
+    "name": "Ann Bright",
+    "firstSeen": "2026-08-12T05:34:19.667-05:00",
+    "lastSeen": "2026-08-12T05:34:19.667-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14816,6 +15781,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "183298": {
+    "memberNumber": 183298,
+    "name": "Secret",
+    "firstSeen": "2026-08-09T04:26:24.162-05:00",
+    "lastSeen": "2026-08-09T04:26:24.162-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "183352": {
     "memberNumber": 183352,
     "name": "Max",
@@ -14861,6 +15836,16 @@
     "name": "B u N i   Q t",
     "firstSeen": "2026-06-15T16:02:27.454-05:00",
     "lastSeen": "2026-07-19T00:50:55.527-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "183665": {
+    "memberNumber": 183665,
+    "name": "liya",
+    "firstSeen": "2026-08-09T21:08:13.916-05:00",
+    "lastSeen": "2026-08-09T21:08:13.916-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14920,7 +15905,7 @@
     "memberNumber": 183948,
     "name": "Imris",
     "firstSeen": "2026-06-18T07:16:52.426-05:00",
-    "lastSeen": "2026-08-01T08:31:30.500-05:00",
+    "lastSeen": "2026-08-11T10:51:32.037-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -14936,6 +15921,16 @@
     "gamesLost": 0,
     "feedbackGiven": false,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+  },
+  "184148": {
+    "memberNumber": 184148,
+    "name": "Masha",
+    "firstSeen": "2026-08-10T02:30:50.310-05:00",
+    "lastSeen": "2026-08-10T02:30:50.310-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
+    "feedbackGiven": false
   },
   "184283": {
     "memberNumber": 184283,
@@ -15031,7 +16026,7 @@
     "memberNumber": 184707,
     "name": "rafelka",
     "firstSeen": "2026-07-04T01:01:52.377-05:00",
-    "lastSeen": "2026-07-16T23:41:00.206-05:00",
+    "lastSeen": "2026-08-09T01:26:51.901-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15081,7 +16076,7 @@
     "memberNumber": 185087,
     "name": "Kaylin",
     "firstSeen": "2026-07-14T02:30:00.756-05:00",
-    "lastSeen": "2026-08-01T12:56:11.987-05:00",
+    "lastSeen": "2026-08-13T03:21:13.845-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15092,7 +16087,7 @@
     "memberNumber": 185097,
     "name": "Kiya",
     "firstSeen": "2026-07-06T20:36:23.991-05:00",
-    "lastSeen": "2026-07-09T02:40:29.300-05:00",
+    "lastSeen": "2026-08-11T09:52:39.403-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -15110,9 +16105,9 @@
   },
   "185400": {
     "memberNumber": 185400,
-    "name": "nejire",
+    "name": "mitsuri",
     "firstSeen": "2026-06-11T21:08:10.356-05:00",
-    "lastSeen": "2026-07-14T11:49:55.495-05:00",
+    "lastSeen": "2026-08-07T15:29:52.062-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -15232,7 +16227,7 @@
     "memberNumber": 185871,
     "name": "subMe",
     "firstSeen": "2026-08-03T07:48:16.390-05:00",
-    "lastSeen": "2026-08-03T07:48:16.390-05:00",
+    "lastSeen": "2026-08-07T05:46:33.099-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15292,7 +16287,7 @@
     "memberNumber": 186230,
     "name": "Lustobjekt",
     "firstSeen": "2026-06-12T11:18:05.975-05:00",
-    "lastSeen": "2026-08-05T13:12:36.395-05:00",
+    "lastSeen": "2026-08-11T07:55:30.075-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -15326,6 +16321,16 @@
     "gamesPlayed": 3,
     "gamesWon": 2,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "186426": {
+    "memberNumber": 186426,
+    "name": "Sania",
+    "firstSeen": "2026-08-13T01:41:31.465-05:00",
+    "lastSeen": "2026-08-13T01:41:31.465-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "186456": {
@@ -15363,7 +16368,7 @@
     "memberNumber": 187165,
     "name": "Wefa",
     "firstSeen": "2026-06-12T06:36:42.861-05:00",
-    "lastSeen": "2026-08-02T13:21:19.315-05:00",
+    "lastSeen": "2026-08-09T00:44:32.005-05:00",
     "gamesPlayed": 15,
     "gamesWon": 3,
     "feedbackGiven": true,
@@ -15393,7 +16398,7 @@
     "memberNumber": 187255,
     "name": "Silja",
     "firstSeen": "2026-08-03T17:37:00.634-05:00",
-    "lastSeen": "2026-08-03T17:37:00.634-05:00",
+    "lastSeen": "2026-08-08T08:23:34.648-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15459,11 +16464,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "187835": {
+    "memberNumber": 187835,
+    "name": "Monica",
+    "firstSeen": "2026-08-12T02:53:33.369-05:00",
+    "lastSeen": "2026-08-12T02:53:33.369-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "187861": {
     "memberNumber": 187861,
-    "name": "Aliza",
+    "name": "Leslie",
     "firstSeen": "2026-06-11T16:51:53.894-05:00",
-    "lastSeen": "2026-07-31T21:44:12.414-05:00",
+    "lastSeen": "2026-08-09T22:34:54.985-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -15483,7 +16498,7 @@
     "memberNumber": 187916,
     "name": "Latex Cutie",
     "firstSeen": "2026-06-11T20:15:11.229-05:00",
-    "lastSeen": "2026-07-14T17:02:34.179-05:00",
+    "lastSeen": "2026-08-07T01:48:53.874-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -15574,12 +16589,12 @@
     "memberNumber": 188544,
     "name": "Zoop",
     "firstSeen": "2026-07-21T21:19:45.905-05:00",
-    "lastSeen": "2026-08-04T01:35:27.865-05:00",
-    "gamesPlayed": 7,
-    "gamesWon": 4,
-    "gamesLost": 3,
+    "lastSeen": "2026-08-11T22:38:13.666-05:00",
+    "gamesPlayed": 9,
+    "gamesWon": 5,
+    "gamesLost": 4,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "188715": {
     "memberNumber": 188715,
@@ -15589,6 +16604,16 @@
     "gamesPlayed": 6,
     "gamesWon": 1,
     "gamesLost": 5,
+    "feedbackGiven": false
+  },
+  "188853": {
+    "memberNumber": 188853,
+    "name": "Steph",
+    "firstSeen": "2026-08-12T20:14:48.271-05:00",
+    "lastSeen": "2026-08-12T20:14:48.271-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "188971": {
@@ -15605,7 +16630,7 @@
     "memberNumber": 188975,
     "name": "Gerla",
     "firstSeen": "2026-07-22T15:37:30.647-05:00",
-    "lastSeen": "2026-07-22T15:37:30.647-05:00",
+    "lastSeen": "2026-08-07T14:01:02.279-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15675,17 +16700,18 @@
     "memberNumber": 189236,
     "name": "E",
     "firstSeen": "2026-07-07T13:30:49.170-05:00",
-    "lastSeen": "2026-07-07T13:32:48.277-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-11T13:05:41.323-05:00",
+    "gamesPlayed": 1,
     "gamesWon": 0,
-    "gamesLost": 0,
-    "feedbackGiven": false
+    "gamesLost": 1,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "189454": {
     "memberNumber": 189454,
     "name": "Sam",
     "firstSeen": "2026-06-14T01:56:53.483-05:00",
-    "lastSeen": "2026-07-22T16:20:05.902-05:00",
+    "lastSeen": "2026-08-08T09:02:47.424-05:00",
     "gamesPlayed": 6,
     "gamesWon": 3,
     "gamesLost": 3,
@@ -15835,7 +16861,7 @@
     "memberNumber": 190318,
     "name": "neko",
     "firstSeen": "2026-08-05T21:38:26.796-05:00",
-    "lastSeen": "2026-08-05T21:38:26.796-05:00",
+    "lastSeen": "2026-08-08T00:01:21.323-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15886,6 +16912,16 @@
     "name": "Bridget",
     "firstSeen": "2026-07-10T07:00:54.184-05:00",
     "lastSeen": "2026-07-11T20:21:20.786-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "190887": {
+    "memberNumber": 190887,
+    "name": "Chloe",
+    "firstSeen": "2026-08-08T10:57:18.553-05:00",
+    "lastSeen": "2026-08-08T10:57:18.553-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -15981,6 +17017,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "191761": {
+    "memberNumber": 191761,
+    "name": "Imogen",
+    "firstSeen": "2026-08-10T00:10:30.417-05:00",
+    "lastSeen": "2026-08-10T00:10:30.417-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "191766": {
     "memberNumber": 191766,
     "name": "Daffodil",
@@ -16015,7 +17061,7 @@
     "memberNumber": 192080,
     "name": "Chloe",
     "firstSeen": "2026-07-04T00:49:30.187-05:00",
-    "lastSeen": "2026-07-22T00:09:22.629-05:00",
+    "lastSeen": "2026-08-11T10:14:21.904-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16106,7 +17152,7 @@
     "memberNumber": 192735,
     "name": "Angela Ayashi",
     "firstSeen": "2026-06-23T02:20:27.061-05:00",
-    "lastSeen": "2026-07-29T01:24:39.920-05:00",
+    "lastSeen": "2026-08-12T01:17:52.987-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16272,6 +17318,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "194033": {
+    "memberNumber": 194033,
+    "name": "Ashe",
+    "firstSeen": "2026-08-10T00:26:37.420-05:00",
+    "lastSeen": "2026-08-10T15:36:55.119-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "194067": {
     "memberNumber": 194067,
     "name": "Akira",
@@ -16346,7 +17402,7 @@
     "memberNumber": 194363,
     "name": "sara",
     "firstSeen": "2026-07-14T16:52:46.952-05:00",
-    "lastSeen": "2026-08-03T16:00:27.090-05:00",
+    "lastSeen": "2026-08-07T01:42:46.163-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16553,6 +17609,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "195459": {
+    "memberNumber": 195459,
+    "name": "Hailz",
+    "firstSeen": "2026-08-07T10:38:52.349-05:00",
+    "lastSeen": "2026-08-07T10:38:52.349-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "195477": {
     "memberNumber": 195477,
     "name": "mimi",
@@ -16633,6 +17699,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "196276": {
+    "memberNumber": 196276,
+    "name": "Millma",
+    "firstSeen": "2026-08-11T09:23:19.121-05:00",
+    "lastSeen": "2026-08-11T15:15:58.627-05:00",
+    "gamesPlayed": 3,
+    "gamesWon": 0,
+    "gamesLost": 3,
+    "feedbackGiven": false
+  },
   "196388": {
     "memberNumber": 196388,
     "name": "Lila",
@@ -16667,7 +17743,7 @@
     "memberNumber": 196456,
     "name": "Sophie",
     "firstSeen": "2026-06-13T07:09:28.382-05:00",
-    "lastSeen": "2026-08-04T07:20:56.168-05:00",
+    "lastSeen": "2026-08-08T09:12:40.806-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16737,7 +17813,7 @@
     "memberNumber": 196837,
     "name": "raf",
     "firstSeen": "2026-07-19T11:03:05.433-05:00",
-    "lastSeen": "2026-07-19T11:03:05.433-05:00",
+    "lastSeen": "2026-08-07T15:40:47.917-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16798,7 +17874,17 @@
     "memberNumber": 197301,
     "name": "Lisa",
     "firstSeen": "2026-07-10T03:34:15.248-05:00",
-    "lastSeen": "2026-07-23T08:09:04.765-05:00",
+    "lastSeen": "2026-08-09T02:05:39.254-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "197414": {
+    "memberNumber": 197414,
+    "name": "Suzuki",
+    "firstSeen": "2026-08-07T00:45:11.751-05:00",
+    "lastSeen": "2026-08-07T00:45:11.751-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16808,7 +17894,7 @@
     "memberNumber": 197441,
     "name": "Mahak",
     "firstSeen": "2026-07-08T01:24:20.524-05:00",
-    "lastSeen": "2026-07-26T16:58:13.317-05:00",
+    "lastSeen": "2026-08-09T16:14:47.486-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16858,17 +17944,28 @@
     "memberNumber": 197553,
     "name": "Heyla",
     "firstSeen": "2026-07-03T14:08:19.882-05:00",
-    "lastSeen": "2026-08-02T08:29:25.764-05:00",
-    "gamesPlayed": 2,
+    "lastSeen": "2026-08-08T11:21:39.151-05:00",
+    "gamesPlayed": 3,
     "gamesWon": 1,
-    "gamesLost": 1,
-    "feedbackGiven": false
+    "gamesLost": 2,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "197810": {
     "memberNumber": 197810,
     "name": "Chyl",
     "firstSeen": "2026-07-19T01:25:21.705-05:00",
     "lastSeen": "2026-07-19T01:25:21.705-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "197856": {
+    "memberNumber": 197856,
+    "name": "Kiko",
+    "firstSeen": "2026-08-10T12:47:07.434-05:00",
+    "lastSeen": "2026-08-10T12:47:07.434-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16934,11 +18031,21 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "198176": {
+    "memberNumber": 198176,
+    "name": "Celia",
+    "firstSeen": "2026-08-11T07:29:29.447-05:00",
+    "lastSeen": "2026-08-11T07:29:29.447-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "198428": {
     "memberNumber": 198428,
     "name": "Refal",
     "firstSeen": "2026-06-12T21:13:39.396-05:00",
-    "lastSeen": "2026-06-12T21:13:39.396-05:00",
+    "lastSeen": "2026-08-08T18:18:03.959-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -16958,10 +18065,10 @@
     "memberNumber": 198549,
     "name": "Lily",
     "firstSeen": "2026-08-02T16:41:08.324-05:00",
-    "lastSeen": "2026-08-03T16:27:34.840-05:00",
-    "gamesPlayed": 2,
+    "lastSeen": "2026-08-07T17:17:47.496-05:00",
+    "gamesPlayed": 3,
     "gamesWon": 1,
-    "gamesLost": 1,
+    "gamesLost": 2,
     "feedbackGiven": false,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
@@ -17149,7 +18256,7 @@
     "memberNumber": 200053,
     "name": "Sarah",
     "firstSeen": "2026-07-13T16:48:49.573-05:00",
-    "lastSeen": "2026-07-16T12:09:48.926-05:00",
+    "lastSeen": "2026-08-08T04:05:42.000-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -17237,9 +18344,9 @@
   },
   "200968": {
     "memberNumber": 200968,
-    "name": "Amys bitch",
+    "name": "devpasc",
     "firstSeen": "2026-06-18T11:00:15.802-05:00",
-    "lastSeen": "2026-08-03T10:01:17.611-05:00",
+    "lastSeen": "2026-08-07T10:52:54.146-05:00",
     "gamesPlayed": 8,
     "gamesWon": 3,
     "gamesLost": 5,
@@ -17309,7 +18416,7 @@
     "memberNumber": 201747,
     "name": "eric",
     "firstSeen": "2026-06-21T16:31:57.966-05:00",
-    "lastSeen": "2026-07-25T21:58:37.399-05:00",
+    "lastSeen": "2026-08-07T13:46:53.829-05:00",
     "gamesPlayed": 2,
     "gamesWon": 0,
     "gamesLost": 2,
@@ -17375,6 +18482,16 @@
     "gamesWon": 0,
     "feedbackGiven": false,
     "gamesLost": 0
+  },
+  "202289": {
+    "memberNumber": 202289,
+    "name": "silvia",
+    "firstSeen": "2026-08-07T01:31:39.478-05:00",
+    "lastSeen": "2026-08-07T01:31:39.478-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "202291": {
     "memberNumber": 202291,
@@ -17462,7 +18579,7 @@
     "memberNumber": 202719,
     "name": "Cutie Ash",
     "firstSeen": "2026-06-21T08:27:17.496-05:00",
-    "lastSeen": "2026-07-10T06:36:54.817-05:00",
+    "lastSeen": "2026-08-13T01:30:13.598-05:00",
     "gamesPlayed": 4,
     "gamesWon": 2,
     "gamesLost": 2,
@@ -17492,7 +18609,7 @@
     "memberNumber": 202866,
     "name": "Irene",
     "firstSeen": "2026-06-11T12:39:01.783-05:00",
-    "lastSeen": "2026-07-11T12:35:40.554-05:00",
+    "lastSeen": "2026-08-10T15:30:07.713-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -17618,6 +18735,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "203548": {
+    "memberNumber": 203548,
+    "name": "Bayonetta",
+    "firstSeen": "2026-08-13T00:59:52.615-05:00",
+    "lastSeen": "2026-08-13T00:59:52.615-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "203606": {
     "memberNumber": 203606,
     "name": "Liz",
@@ -17683,6 +18810,16 @@
     "name": "Kira",
     "firstSeen": "2026-07-07T07:56:12.802-05:00",
     "lastSeen": "2026-07-31T12:12:12.460-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "204531": {
+    "memberNumber": 204531,
+    "name": "Doll",
+    "firstSeen": "2026-08-09T09:17:39.038-05:00",
+    "lastSeen": "2026-08-09T09:17:39.038-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -17839,6 +18976,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "206304": {
+    "memberNumber": 206304,
+    "name": "kaikai",
+    "firstSeen": "2026-08-09T13:55:39.066-05:00",
+    "lastSeen": "2026-08-09T13:55:39.066-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "206378": {
     "memberNumber": 206378,
     "name": "lollaa",
@@ -17893,7 +19040,18 @@
     "memberNumber": 206802,
     "name": "Ravn",
     "firstSeen": "2026-07-14T15:53:48.462-05:00",
-    "lastSeen": "2026-07-14T15:53:48.462-05:00",
+    "lastSeen": "2026-08-12T16:10:57.631-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-12T12:00:00"
+  },
+  "206816": {
+    "memberNumber": 206816,
+    "name": "Danni",
+    "firstSeen": "2026-08-07T07:17:12.007-05:00",
+    "lastSeen": "2026-08-07T07:17:12.007-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18134,7 +19292,7 @@
     "memberNumber": 208210,
     "name": "𝓢𝓪𝓻𝓪",
     "firstSeen": "2026-07-24T19:42:11.895-05:00",
-    "lastSeen": "2026-08-03T17:59:30.986-05:00",
+    "lastSeen": "2026-08-08T04:44:11.235-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18154,7 +19312,7 @@
     "memberNumber": 208352,
     "name": "D",
     "firstSeen": "2026-07-10T21:05:38.340-05:00",
-    "lastSeen": "2026-07-23T22:07:26.638-05:00",
+    "lastSeen": "2026-08-11T07:26:03.039-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18164,7 +19322,7 @@
     "memberNumber": 208543,
     "name": "Missy",
     "firstSeen": "2026-06-11T15:52:53.587-05:00",
-    "lastSeen": "2026-08-06T20:56:09.041-05:00",
+    "lastSeen": "2026-08-15T13:37:07.529-05:00",
     "gamesPlayed": 36,
     "gamesWon": 13,
     "feedbackGiven": true,
@@ -18255,7 +19413,7 @@
     "memberNumber": 209340,
     "name": "Sylvia Parker",
     "firstSeen": "2026-07-14T03:56:37.031-05:00",
-    "lastSeen": "2026-07-14T03:56:37.031-05:00",
+    "lastSeen": "2026-08-07T08:53:55.865-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18318,6 +19476,16 @@
     "lastSeen": "2026-07-16T15:37:50.040-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "209523": {
+    "memberNumber": 209523,
+    "name": "Asza",
+    "firstSeen": "2026-08-07T01:54:50.629-05:00",
+    "lastSeen": "2026-08-07T01:54:50.629-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -18396,9 +19564,9 @@
     "memberNumber": 209895,
     "name": "Aza",
     "firstSeen": "2026-06-12T17:09:56.064-05:00",
-    "lastSeen": "2026-08-02T16:04:02.151-05:00",
-    "gamesPlayed": 7,
-    "gamesWon": 3,
+    "lastSeen": "2026-08-08T18:59:03.375-05:00",
+    "gamesPlayed": 8,
+    "gamesWon": 4,
     "gamesLost": 4,
     "feedbackGiven": false
   },
@@ -18472,6 +19640,17 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "210530": {
+    "memberNumber": 210530,
+    "name": "Padded Pony Alexia",
+    "firstSeen": "2026-08-09T11:37:41.017-05:00",
+    "lastSeen": "2026-08-10T03:44:32.552-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
+    "feedbackGiven": true,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
+  },
   "210577": {
     "memberNumber": 210577,
     "name": "Kelly",
@@ -18486,7 +19665,7 @@
     "memberNumber": 210624,
     "name": "szcyb",
     "firstSeen": "2026-06-12T06:44:06.158-05:00",
-    "lastSeen": "2026-07-09T04:38:09.623-05:00",
+    "lastSeen": "2026-08-11T09:31:40.479-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -18516,7 +19695,7 @@
     "memberNumber": 210836,
     "name": "Veronica",
     "firstSeen": "2026-06-14T22:08:01.254-05:00",
-    "lastSeen": "2026-07-28T21:02:39.771-05:00",
+    "lastSeen": "2026-08-06T21:55:01.084-05:00",
     "gamesPlayed": 10,
     "gamesWon": 5,
     "gamesLost": 5,
@@ -18613,6 +19792,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "211570": {
+    "memberNumber": 211570,
+    "name": "Tsyuki",
+    "firstSeen": "2026-08-07T05:18:52.259-05:00",
+    "lastSeen": "2026-08-07T05:18:52.259-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "211600": {
     "memberNumber": 211600,
     "name": "Custodian",
@@ -18695,11 +19884,11 @@
   },
   "212011": {
     "memberNumber": 212011,
-    "name": "Miyabi",
+    "name": "Keira",
     "firstSeen": "2026-07-07T17:50:10.039-05:00",
-    "lastSeen": "2026-07-07T17:50:10.039-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-08T07:37:55.572-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -18737,7 +19926,7 @@
     "memberNumber": 212084,
     "name": "sarah",
     "firstSeen": "2026-06-21T16:28:48.641-05:00",
-    "lastSeen": "2026-06-21T16:28:48.641-05:00",
+    "lastSeen": "2026-08-09T04:05:03.245-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18777,7 +19966,7 @@
     "memberNumber": 212379,
     "name": "Likulisu",
     "firstSeen": "2026-06-23T20:05:22.719-05:00",
-    "lastSeen": "2026-08-04T06:34:11.811-05:00",
+    "lastSeen": "2026-08-08T08:11:16.170-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18788,6 +19977,16 @@
     "name": "Tina",
     "firstSeen": "2026-06-23T13:38:35.621-05:00",
     "lastSeen": "2026-06-23T13:38:35.621-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "212505": {
+    "memberNumber": 212505,
+    "name": "Robin",
+    "firstSeen": "2026-08-12T16:14:39.259-05:00",
+    "lastSeen": "2026-08-12T16:14:39.259-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -18947,7 +20146,7 @@
     "memberNumber": 213039,
     "name": "Cutie Jasmine",
     "firstSeen": "2026-06-11T21:07:28.242-05:00",
-    "lastSeen": "2026-08-05T23:34:42.845-05:00",
+    "lastSeen": "2026-08-09T22:46:29.751-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -18961,6 +20160,16 @@
     "gamesPlayed": 2,
     "gamesWon": 0,
     "gamesLost": 2,
+    "feedbackGiven": false
+  },
+  "213060": {
+    "memberNumber": 213060,
+    "name": "Roxy",
+    "firstSeen": "2026-08-07T15:03:38.321-05:00",
+    "lastSeen": "2026-08-07T15:03:38.321-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "213080": {
@@ -18987,7 +20196,7 @@
     "memberNumber": 213211,
     "name": "Kobi",
     "firstSeen": "2026-07-05T00:08:21.464-05:00",
-    "lastSeen": "2026-07-05T00:08:21.464-05:00",
+    "lastSeen": "2026-08-07T17:51:31.662-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19003,11 +20212,21 @@
     "gamesLost": 0,
     "feedbackGiven": true
   },
+  "213326": {
+    "memberNumber": 213326,
+    "name": "Sabloe",
+    "firstSeen": "2026-08-10T14:29:53.090-05:00",
+    "lastSeen": "2026-08-10T14:29:53.090-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "213374": {
     "memberNumber": 213374,
     "name": "yuri",
     "firstSeen": "2026-06-22T14:25:03.274-05:00",
-    "lastSeen": "2026-06-22T14:25:03.274-05:00",
+    "lastSeen": "2026-08-11T12:41:30.003-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19037,7 +20256,7 @@
     "memberNumber": 213966,
     "name": "b",
     "firstSeen": "2026-08-06T00:49:30.500-05:00",
-    "lastSeen": "2026-08-06T00:49:30.500-05:00",
+    "lastSeen": "2026-08-07T02:23:41.244-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19107,7 +20326,7 @@
     "memberNumber": 214536,
     "name": "Sal",
     "firstSeen": "2026-06-13T03:37:29.293-05:00",
-    "lastSeen": "2026-08-03T16:29:17.341-05:00",
+    "lastSeen": "2026-08-08T18:00:56.809-05:00",
     "gamesPlayed": 5,
     "gamesWon": 2,
     "gamesLost": 3,
@@ -19168,7 +20387,7 @@
     "memberNumber": 214988,
     "name": "Hikari",
     "firstSeen": "2026-06-14T17:28:38.345-05:00",
-    "lastSeen": "2026-06-14T17:28:38.345-05:00",
+    "lastSeen": "2026-08-13T04:24:49.910-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19182,6 +20401,16 @@
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "215026": {
+    "memberNumber": 215026,
+    "name": "Natalie",
+    "firstSeen": "2026-08-10T10:32:14.048-05:00",
+    "lastSeen": "2026-08-10T10:32:14.048-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "215121": {
@@ -19198,7 +20427,7 @@
     "memberNumber": 215141,
     "name": "Arcana",
     "firstSeen": "2026-06-14T23:27:48.293-05:00",
-    "lastSeen": "2026-07-09T05:05:42.888-05:00",
+    "lastSeen": "2026-08-09T13:21:04.884-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19218,21 +20447,23 @@
     "memberNumber": 215173,
     "name": "Perdot",
     "firstSeen": "2026-08-02T19:35:37.396-05:00",
-    "lastSeen": "2026-08-02T19:35:37.396-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-07T13:32:21.472-05:00",
+    "gamesPlayed": 4,
     "gamesWon": 0,
-    "gamesLost": 0,
-    "feedbackGiven": false
+    "gamesLost": 4,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "215291": {
     "memberNumber": 215291,
     "name": "Kitty",
     "firstSeen": "2026-06-12T06:42:04.890-05:00",
-    "lastSeen": "2026-07-14T08:22:00.575-05:00",
-    "gamesPlayed": 2,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-11T10:37:25.527-05:00",
+    "gamesPlayed": 6,
+    "gamesWon": 2,
     "feedbackGiven": false,
-    "gamesLost": 1
+    "gamesLost": 3,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "215417": {
     "memberNumber": 215417,
@@ -19364,6 +20595,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "216360": {
+    "memberNumber": 216360,
+    "name": "Lexi",
+    "firstSeen": "2026-08-09T09:32:23.084-05:00",
+    "lastSeen": "2026-08-09T09:32:23.084-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "216368": {
     "memberNumber": 216368,
     "name": "kurofune",
@@ -19455,11 +20696,31 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "216701": {
+    "memberNumber": 216701,
+    "name": "Mawli",
+    "firstSeen": "2026-08-11T07:31:20.484-05:00",
+    "lastSeen": "2026-08-11T18:58:26.228-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 0,
+    "gamesLost": 2,
+    "feedbackGiven": false
+  },
   "216722": {
     "memberNumber": 216722,
     "name": "Ann",
     "firstSeen": "2026-06-16T14:03:32.618-05:00",
     "lastSeen": "2026-06-16T14:03:32.618-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "216793": {
+    "memberNumber": 216793,
+    "name": "凌雨",
+    "firstSeen": "2026-08-09T20:16:38.519-05:00",
+    "lastSeen": "2026-08-09T20:16:38.519-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19499,10 +20760,10 @@
     "memberNumber": 216990,
     "name": "oceanpink",
     "firstSeen": "2026-08-02T22:19:34.064-05:00",
-    "lastSeen": "2026-08-06T00:10:11.513-05:00",
-    "gamesPlayed": 1,
+    "lastSeen": "2026-08-09T03:25:02.473-05:00",
+    "gamesPlayed": 2,
     "gamesWon": 0,
-    "gamesLost": 1,
+    "gamesLost": 2,
     "feedbackGiven": false,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
@@ -19521,6 +20782,16 @@
     "name": "Sarah",
     "firstSeen": "2026-06-14T04:54:04.499-05:00",
     "lastSeen": "2026-07-28T09:18:35.849-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "217202": {
+    "memberNumber": 217202,
+    "name": "Swan",
+    "firstSeen": "2026-08-07T14:29:33.091-05:00",
+    "lastSeen": "2026-08-07T14:29:33.091-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19656,6 +20927,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "218319": {
+    "memberNumber": 218319,
+    "name": "Maxi Doll",
+    "firstSeen": "2026-08-09T00:57:16.621-05:00",
+    "lastSeen": "2026-08-10T00:29:05.746-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "218362": {
     "memberNumber": 218362,
     "name": "Zoe",
@@ -19710,7 +20991,7 @@
     "memberNumber": 219103,
     "name": "Ligeia",
     "firstSeen": "2026-06-14T12:12:41.816-05:00",
-    "lastSeen": "2026-07-04T21:49:14.966-05:00",
+    "lastSeen": "2026-08-11T20:23:20.393-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19780,7 +21061,7 @@
     "memberNumber": 219436,
     "name": "Eira",
     "firstSeen": "2026-06-13T10:13:21.951-05:00",
-    "lastSeen": "2026-06-13T10:13:36.319-05:00",
+    "lastSeen": "2026-08-07T13:35:37.552-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19831,7 +21112,7 @@
     "memberNumber": 219570,
     "name": "Roaming Slut",
     "firstSeen": "2026-07-03T15:44:44.351-05:00",
-    "lastSeen": "2026-08-02T11:46:06.183-05:00",
+    "lastSeen": "2026-08-06T23:05:53.374-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -19891,7 +21172,7 @@
     "memberNumber": 219819,
     "name": "Rebecca",
     "firstSeen": "2026-06-12T04:34:48.283-05:00",
-    "lastSeen": "2026-07-23T03:21:20.715-05:00",
+    "lastSeen": "2026-08-08T10:28:56.298-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -19911,7 +21192,7 @@
     "memberNumber": 220115,
     "name": "automized doll",
     "firstSeen": "2026-07-29T09:40:24.182-05:00",
-    "lastSeen": "2026-07-29T09:45:13.636-05:00",
+    "lastSeen": "2026-08-11T14:39:59.009-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -20001,7 +21282,7 @@
     "memberNumber": 221012,
     "name": "Yuna",
     "firstSeen": "2026-06-12T11:43:16.248-05:00",
-    "lastSeen": "2026-07-03T13:20:47.301-05:00",
+    "lastSeen": "2026-08-07T15:59:22.293-05:00",
     "gamesPlayed": 3,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -20011,11 +21292,11 @@
     "memberNumber": 221032,
     "name": "Amanda",
     "firstSeen": "2026-06-11T13:27:55.247-05:00",
-    "lastSeen": "2026-08-06T20:55:45.647-05:00",
-    "gamesPlayed": 22,
+    "lastSeen": "2026-08-09T20:35:56.293-05:00",
+    "gamesPlayed": 23,
     "gamesWon": 6,
     "feedbackGiven": true,
-    "gamesLost": 14
+    "gamesLost": 15
   },
   "221049": {
     "memberNumber": 221049,
@@ -20091,7 +21372,7 @@
     "memberNumber": 221403,
     "name": "Sophie",
     "firstSeen": "2026-07-16T11:07:59.920-05:00",
-    "lastSeen": "2026-07-20T00:28:48.639-05:00",
+    "lastSeen": "2026-08-09T16:25:06.479-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -20187,6 +21468,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "221750": {
+    "memberNumber": 221750,
+    "name": "Abella Danger",
+    "firstSeen": "2026-08-09T04:30:08.288-05:00",
+    "lastSeen": "2026-08-09T04:30:08.288-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "221771": {
     "memberNumber": 221771,
     "name": "Iris",
@@ -20241,7 +21532,7 @@
     "memberNumber": 221963,
     "name": "Josh",
     "firstSeen": "2026-07-22T03:08:55.106-05:00",
-    "lastSeen": "2026-08-04T06:22:13.136-05:00",
+    "lastSeen": "2026-08-10T04:03:53.066-05:00",
     "gamesPlayed": 5,
     "gamesWon": 0,
     "gamesLost": 5,
@@ -20291,7 +21582,7 @@
     "memberNumber": 222275,
     "name": "Lili",
     "firstSeen": "2026-06-12T07:37:09.336-05:00",
-    "lastSeen": "2026-06-12T07:37:09.336-05:00",
+    "lastSeen": "2026-08-09T17:24:18.100-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -20347,6 +21638,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "222560": {
+    "memberNumber": 222560,
+    "name": "Carla",
+    "firstSeen": "2026-08-09T16:44:07.285-05:00",
+    "lastSeen": "2026-08-09T16:44:07.285-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "222654": {
     "memberNumber": 222654,
     "name": "Aren",
@@ -20381,7 +21682,17 @@
     "memberNumber": 222773,
     "name": "Donna",
     "firstSeen": "2026-06-21T07:54:35.679-05:00",
-    "lastSeen": "2026-07-16T07:24:43.153-05:00",
+    "lastSeen": "2026-08-08T10:00:52.981-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "222775": {
+    "memberNumber": 222775,
+    "name": "Amelia",
+    "firstSeen": "2026-08-09T20:25:56.896-05:00",
+    "lastSeen": "2026-08-09T20:25:56.896-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -20661,7 +21972,7 @@
     "memberNumber": 224257,
     "name": "𝕶𝖎𝖒𝖎",
     "firstSeen": "2026-06-18T03:51:27.763-05:00",
-    "lastSeen": "2026-06-18T03:51:27.763-05:00",
+    "lastSeen": "2026-08-09T22:20:20.402-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -20711,11 +22022,12 @@
     "memberNumber": 224494,
     "name": "Si",
     "firstSeen": "2026-06-12T01:16:45.553-05:00",
-    "lastSeen": "2026-06-12T01:16:45.553-05:00",
+    "lastSeen": "2026-08-09T13:28:02.811-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "feedbackGiven": false,
-    "gamesLost": 0
+    "gamesLost": 0,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "224553": {
     "memberNumber": 224553,
@@ -20741,7 +22053,7 @@
     "memberNumber": 224589,
     "name": "Miku",
     "firstSeen": "2026-06-12T10:32:00.749-05:00",
-    "lastSeen": "2026-06-21T18:06:39.354-05:00",
+    "lastSeen": "2026-08-11T07:26:42.596-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -20795,6 +22107,16 @@
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "224683": {
+    "memberNumber": 224683,
+    "name": "Tavi",
+    "firstSeen": "2026-08-08T09:05:47.843-05:00",
+    "lastSeen": "2026-08-08T09:05:47.843-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "224810": {
@@ -20877,6 +22199,16 @@
     "gamesLost": 1,
     "feedbackGiven": false
   },
+  "225386": {
+    "memberNumber": 225386,
+    "name": "Roy",
+    "firstSeen": "2026-08-08T10:27:48.424-05:00",
+    "lastSeen": "2026-08-08T10:27:48.424-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "225393": {
     "memberNumber": 225393,
     "name": "Grace",
@@ -20901,7 +22233,7 @@
     "memberNumber": 225538,
     "name": "warefa",
     "firstSeen": "2026-06-14T15:58:06.434-05:00",
-    "lastSeen": "2026-07-16T18:37:15.716-05:00",
+    "lastSeen": "2026-08-08T07:54:11.403-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -20927,15 +22259,26 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
-  "225883": {
-    "memberNumber": 225883,
-    "name": "Emily",
-    "firstSeen": "2026-07-20T09:05:43.850-05:00",
-    "lastSeen": "2026-07-20T09:05:43.850-05:00",
+  "225881": {
+    "memberNumber": 225881,
+    "name": "Puppy",
+    "firstSeen": "2026-08-08T01:01:59.120-05:00",
+    "lastSeen": "2026-08-09T13:16:56.310-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "225883": {
+    "memberNumber": 225883,
+    "name": "Emily",
+    "firstSeen": "2026-07-20T09:05:43.850-05:00",
+    "lastSeen": "2026-08-12T14:26:06.039-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "225892": {
     "memberNumber": 225892,
@@ -20971,7 +22314,7 @@
     "memberNumber": 226066,
     "name": "LindsayDice",
     "firstSeen": "2026-06-13T11:54:42.299-05:00",
-    "lastSeen": "2026-08-05T15:23:07.229-05:00",
+    "lastSeen": "2026-08-11T15:30:18.785-05:00",
     "gamesPlayed": 8,
     "gamesWon": 1,
     "gamesLost": 7,
@@ -21003,6 +22346,16 @@
     "name": "Ouroboros",
     "firstSeen": "2026-06-14T22:08:05.284-05:00",
     "lastSeen": "2026-06-17T09:40:17.848-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "226260": {
+    "memberNumber": 226260,
+    "name": "Farryn",
+    "firstSeen": "2026-08-12T06:44:53.928-05:00",
+    "lastSeen": "2026-08-12T06:44:53.928-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -21068,6 +22421,16 @@
     "feedbackGiven": false,
     "gamesLost": 0
   },
+  "226491": {
+    "memberNumber": 226491,
+    "name": "ACIDIC",
+    "firstSeen": "2026-08-08T22:46:18.186-05:00",
+    "lastSeen": "2026-08-08T22:46:18.186-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "226511": {
     "memberNumber": 226511,
     "name": "Kiara",
@@ -21122,12 +22485,12 @@
     "memberNumber": 226610,
     "name": "Elysee",
     "firstSeen": "2026-07-21T21:58:37.817-05:00",
-    "lastSeen": "2026-07-24T23:22:59.292-05:00",
+    "lastSeen": "2026-08-09T21:03:24.036-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-20T12:00:00-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "226628": {
     "memberNumber": 226628,
@@ -21214,10 +22577,10 @@
     "memberNumber": 227136,
     "name": "Aphi",
     "firstSeen": "2026-07-23T10:08:59.013-05:00",
-    "lastSeen": "2026-07-23T10:08:59.013-05:00",
-    "gamesPlayed": 0,
+    "lastSeen": "2026-08-11T09:13:06.935-05:00",
+    "gamesPlayed": 1,
     "gamesWon": 0,
-    "gamesLost": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "227301": {
@@ -21225,6 +22588,16 @@
     "name": "Hionee",
     "firstSeen": "2026-07-16T13:03:25.998-05:00",
     "lastSeen": "2026-07-17T11:37:47.249-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "227337": {
+    "memberNumber": 227337,
+    "name": "nina",
+    "firstSeen": "2026-08-09T20:23:04.520-05:00",
+    "lastSeen": "2026-08-09T20:23:04.520-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -21258,6 +22631,16 @@
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "227546": {
+    "memberNumber": 227546,
+    "name": "Christoph",
+    "firstSeen": "2026-08-08T07:51:02.571-05:00",
+    "lastSeen": "2026-08-08T07:51:02.571-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "227593": {
@@ -21308,6 +22691,16 @@
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "227856": {
+    "memberNumber": 227856,
+    "name": "Alina",
+    "firstSeen": "2026-08-07T11:16:08.012-05:00",
+    "lastSeen": "2026-08-07T18:32:37.651-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "227915": {
@@ -21561,6 +22954,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "229465": {
+    "memberNumber": 229465,
+    "name": "Kleo",
+    "firstSeen": "2026-08-12T20:38:30.788-05:00",
+    "lastSeen": "2026-08-12T20:38:30.788-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "229507": {
     "memberNumber": 229507,
     "name": "Lara",
@@ -21571,11 +22974,31 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "229561": {
+    "memberNumber": 229561,
+    "name": "Alina",
+    "firstSeen": "2026-08-08T08:32:17.468-05:00",
+    "lastSeen": "2026-08-08T08:32:17.468-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "229626": {
     "memberNumber": 229626,
     "name": "Mistress Tingu",
     "firstSeen": "2026-07-10T20:34:40.817-05:00",
     "lastSeen": "2026-07-29T00:37:27.936-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "229681": {
+    "memberNumber": 229681,
+    "name": "sakura",
+    "firstSeen": "2026-08-08T23:43:19.830-05:00",
+    "lastSeen": "2026-08-08T23:43:19.830-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -21595,7 +23018,7 @@
     "memberNumber": 229761,
     "name": "Sally",
     "firstSeen": "2026-06-14T06:10:52.570-05:00",
-    "lastSeen": "2026-08-05T18:09:18.133-05:00",
+    "lastSeen": "2026-08-08T15:20:32.369-05:00",
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
@@ -21626,11 +23049,12 @@
     "memberNumber": 229895,
     "name": "sojo",
     "firstSeen": "2026-06-17T15:31:27.388-05:00",
-    "lastSeen": "2026-07-22T12:00:25.154-05:00",
+    "lastSeen": "2026-08-11T13:03:38.177-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "229964": {
     "memberNumber": 229964,
@@ -21726,7 +23150,7 @@
     "memberNumber": 230614,
     "name": "　",
     "firstSeen": "2026-06-20T16:35:26.584-05:00",
-    "lastSeen": "2026-07-19T19:54:33.477-05:00",
+    "lastSeen": "2026-08-07T13:45:31.107-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -21742,11 +23166,31 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "230680": {
+    "memberNumber": 230680,
+    "name": "Pari",
+    "firstSeen": "2026-08-07T14:43:20.597-05:00",
+    "lastSeen": "2026-08-07T14:43:20.597-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "231055": {
     "memberNumber": 231055,
     "name": "Lucia",
     "firstSeen": "2026-07-28T11:21:40.430-05:00",
     "lastSeen": "2026-07-28T11:21:40.430-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "231060": {
+    "memberNumber": 231060,
+    "name": "Lola",
+    "firstSeen": "2026-08-12T17:35:26.059-05:00",
+    "lastSeen": "2026-08-12T17:35:26.059-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -21837,6 +23281,16 @@
     "name": "Maite",
     "firstSeen": "2026-07-11T16:13:53.999-05:00",
     "lastSeen": "2026-07-17T06:17:00.417-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "231424": {
+    "memberNumber": 231424,
+    "name": "carrie",
+    "firstSeen": "2026-08-13T01:38:42.973-05:00",
+    "lastSeen": "2026-08-13T01:38:42.973-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22064,9 +23518,9 @@
   },
   "232344": {
     "memberNumber": 232344,
-    "name": "Rape Slut",
+    "name": "Brandy",
     "firstSeen": "2026-06-14T12:16:36.433-05:00",
-    "lastSeen": "2026-08-04T07:23:59.972-05:00",
+    "lastSeen": "2026-08-07T18:43:03.736-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22126,12 +23580,12 @@
     "memberNumber": 232575,
     "name": "Jem",
     "firstSeen": "2026-06-13T10:07:38.688-05:00",
-    "lastSeen": "2026-08-06T15:51:17.709-05:00",
-    "gamesPlayed": 6,
+    "lastSeen": "2026-08-12T14:13:07.093-05:00",
+    "gamesPlayed": 10,
     "gamesWon": 2,
-    "gamesLost": 4,
+    "gamesLost": 8,
     "feedbackGiven": true,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "232582": {
     "memberNumber": 232582,
@@ -22182,6 +23636,16 @@
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "232655": {
+    "memberNumber": 232655,
+    "name": "Flori",
+    "firstSeen": "2026-08-09T02:43:56.434-05:00",
+    "lastSeen": "2026-08-09T02:59:41.317-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": true
   },
   "232707": {
     "memberNumber": 232707,
@@ -22348,7 +23812,17 @@
     "memberNumber": 234027,
     "name": "Sara",
     "firstSeen": "2026-06-15T05:10:34.608-05:00",
-    "lastSeen": "2026-08-01T08:00:02.946-05:00",
+    "lastSeen": "2026-08-07T11:06:21.823-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "234034": {
+    "memberNumber": 234034,
+    "name": "Jia",
+    "firstSeen": "2026-08-09T02:49:58.572-05:00",
+    "lastSeen": "2026-08-09T20:26:43.611-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22358,7 +23832,7 @@
     "memberNumber": 234060,
     "name": "Ana",
     "firstSeen": "2026-07-03T18:29:58.873-05:00",
-    "lastSeen": "2026-07-03T18:29:58.873-05:00",
+    "lastSeen": "2026-08-08T16:27:04.379-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22378,7 +23852,7 @@
     "memberNumber": 234111,
     "name": "𝓥𝓲𝓸𝓵𝓮𝓽",
     "firstSeen": "2026-07-26T08:32:15.595-05:00",
-    "lastSeen": "2026-07-26T08:32:15.595-05:00",
+    "lastSeen": "2026-08-09T16:23:44.410-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22398,12 +23872,12 @@
     "memberNumber": 234196,
     "name": "Monica",
     "firstSeen": "2026-08-03T18:12:55.718-05:00",
-    "lastSeen": "2026-08-05T19:10:21.186-05:00",
+    "lastSeen": "2026-08-08T23:07:15.325-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "234292": {
     "memberNumber": 234292,
@@ -22453,6 +23927,16 @@
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "234480": {
+    "memberNumber": 234480,
+    "name": "LaXi",
+    "firstSeen": "2026-08-07T11:50:53.206-05:00",
+    "lastSeen": "2026-08-07T11:50:53.206-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
     "feedbackGiven": false
   },
   "234593": {
@@ -22585,6 +24069,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "234906": {
+    "memberNumber": 234906,
+    "name": "櫻奈",
+    "firstSeen": "2026-08-08T08:12:27.284-05:00",
+    "lastSeen": "2026-08-08T08:54:01.063-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "234911": {
     "memberNumber": 234911,
     "name": "Emelia",
@@ -22629,7 +24123,17 @@
     "memberNumber": 235208,
     "name": "Luna",
     "firstSeen": "2026-07-23T04:15:19.906-05:00",
-    "lastSeen": "2026-07-23T04:27:59.060-05:00",
+    "lastSeen": "2026-08-10T20:55:39.642-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "235345": {
+    "memberNumber": 235345,
+    "name": "Skellie",
+    "firstSeen": "2026-08-08T09:09:33.966-05:00",
+    "lastSeen": "2026-08-08T14:01:31.450-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22700,6 +24204,16 @@
     "name": "Sam",
     "firstSeen": "2026-07-25T21:26:11.959-05:00",
     "lastSeen": "2026-07-25T21:26:11.959-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "235606": {
+    "memberNumber": 235606,
+    "name": "ℕ𝕚𝕔𝕠𝕝𝕖",
+    "firstSeen": "2026-08-08T12:14:52.700-05:00",
+    "lastSeen": "2026-08-08T12:14:52.700-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -22886,6 +24400,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "236384": {
+    "memberNumber": 236384,
+    "name": "Vita",
+    "firstSeen": "2026-08-08T10:10:18.947-05:00",
+    "lastSeen": "2026-08-13T01:11:34.984-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "236426": {
     "memberNumber": 236426,
     "name": "Lara",
@@ -22915,6 +24439,16 @@
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": true
+  },
+  "236506": {
+    "memberNumber": 236506,
+    "name": "Bandy",
+    "firstSeen": "2026-08-09T10:28:35.100-05:00",
+    "lastSeen": "2026-08-10T03:07:28.455-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
+    "feedbackGiven": false
   },
   "236508": {
     "memberNumber": 236508,
@@ -22980,7 +24514,7 @@
     "memberNumber": 236616,
     "name": "Emily",
     "firstSeen": "2026-06-13T03:28:13.493-05:00",
-    "lastSeen": "2026-07-14T15:00:00.814-05:00",
+    "lastSeen": "2026-08-09T08:49:22.160-05:00",
     "gamesPlayed": 2,
     "gamesWon": 1,
     "gamesLost": 1,
@@ -23031,6 +24565,16 @@
     "name": "Anja",
     "firstSeen": "2026-07-10T02:18:06.282-05:00",
     "lastSeen": "2026-07-10T02:18:06.282-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "236833": {
+    "memberNumber": 236833,
+    "name": "Fawn",
+    "firstSeen": "2026-08-09T16:03:07.654-05:00",
+    "lastSeen": "2026-08-09T16:03:07.654-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -23090,7 +24634,7 @@
     "memberNumber": 237013,
     "name": "Yotsuba",
     "firstSeen": "2026-06-21T15:05:14.076-05:00",
-    "lastSeen": "2026-06-21T15:15:33.824-05:00",
+    "lastSeen": "2026-08-07T02:04:01.434-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -23166,11 +24710,32 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "237288": {
+    "memberNumber": 237288,
+    "name": "Samara",
+    "firstSeen": "2026-08-07T10:21:08.408-05:00",
+    "lastSeen": "2026-08-10T14:42:41.226-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 1,
+    "gamesLost": 1,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
+  },
   "237302": {
     "memberNumber": 237302,
     "name": "Maze",
     "firstSeen": "2026-07-08T09:19:16.746-05:00",
     "lastSeen": "2026-07-08T09:19:16.746-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "237328": {
+    "memberNumber": 237328,
+    "name": "Siearra",
+    "firstSeen": "2026-08-08T16:34:05.573-05:00",
+    "lastSeen": "2026-08-08T16:34:05.573-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -23220,11 +24785,11 @@
     "memberNumber": 237408,
     "name": "Blair",
     "firstSeen": "2026-06-11T21:38:45.785-05:00",
-    "lastSeen": "2026-08-01T06:50:13.975-05:00",
-    "gamesPlayed": 4,
-    "gamesWon": 1,
+    "lastSeen": "2026-08-09T12:57:32.030-05:00",
+    "gamesPlayed": 6,
+    "gamesWon": 2,
     "feedbackGiven": true,
-    "gamesLost": 3,
+    "gamesLost": 4,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
   "237412": {
@@ -23241,7 +24806,7 @@
     "memberNumber": 237459,
     "name": "shale",
     "firstSeen": "2026-06-13T19:24:22.437-05:00",
-    "lastSeen": "2026-08-03T15:35:34.693-05:00",
+    "lastSeen": "2026-08-07T10:36:15.805-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -23291,7 +24856,7 @@
     "memberNumber": 237578,
     "name": "Rias",
     "firstSeen": "2026-08-02T22:34:51.936-05:00",
-    "lastSeen": "2026-08-05T23:18:30.472-05:00",
+    "lastSeen": "2026-08-11T23:48:55.155-05:00",
     "gamesPlayed": 4,
     "gamesWon": 2,
     "gamesLost": 2,
@@ -23377,6 +24942,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "237964": {
+    "memberNumber": 237964,
+    "name": "Limbo",
+    "firstSeen": "2026-08-08T10:38:05.948-05:00",
+    "lastSeen": "2026-08-08T10:38:05.948-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "237986": {
     "memberNumber": 237986,
     "name": "rostick",
@@ -23441,7 +25016,7 @@
     "memberNumber": 238142,
     "name": "luna",
     "firstSeen": "2026-06-11T17:45:35.857-05:00",
-    "lastSeen": "2026-08-03T15:12:13.724-05:00",
+    "lastSeen": "2026-08-09T18:43:40.971-05:00",
     "gamesPlayed": 2,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -23652,7 +25227,7 @@
     "memberNumber": 239133,
     "name": "Nika",
     "firstSeen": "2026-07-08T12:07:40.905-05:00",
-    "lastSeen": "2026-07-21T04:46:25.563-05:00",
+    "lastSeen": "2026-08-11T15:33:56.181-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -23672,12 +25247,12 @@
     "memberNumber": 239172,
     "name": "Destiny",
     "firstSeen": "2026-08-04T03:34:57.432-05:00",
-    "lastSeen": "2026-08-06T15:13:59.282-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
-    "gamesLost": 0,
-    "feedbackGiven": false,
-    "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+    "lastSeen": "2026-08-10T15:33:11.536-05:00",
+    "gamesPlayed": 5,
+    "gamesWon": 2,
+    "gamesLost": 3,
+    "feedbackGiven": true,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "239190": {
     "memberNumber": 239190,
@@ -23743,7 +25318,7 @@
     "memberNumber": 239452,
     "name": "Cozy",
     "firstSeen": "2026-06-11T12:02:26.812-05:00",
-    "lastSeen": "2026-08-02T14:51:35.072-05:00",
+    "lastSeen": "2026-08-09T08:42:42.018-05:00",
     "gamesPlayed": 3,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -23799,6 +25374,16 @@
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "239723": {
+    "memberNumber": 239723,
+    "name": "reah",
+    "firstSeen": "2026-08-07T13:04:31.543-05:00",
+    "lastSeen": "2026-08-07T13:04:31.543-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": true
   },
   "239757": {
     "memberNumber": 239757,
@@ -23994,7 +25579,7 @@
     "memberNumber": 240197,
     "name": "Oulette",
     "firstSeen": "2026-06-14T23:38:23.016-05:00",
-    "lastSeen": "2026-08-05T22:11:53.686-05:00",
+    "lastSeen": "2026-08-09T22:59:34.355-05:00",
     "gamesPlayed": 4,
     "gamesWon": 2,
     "gamesLost": 2,
@@ -24064,7 +25649,7 @@
     "memberNumber": 240321,
     "name": "Annie",
     "firstSeen": "2026-06-13T20:25:07.022-05:00",
-    "lastSeen": "2026-06-13T20:25:07.022-05:00",
+    "lastSeen": "2026-08-13T00:24:50.709-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -24074,7 +25659,7 @@
     "memberNumber": 240342,
     "name": "Bad Bitch",
     "firstSeen": "2026-06-11T20:59:38.742-05:00",
-    "lastSeen": "2026-07-11T19:43:19.287-05:00",
+    "lastSeen": "2026-08-07T16:28:11.682-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "feedbackGiven": false,
@@ -24226,6 +25811,16 @@
     "name": "So Mi",
     "firstSeen": "2026-07-05T01:25:04.123-05:00",
     "lastSeen": "2026-07-05T01:25:04.123-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "241043": {
+    "memberNumber": 241043,
+    "name": "Dodo",
+    "firstSeen": "2026-08-07T01:46:44.524-05:00",
+    "lastSeen": "2026-08-07T01:46:44.524-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -24571,6 +26166,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "242135": {
+    "memberNumber": 242135,
+    "name": "Julia",
+    "firstSeen": "2026-08-09T15:49:04.481-05:00",
+    "lastSeen": "2026-08-09T15:49:04.481-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "242136": {
     "memberNumber": 242136,
     "name": "JoJo",
@@ -24645,7 +26250,7 @@
     "memberNumber": 242251,
     "name": "Lucy",
     "firstSeen": "2026-06-23T17:28:46.003-05:00",
-    "lastSeen": "2026-06-23T17:28:46.003-05:00",
+    "lastSeen": "2026-08-08T09:08:28.571-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -24685,7 +26290,7 @@
     "memberNumber": 242413,
     "name": "Wanyan",
     "firstSeen": "2026-06-18T13:06:53.535-05:00",
-    "lastSeen": "2026-07-21T00:38:08.036-05:00",
+    "lastSeen": "2026-08-12T12:39:26.061-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -24741,6 +26346,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "242527": {
+    "memberNumber": 242527,
+    "name": "Alina",
+    "firstSeen": "2026-08-07T13:16:53.872-05:00",
+    "lastSeen": "2026-08-07T13:17:16.223-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "242533": {
     "memberNumber": 242533,
     "name": "Mayla",
@@ -24789,6 +26404,16 @@
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "242753": {
+    "memberNumber": 242753,
+    "name": "Lys",
+    "firstSeen": "2026-08-12T03:17:55.177-05:00",
+    "lastSeen": "2026-08-12T05:23:36.416-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
     "feedbackGiven": false
   },
   "242842": {
@@ -25195,9 +26820,9 @@
     "memberNumber": 244269,
     "name": "Hesia",
     "firstSeen": "2026-07-21T22:44:04.978-05:00",
-    "lastSeen": "2026-07-22T00:07:50.474-05:00",
-    "gamesPlayed": 1,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-11T12:01:30.505-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 1,
     "gamesLost": 1,
     "feedbackGiven": false
   },
@@ -25225,7 +26850,7 @@
     "memberNumber": 244389,
     "name": "sasa",
     "firstSeen": "2026-06-11T14:17:19.842-05:00",
-    "lastSeen": "2026-08-02T10:59:01.013-05:00",
+    "lastSeen": "2026-08-12T06:09:44.677-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "feedbackGiven": false,
@@ -25275,7 +26900,7 @@
     "memberNumber": 244510,
     "name": "Maya",
     "firstSeen": "2026-06-15T02:12:37.029-05:00",
-    "lastSeen": "2026-06-18T01:54:18.342-05:00",
+    "lastSeen": "2026-08-08T02:30:55.160-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -25361,6 +26986,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "244896": {
+    "memberNumber": 244896,
+    "name": "Enora",
+    "firstSeen": "2026-08-10T09:15:05.336-05:00",
+    "lastSeen": "2026-08-10T09:15:05.336-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "244902": {
     "memberNumber": 244902,
     "name": "maru",
@@ -25416,6 +27051,16 @@
     "name": "Nadin",
     "firstSeen": "2026-06-20T10:27:17.920-05:00",
     "lastSeen": "2026-06-20T10:27:17.920-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "245059": {
+    "memberNumber": 245059,
+    "name": "Tinja",
+    "firstSeen": "2026-08-08T08:52:46.109-05:00",
+    "lastSeen": "2026-08-08T08:52:46.109-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -25626,7 +27271,7 @@
     "memberNumber": 245549,
     "name": "jn",
     "firstSeen": "2026-07-04T12:23:41.311-05:00",
-    "lastSeen": "2026-07-28T21:38:46.341-05:00",
+    "lastSeen": "2026-08-09T08:31:37.892-05:00",
     "gamesPlayed": 11,
     "gamesWon": 4,
     "gamesLost": 7,
@@ -25682,6 +27327,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "245757": {
+    "memberNumber": 245757,
+    "name": "Cutie Queen Nia",
+    "firstSeen": "2026-08-12T00:52:02.968-05:00",
+    "lastSeen": "2026-08-12T06:41:27.781-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 1,
+    "gamesLost": 1,
+    "feedbackGiven": false
+  },
   "245787": {
     "memberNumber": 245787,
     "name": "Vander",
@@ -25726,11 +27381,12 @@
     "memberNumber": 245817,
     "name": "𝑳𝒆𝒂𝒍𝒊𝒂",
     "firstSeen": "2026-07-03T23:31:52.210-05:00",
-    "lastSeen": "2026-07-03T23:31:52.210-05:00",
+    "lastSeen": "2026-08-12T01:09:04.705-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "245824": {
     "memberNumber": 245824,
@@ -25882,6 +27538,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "246136": {
+    "memberNumber": 246136,
+    "name": "Kaede",
+    "firstSeen": "2026-08-07T15:05:17.575-05:00",
+    "lastSeen": "2026-08-07T15:05:17.575-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "246145": {
     "memberNumber": 246145,
     "name": "Moz",
@@ -25906,11 +27572,11 @@
     "memberNumber": 246204,
     "name": "Alexa",
     "firstSeen": "2026-06-12T00:34:16.464-05:00",
-    "lastSeen": "2026-08-03T19:22:08.273-05:00",
-    "gamesPlayed": 1,
+    "lastSeen": "2026-08-10T15:36:27.934-05:00",
+    "gamesPlayed": 3,
     "gamesWon": 0,
     "feedbackGiven": false,
-    "gamesLost": 1
+    "gamesLost": 3
   },
   "246220": {
     "memberNumber": 246220,
@@ -25926,7 +27592,7 @@
     "memberNumber": 246232,
     "name": "Uuup",
     "firstSeen": "2026-06-14T02:41:12.224-05:00",
-    "lastSeen": "2026-06-14T02:41:12.224-05:00",
+    "lastSeen": "2026-08-13T01:32:30.126-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -25937,6 +27603,16 @@
     "name": "Cora",
     "firstSeen": "2026-07-03T23:59:10.963-05:00",
     "lastSeen": "2026-07-03T23:59:10.963-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "246236": {
+    "memberNumber": 246236,
+    "name": "Whisper",
+    "firstSeen": "2026-08-09T03:58:55.541-05:00",
+    "lastSeen": "2026-08-09T03:58:55.541-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -25972,6 +27648,16 @@
     "feedbackGiven": false,
     "gamesLost": 0
   },
+  "246319": {
+    "memberNumber": 246319,
+    "name": "valerie",
+    "firstSeen": "2026-08-08T20:18:41.240-05:00",
+    "lastSeen": "2026-08-08T20:18:41.240-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "246325": {
     "memberNumber": 246325,
     "name": "Nekita",
@@ -25986,7 +27672,7 @@
     "memberNumber": 246328,
     "name": "𝕽𝖔𝖘𝖊",
     "firstSeen": "2026-07-18T16:12:25.351-05:00",
-    "lastSeen": "2026-07-18T16:12:25.351-05:00",
+    "lastSeen": "2026-08-07T15:50:20.821-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -26037,6 +27723,16 @@
     "name": "Luna",
     "firstSeen": "2026-07-07T05:57:07.309-05:00",
     "lastSeen": "2026-07-09T02:40:18.308-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "246343": {
+    "memberNumber": 246343,
+    "name": "Jolteon Charlotte",
+    "firstSeen": "2026-08-12T18:05:28.799-05:00",
+    "lastSeen": "2026-08-12T18:05:28.799-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -26136,7 +27832,7 @@
     "memberNumber": 246920,
     "name": "miho",
     "firstSeen": "2026-07-06T00:13:00.228-05:00",
-    "lastSeen": "2026-07-07T00:32:46.902-05:00",
+    "lastSeen": "2026-08-08T08:54:45.450-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -26396,10 +28092,10 @@
     "memberNumber": 247593,
     "name": "Jane",
     "firstSeen": "2026-06-12T13:33:45.450-05:00",
-    "lastSeen": "2026-08-05T21:33:41.969-05:00",
-    "gamesPlayed": 16,
+    "lastSeen": "2026-08-12T19:40:25.895-05:00",
+    "gamesPlayed": 17,
     "gamesWon": 5,
-    "gamesLost": 11,
+    "gamesLost": 12,
     "feedbackGiven": true,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
@@ -26653,11 +28349,21 @@
     "gamesLost": 1,
     "feedbackGiven": false
   },
+  "248366": {
+    "memberNumber": 248366,
+    "name": "Cutie Princess Vivi",
+    "firstSeen": "2026-08-12T01:05:01.390-05:00",
+    "lastSeen": "2026-08-12T05:23:53.950-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 2,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "248409": {
     "memberNumber": 248409,
     "name": "Lisa Hem",
     "firstSeen": "2026-06-23T03:49:29.962-05:00",
-    "lastSeen": "2026-07-28T10:01:55.201-05:00",
+    "lastSeen": "2026-08-08T17:03:51.605-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -26687,11 +28393,21 @@
     "memberNumber": 248525,
     "name": "A",
     "firstSeen": "2026-07-12T19:56:06.249-05:00",
-    "lastSeen": "2026-08-05T23:54:01.932-05:00",
+    "lastSeen": "2026-08-12T21:44:04.357-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
+  },
+  "248528": {
+    "memberNumber": 248528,
+    "name": "Trevor",
+    "firstSeen": "2026-08-09T22:29:52.795-05:00",
+    "lastSeen": "2026-08-09T22:38:29.471-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": true
   },
   "248530": {
     "memberNumber": 248530,
@@ -26717,7 +28433,7 @@
     "memberNumber": 248548,
     "name": "Kati",
     "firstSeen": "2026-07-18T23:09:51.490-05:00",
-    "lastSeen": "2026-08-03T19:22:20.010-05:00",
+    "lastSeen": "2026-08-08T11:44:22.097-05:00",
     "gamesPlayed": 7,
     "gamesWon": 1,
     "gamesLost": 6,
@@ -26768,6 +28484,16 @@
     "name": "Olivier",
     "firstSeen": "2026-06-21T12:49:03.936-05:00",
     "lastSeen": "2026-06-21T12:49:03.936-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "248731": {
+    "memberNumber": 248731,
+    "name": "ROMA",
+    "firstSeen": "2026-08-07T01:31:11.897-05:00",
+    "lastSeen": "2026-08-07T01:31:11.897-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -26843,11 +28569,21 @@
     "gamesLost": 4,
     "feedbackGiven": false
   },
+  "248966": {
+    "memberNumber": 248966,
+    "name": "Nagisa",
+    "firstSeen": "2026-08-08T06:05:08.162-05:00",
+    "lastSeen": "2026-08-08T06:05:08.162-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "248972": {
     "memberNumber": 248972,
     "name": "Lilly",
     "firstSeen": "2026-07-23T01:01:10.810-05:00",
-    "lastSeen": "2026-08-06T09:50:23.637-05:00",
+    "lastSeen": "2026-08-07T08:55:10.251-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
@@ -26915,6 +28651,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "249106": {
+    "memberNumber": 249106,
+    "name": "Mal",
+    "firstSeen": "2026-08-08T02:43:53.846-05:00",
+    "lastSeen": "2026-08-08T02:43:53.846-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "249110": {
     "memberNumber": 249110,
     "name": "Tatsu",
@@ -26939,7 +28685,7 @@
     "memberNumber": 249146,
     "name": "Mita",
     "firstSeen": "2026-06-23T11:58:55.113-05:00",
-    "lastSeen": "2026-07-22T12:02:09.303-05:00",
+    "lastSeen": "2026-08-09T02:46:45.866-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -27079,9 +28825,9 @@
     "memberNumber": 249514,
     "name": "Sofie",
     "firstSeen": "2026-07-06T03:57:24.868-05:00",
-    "lastSeen": "2026-07-06T03:57:24.868-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-11T07:31:42.751-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -27199,7 +28945,7 @@
     "memberNumber": 249830,
     "name": "Winter",
     "firstSeen": "2026-07-15T20:48:33.111-05:00",
-    "lastSeen": "2026-07-21T22:44:29.601-05:00",
+    "lastSeen": "2026-08-08T07:41:21.251-05:00",
     "gamesPlayed": 3,
     "gamesWon": 0,
     "gamesLost": 3,
@@ -27219,7 +28965,7 @@
     "memberNumber": 249972,
     "name": "Frosty",
     "firstSeen": "2026-08-05T15:55:38.906-05:00",
-    "lastSeen": "2026-08-05T15:55:38.906-05:00",
+    "lastSeen": "2026-08-07T12:48:33.046-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -27329,10 +29075,10 @@
     "memberNumber": 250315,
     "name": "Alice Iwodalan",
     "firstSeen": "2026-07-05T08:47:36.428-05:00",
-    "lastSeen": "2026-08-04T06:26:38.281-05:00",
-    "gamesPlayed": 23,
+    "lastSeen": "2026-08-12T00:52:02.312-05:00",
+    "gamesPlayed": 24,
     "gamesWon": 5,
-    "gamesLost": 18,
+    "gamesLost": 19,
     "feedbackGiven": true,
     "lastChangelogVersion": "2026-07-20T12:00:00-05:00"
   },
@@ -27340,7 +29086,7 @@
     "memberNumber": 250338,
     "name": "Layla",
     "firstSeen": "2026-07-04T20:15:11.804-05:00",
-    "lastSeen": "2026-07-04T20:15:11.804-05:00",
+    "lastSeen": "2026-08-09T14:32:54.630-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -27520,7 +29266,7 @@
     "memberNumber": 250758,
     "name": "Olivia",
     "firstSeen": "2026-08-03T03:26:04.012-05:00",
-    "lastSeen": "2026-08-05T14:23:41.349-05:00",
+    "lastSeen": "2026-08-06T22:58:30.614-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -27577,6 +29323,16 @@
     "gamesLost": 2,
     "feedbackGiven": false,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
+  },
+  "250842": {
+    "memberNumber": 250842,
+    "name": "Steve",
+    "firstSeen": "2026-08-09T20:22:51.863-05:00",
+    "lastSeen": "2026-08-09T20:22:51.863-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
   },
   "250844": {
     "memberNumber": 250844,
@@ -27792,11 +29548,12 @@
     "memberNumber": 251163,
     "name": "Lara",
     "firstSeen": "2026-07-05T17:54:07.975-05:00",
-    "lastSeen": "2026-07-22T07:48:28.570-05:00",
+    "lastSeen": "2026-08-12T08:06:45.015-05:00",
     "gamesPlayed": 3,
     "gamesWon": 0,
     "gamesLost": 3,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "251206": {
     "memberNumber": 251206,
@@ -27820,12 +29577,12 @@
   },
   "251222": {
     "memberNumber": 251222,
-    "name": "Andi",
+    "name": "Andreas",
     "firstSeen": "2026-07-10T01:57:21.539-05:00",
-    "lastSeen": "2026-07-23T10:36:51.580-05:00",
-    "gamesPlayed": 7,
+    "lastSeen": "2026-08-12T01:28:27.413-05:00",
+    "gamesPlayed": 8,
     "gamesWon": 3,
-    "gamesLost": 4,
+    "gamesLost": 5,
     "feedbackGiven": false
   },
   "251239": {
@@ -28022,7 +29779,7 @@
     "memberNumber": 251531,
     "name": "Yunyu",
     "firstSeen": "2026-07-21T14:28:16.768-05:00",
-    "lastSeen": "2026-07-21T14:30:01.613-05:00",
+    "lastSeen": "2026-08-10T03:00:02.892-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -28330,9 +30087,9 @@
   },
   "252231": {
     "memberNumber": 252231,
-    "name": "Nagato",
+    "name": "Bandit",
     "firstSeen": "2026-07-13T01:57:30.822-05:00",
-    "lastSeen": "2026-08-05T16:02:16.556-05:00",
+    "lastSeen": "2026-08-08T00:55:59.713-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -28523,7 +30280,7 @@
     "memberNumber": 252713,
     "name": "Madison",
     "firstSeen": "2026-07-31T17:14:12.735-05:00",
-    "lastSeen": "2026-07-31T17:14:12.735-05:00",
+    "lastSeen": "2026-08-11T07:41:01.902-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -28653,11 +30410,12 @@
     "memberNumber": 252997,
     "name": "Lena",
     "firstSeen": "2026-07-23T09:34:38.979-05:00",
-    "lastSeen": "2026-07-23T09:34:38.979-05:00",
-    "gamesPlayed": 0,
-    "gamesWon": 0,
+    "lastSeen": "2026-08-13T02:14:16.191-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 2,
     "gamesLost": 0,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-12T12:00:00"
   },
   "253025": {
     "memberNumber": 253025,
@@ -28681,9 +30439,9 @@
   },
   "253044": {
     "memberNumber": 253044,
-    "name": "Zoey",
+    "name": "Zoey Valentine",
     "firstSeen": "2026-07-21T02:55:53.066-05:00",
-    "lastSeen": "2026-08-05T22:39:03.321-05:00",
+    "lastSeen": "2026-08-13T01:15:09.943-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
     "gamesLost": 0,
@@ -28753,10 +30511,10 @@
     "memberNumber": 253231,
     "name": "Tanja",
     "firstSeen": "2026-07-21T11:05:43.097-05:00",
-    "lastSeen": "2026-07-23T15:53:29.342-05:00",
-    "gamesPlayed": 1,
-    "gamesWon": 0,
-    "gamesLost": 1,
+    "lastSeen": "2026-08-11T08:56:07.591-05:00",
+    "gamesPlayed": 6,
+    "gamesWon": 2,
+    "gamesLost": 4,
     "feedbackGiven": false
   },
   "253385": {
@@ -28839,6 +30597,16 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "253554": {
+    "memberNumber": 253554,
+    "name": "alex",
+    "firstSeen": "2026-08-08T10:07:39.229-05:00",
+    "lastSeen": "2026-08-08T10:16:32.405-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "253596": {
     "memberNumber": 253596,
     "name": "Fantia",
@@ -28894,10 +30662,10 @@
     "memberNumber": 253740,
     "name": "Oklin BUB",
     "firstSeen": "2026-07-24T11:28:49.539-05:00",
-    "lastSeen": "2026-08-06T20:29:49.978-05:00",
-    "gamesPlayed": 3,
+    "lastSeen": "2026-08-10T14:53:55.964-05:00",
+    "gamesPlayed": 4,
     "gamesWon": 0,
-    "gamesLost": 3,
+    "gamesLost": 4,
     "feedbackGiven": false,
     "lastChangelogVersion": "2026-07-22T07:35:18-05:00"
   },
@@ -28965,7 +30733,7 @@
     "memberNumber": 253873,
     "name": "Mia",
     "firstSeen": "2026-07-29T22:22:31.951-05:00",
-    "lastSeen": "2026-08-06T20:25:17.828-05:00",
+    "lastSeen": "2026-08-09T23:10:29.581-05:00",
     "gamesPlayed": 3,
     "gamesWon": 2,
     "gamesLost": 1,
@@ -28976,7 +30744,7 @@
     "memberNumber": 253902,
     "name": "Charlotte",
     "firstSeen": "2026-07-30T17:25:14.852-05:00",
-    "lastSeen": "2026-07-30T17:25:14.852-05:00",
+    "lastSeen": "2026-08-09T11:07:44.729-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29016,7 +30784,7 @@
     "memberNumber": 254046,
     "name": "Olivia",
     "firstSeen": "2026-08-06T07:43:37.395-05:00",
-    "lastSeen": "2026-08-06T08:09:07.421-05:00",
+    "lastSeen": "2026-08-11T19:39:31.874-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29042,11 +30810,31 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "254146": {
+    "memberNumber": 254146,
+    "name": "Anastasia",
+    "firstSeen": "2026-08-09T14:40:05.144-05:00",
+    "lastSeen": "2026-08-09T14:40:05.144-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "254150": {
     "memberNumber": 254150,
     "name": "Einyn",
     "firstSeen": "2026-08-05T09:17:26.474-05:00",
     "lastSeen": "2026-08-05T09:17:26.474-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "254179": {
+    "memberNumber": 254179,
+    "name": "Astrid",
+    "firstSeen": "2026-08-12T13:59:53.473-05:00",
+    "lastSeen": "2026-08-12T13:59:53.473-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29076,7 +30864,7 @@
     "memberNumber": 254227,
     "name": "Cordylia Ceps",
     "firstSeen": "2026-07-28T22:54:27.226-05:00",
-    "lastSeen": "2026-07-28T23:20:20.606-05:00",
+    "lastSeen": "2026-08-06T22:16:27.538-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
@@ -29108,9 +30896,19 @@
     "memberNumber": 254274,
     "name": "Lisa Hanover",
     "firstSeen": "2026-07-29T00:51:26.238-05:00",
-    "lastSeen": "2026-08-03T02:12:36.286-05:00",
+    "lastSeen": "2026-08-12T10:41:33.135-05:00",
     "gamesPlayed": 1,
     "gamesWon": 1,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "254289": {
+    "memberNumber": 254289,
+    "name": "Narcissu",
+    "firstSeen": "2026-08-08T00:51:42.796-05:00",
+    "lastSeen": "2026-08-08T01:21:42.268-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
     "gamesLost": 0,
     "feedbackGiven": false
   },
@@ -29128,11 +30926,12 @@
     "memberNumber": 254296,
     "name": "McFluff",
     "firstSeen": "2026-08-02T12:46:10.410-05:00",
-    "lastSeen": "2026-08-02T12:46:10.410-05:00",
+    "lastSeen": "2026-08-11T12:14:11.819-05:00",
     "gamesPlayed": 1,
     "gamesWon": 0,
     "gamesLost": 1,
-    "feedbackGiven": false
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-06T22:00:00"
   },
   "254314": {
     "memberNumber": 254314,
@@ -29168,7 +30967,7 @@
     "memberNumber": 254409,
     "name": "Sera",
     "firstSeen": "2026-07-31T09:55:04.739-05:00",
-    "lastSeen": "2026-07-31T09:55:04.739-05:00",
+    "lastSeen": "2026-08-08T20:41:52.407-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29236,9 +31035,9 @@
   },
   "254730": {
     "memberNumber": 254730,
-    "name": "Laya",
+    "name": "Bunny",
     "firstSeen": "2026-08-01T11:58:25.977-05:00",
-    "lastSeen": "2026-08-03T02:08:09.679-05:00",
+    "lastSeen": "2026-08-12T03:51:14.255-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29259,6 +31058,16 @@
     "name": "Yura",
     "firstSeen": "2026-08-01T12:07:22.352-05:00",
     "lastSeen": "2026-08-01T12:07:22.352-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "254826": {
+    "memberNumber": 254826,
+    "name": "Evelyn",
+    "firstSeen": "2026-08-07T15:54:54.654-05:00",
+    "lastSeen": "2026-08-07T15:54:54.654-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
@@ -29334,6 +31143,26 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "255025": {
+    "memberNumber": 255025,
+    "name": "梦尘",
+    "firstSeen": "2026-08-11T12:19:20.730-05:00",
+    "lastSeen": "2026-08-11T12:19:31.874-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255087": {
+    "memberNumber": 255087,
+    "name": "Good Boy",
+    "firstSeen": "2026-08-08T00:54:18.392-05:00",
+    "lastSeen": "2026-08-08T01:00:26.784-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "255096": {
     "memberNumber": 255096,
     "name": "Dolly",
@@ -29354,11 +31183,252 @@
     "gamesLost": 0,
     "feedbackGiven": false
   },
+  "255112": {
+    "memberNumber": 255112,
+    "name": "roger",
+    "firstSeen": "2026-08-13T02:15:32.991-05:00",
+    "lastSeen": "2026-08-13T02:15:32.991-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255221": {
+    "memberNumber": 255221,
+    "name": "Alex",
+    "firstSeen": "2026-08-11T08:36:37.824-05:00",
+    "lastSeen": "2026-08-11T08:36:37.824-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255338": {
+    "memberNumber": 255338,
+    "name": "Erin",
+    "firstSeen": "2026-08-11T12:21:00.420-05:00",
+    "lastSeen": "2026-08-11T12:21:00.420-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255411": {
+    "memberNumber": 255411,
+    "name": "Haldron",
+    "firstSeen": "2026-08-09T22:19:56.442-05:00",
+    "lastSeen": "2026-08-09T22:19:56.442-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
   "255415": {
     "memberNumber": 255415,
     "name": "Alice",
     "firstSeen": "2026-08-05T20:48:21.893-05:00",
-    "lastSeen": "2026-08-05T23:34:26.544-05:00",
+    "lastSeen": "2026-08-07T00:43:32.763-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255437": {
+    "memberNumber": 255437,
+    "name": "Alice",
+    "firstSeen": "2026-08-07T17:17:20.985-05:00",
+    "lastSeen": "2026-08-13T01:15:46.851-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 0,
+    "gamesLost": 1,
+    "feedbackGiven": false
+  },
+  "255591": {
+    "memberNumber": 255591,
+    "name": "haldron",
+    "firstSeen": "2026-08-09T22:56:36.493-05:00",
+    "lastSeen": "2026-08-12T06:18:27.866-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255686": {
+    "memberNumber": 255686,
+    "name": "Lyddie",
+    "firstSeen": "2026-08-07T09:06:28.091-05:00",
+    "lastSeen": "2026-08-07T09:06:28.091-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255722": {
+    "memberNumber": 255722,
+    "name": "MasterMaster",
+    "firstSeen": "2026-08-08T01:08:45.359-05:00",
+    "lastSeen": "2026-08-08T01:08:45.359-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255768": {
+    "memberNumber": 255768,
+    "name": "Milkey",
+    "firstSeen": "2026-08-07T15:36:28.196-05:00",
+    "lastSeen": "2026-08-07T15:36:28.196-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255890": {
+    "memberNumber": 255890,
+    "name": "eliff",
+    "firstSeen": "2026-08-11T19:21:22.157-05:00",
+    "lastSeen": "2026-08-12T09:50:26.855-05:00",
+    "gamesPlayed": 1,
+    "gamesWon": 1,
+    "gamesLost": 0,
+    "feedbackGiven": false,
+    "lastChangelogVersion": "2026-08-12T12:00:00"
+  },
+  "255939": {
+    "memberNumber": 255939,
+    "name": "Lauren",
+    "firstSeen": "2026-08-08T16:51:45.946-05:00",
+    "lastSeen": "2026-08-08T16:51:45.946-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255963": {
+    "memberNumber": 255963,
+    "name": "Penelope Selvar",
+    "firstSeen": "2026-08-09T00:31:23.379-05:00",
+    "lastSeen": "2026-08-13T00:31:10.906-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "255964": {
+    "memberNumber": 255964,
+    "name": "Bryony",
+    "firstSeen": "2026-08-10T03:53:02.645-05:00",
+    "lastSeen": "2026-08-10T03:53:02.645-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256079": {
+    "memberNumber": 256079,
+    "name": "Jenny",
+    "firstSeen": "2026-08-10T03:52:25.342-05:00",
+    "lastSeen": "2026-08-11T07:27:33.985-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256114": {
+    "memberNumber": 256114,
+    "name": "olivia",
+    "firstSeen": "2026-08-09T20:42:42.187-05:00",
+    "lastSeen": "2026-08-09T20:42:42.187-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256182": {
+    "memberNumber": 256182,
+    "name": "Kiyo",
+    "firstSeen": "2026-08-11T01:05:17.313-05:00",
+    "lastSeen": "2026-08-11T01:05:17.313-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256197": {
+    "memberNumber": 256197,
+    "name": "Lillit",
+    "firstSeen": "2026-08-12T23:06:30.602-05:00",
+    "lastSeen": "2026-08-12T23:06:30.602-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256213": {
+    "memberNumber": 256213,
+    "name": "Alex",
+    "firstSeen": "2026-08-12T09:51:56.604-05:00",
+    "lastSeen": "2026-08-12T19:14:53.640-05:00",
+    "gamesPlayed": 2,
+    "gamesWon": 0,
+    "gamesLost": 2,
+    "feedbackGiven": false
+  },
+  "256233": {
+    "memberNumber": 256233,
+    "name": "Rahma",
+    "firstSeen": "2026-08-10T20:43:13.377-05:00",
+    "lastSeen": "2026-08-10T20:43:13.377-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256244": {
+    "memberNumber": 256244,
+    "name": "cris",
+    "firstSeen": "2026-08-10T22:38:49.402-05:00",
+    "lastSeen": "2026-08-10T22:38:49.402-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256287": {
+    "memberNumber": 256287,
+    "name": "Aean",
+    "firstSeen": "2026-08-11T07:28:52.214-05:00",
+    "lastSeen": "2026-08-11T07:28:52.214-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256288": {
+    "memberNumber": 256288,
+    "name": "Ben",
+    "firstSeen": "2026-08-11T07:44:18.859-05:00",
+    "lastSeen": "2026-08-11T07:44:18.859-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256367": {
+    "memberNumber": 256367,
+    "name": "Mia",
+    "firstSeen": "2026-08-12T06:21:21.210-05:00",
+    "lastSeen": "2026-08-12T16:58:52.956-05:00",
+    "gamesPlayed": 0,
+    "gamesWon": 0,
+    "gamesLost": 0,
+    "feedbackGiven": false
+  },
+  "256387": {
+    "memberNumber": 256387,
+    "name": "Whitcash",
+    "firstSeen": "2026-08-12T01:15:37.742-05:00",
+    "lastSeen": "2026-08-12T01:15:37.742-05:00",
     "gamesPlayed": 0,
     "gamesWon": 0,
     "gamesLost": 0,
