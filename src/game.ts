@@ -974,13 +974,31 @@ export class StripDiceGame implements GameHost {
         // Solo game roll takes priority over the multiplayer !roll while active,
         // so a roll typed in room chat (instead of whispered) still counts and
         // doesn't get silently swallowed by the multiplayer roll handler.
+        //
+        // Tournament games are the exception: those rolls must be whispered.
+        // A competitive match played out loud in the room lets everyone follow
+        // an opponent's score live, and it's noise for anyone not in the
+        // tournament. Nudge rather than roll, so the player doesn't burn a roll
+        // by typing it in the wrong place.
         if (["!roll", "!r", "!rool", "!rol", "!oll"].includes(msg) && this.solo.hasGame(memberNumber)) {
+            if (this.solo.isTournamentGame(memberNumber)) {
+                this.bot.whisper(memberNumber,
+                    "Psst — whisper your !roll to me for tournament games. Your roll wasn't counted, so send it again as a whisper.");
+                return;
+            }
             this.solo.handleRoll(memberNumber);
             return;
         }
 
         // Solo item-removal confirmation, while waiting on it (see handleWhisper).
+        // Whisper-only during a tournament game for the same reason as !roll —
+        // it reveals the player's progress through their outfit.
         if (msg === "!removed" && this.solo.isAwaitingRemoval(memberNumber)) {
+            if (this.solo.isTournamentGame(memberNumber)) {
+                this.bot.whisper(memberNumber,
+                    "Psst — whisper !removed to me for tournament games.");
+                return;
+            }
             this.solo.handleRemoved(memberNumber);
             return;
         }

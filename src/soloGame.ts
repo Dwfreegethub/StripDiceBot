@@ -157,6 +157,13 @@ export class SoloGameManager {
         return this.pendingSoloSetup.has(memberNumber);
     }
 
+    // True if this member's active solo game is part of a tournament match.
+    // Used to keep tournament rolls whisper-only — a competitive match played
+    // out in room chat lets everyone follow an opponent's score live.
+    public isTournamentGame(memberNumber: number): boolean {
+        return this.soloGames.get(memberNumber)?.tournamentCtx != null;
+    }
+
     public isAwaitingRemoval(memberNumber: number): boolean {
         return this.soloGames.get(memberNumber)?.awaitingRemoval ?? false;
     }
