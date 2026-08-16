@@ -830,7 +830,47 @@ function testEndToEnd(): void {
     check(pSaid.some(s => /ready to start/i.test(s)),
         "entering the room asks whether they're ready to serve");
 
-    console.log("  65 assertions");
+    // ---- "ready for the next game?" prompt ----
+    // Finishing a game should lead straight into an offer to play the next,
+    // since the player is standing there naked and would otherwise have to
+    // remember a command.
+    const { host: nHost, getSaved: nSaved, said: nSaid } = makeStubHost([ADMIN]);
+    let nStarts = 0;
+    nHost.startTournamentGame = () => { nStarts++; return null; };
+    const nManager = new TournamentManager(nHost);
+    nManager.handleSetup(ADMIN);
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "1", "yes"]) {
+        nManager.handleSetupAnswer(ADMIN, a);
+    }
+    nManager.handleSetupAnswer(ADMIN, "yes");
+    nManager.handleRegister(601, "Ann");
+    nManager.handleRegister(602, "Bea");
+    nManager.checkSchedule(Date.now() + 2 * 60 * 1000);
+
+    const nMatch = nSaved()!.matches.find(m => m.playerB !== null)!;
+    nSaid.length = 0;
+    nManager.recordGameResult(nMatch.playerA, 20, 60_000);   // finish game 1 of 3
+    check(nSaid.some(s => /reply \*\*yes\*\* to start game 2/i.test(s)),
+        "finishing a game offers the next one");
+    check(nSaid.some(s => /get dressed again/i.test(s)),
+        "the offer reminds them to dress first");
+
+    // Answering yes runs the same path as !tournament play.
+    nStarts = 0;
+    check(nManager.tryHandleNextGamePrompt(nMatch.playerA, "yes") === true, "yes is consumed");
+    check(nStarts === 1, "yes starts the next game", `${nStarts} starts`);
+
+    // Declining leaves it to them, and the prompt is not reusable.
+    nManager.recordGameResult(nMatch.playerA, 20, 60_000);   // game 2 done
+    check(nManager.tryHandleNextGamePrompt(nMatch.playerA, "no") === true, "no is consumed");
+    check(nManager.tryHandleNextGamePrompt(nMatch.playerA, "yes") === false,
+        "the prompt can't be answered twice");
+
+    // An unrelated yes/no must fall through so it isn't swallowed.
+    check(nManager.tryHandleNextGamePrompt(602, "yes") === false,
+        "someone with no pending prompt is not intercepted");
+
+    console.log("  72 assertions");
 }
 
 // ---- main ----------------------------------------------------------------

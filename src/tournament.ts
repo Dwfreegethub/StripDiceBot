@@ -22,7 +22,7 @@ import {
     TOURNAMENT_DEFAULT_GRACE_ROUNDS, TOURNAMENT_DEFAULT_MIN_PLAYERS,
     TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS, TOURNAMENT_FRIEND_WAIT_MS, TOURNAMENT_RESUME_GRACE_MS,
     TOURNAMENT_SERVE_PROMPT_MS,
-    TOURNAMENT_SETUP_TIMEOUT_MS, TOURNAMENT_TICK_MS,
+    TOURNAMENT_NEXT_GAME_PROMPT_MS, TOURNAMENT_SETUP_TIMEOUT_MS, TOURNAMENT_TICK_MS,
 } from "./constants";
 
 // One question in the admin setup interview. `apply` stores the parsed answer;
@@ -141,6 +141,10 @@ export class TournamentManager {
 
     // Players asked "ready to serve?" on entering the room, awaiting a yes/no.
     private pendingServePrompt: Map<number, NodeJS.Timeout> = new Map();
+
+    // Players asked "ready for your next game?" after finishing one, awaiting
+    // a yes/no. In-memory: missing it just means using !tournament play.
+    private pendingNextGamePrompt: Map<number, NodeJS.Timeout> = new Map();
 
     // When each player was last sent their round status on entering the room,
     // so someone whose connection is flapping doesn't get whispered every time.
@@ -906,8 +910,10 @@ export class TournamentManager {
             `game ${played} of ${total} against ${this.nameOf(opponent)} done.${standing}`);
 
         if (played < total) {
-            this.host.bot.whisper(memberNumber,
-                `${total - played} game${total - played === 1 ? "" : "s"} left this round — whisper !tournament play when you're ready.`);
+            // A Survive game ends with the player naked, so the next one needs
+            // them dressed again. Ask directly rather than leaving them to
+            // remember a command while standing there with nothing on.
+            this.promptNextGame(memberNumber, player.name, played + 1, total);
         } else {
             this.host.bot.whisper(memberNumber,
                 `✅ That's all ${total} of your games for Round ${this.state.currentRound}. ` +
@@ -915,6 +921,50 @@ export class TournamentManager {
         }
 
         this.tryResolveMatch(match);
+    }
+
+    // Asks whether they want to go straight into the next game of the match.
+    // Answering yes runs the same path as !tournament play, which will offer
+    // their remembered outfit — so a full turnaround is two words.
+    private promptNextGame(memberNumber: number, name: string, nextGame: number, total: number): void {
+        const existing = this.pendingNextGamePrompt.get(memberNumber);
+        if (existing) clearTimeout(existing);
+
+        const timeout = setTimeout(() => {
+            this.pendingNextGamePrompt.delete(memberNumber);
+            this.host.bot.whisper(memberNumber,
+                `No rush — whisper !tournament play when you're ready for game ${nextGame} of ${total}.`);
+        }, TOURNAMENT_NEXT_GAME_PROMPT_MS);
+        this.pendingNextGamePrompt.set(memberNumber, timeout);
+
+        const clothing = this.state?.config.clothingCount ?? 6;
+        this.host.sendLongWhisper(memberNumber,
+            `${total - nextGame + 1} game${total - nextGame + 1 === 1 ? "" : "s"} left this round.\n` +
+            `Get dressed again (${clothing} items) and reply **yes** to start game ${nextGame} of ${total} — ` +
+            `or **no** to stop for now and come back with !tournament play.`);
+    }
+
+    // Consumes the yes/no answering that prompt. Returns true if handled.
+    public tryHandleNextGamePrompt(memberNumber: number, msg: string): boolean {
+        const pending = this.pendingNextGamePrompt.get(memberNumber);
+        if (!pending) return false;
+
+        const a = msg.trim().toLowerCase();
+        if (a !== "yes" && a !== "y" && a !== "no" && a !== "n") return false;
+
+        clearTimeout(pending);
+        this.pendingNextGamePrompt.delete(memberNumber);
+
+        if (a === "no" || a === "n") {
+            this.host.bot.whisper(memberNumber,
+                "No problem — whisper !tournament play whenever you're ready for the next one.");
+            return true;
+        }
+
+        // Same entry point as the command, so every guard (punishment owed,
+        // match already decided, games already played) still applies.
+        this.handlePlay(memberNumber, this.host.getPlayerName(memberNumber));
+        return true;
     }
 
     // Resolves a match once both sides have played everything, credits the

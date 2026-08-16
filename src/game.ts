@@ -759,6 +759,12 @@ export class StripDiceGame implements GameHost {
         // "Ready to serve your punishment?" yes/no, asked on entering the room.
         if (this.tournament.tryHandleServePrompt(memberNumber, msg)) return;
 
+        // "Ready for your next tournament game?" yes/no, asked after finishing
+        // one. Ahead of the solo clothing Q&A below, which also takes yes/no —
+        // a player answering this prompt has no solo game running, so there's
+        // no real ambiguity, but order makes that explicit.
+        if (this.tournament.tryHandleNextGamePrompt(memberNumber, msg)) return;
+
         // Winner's 69 bonus assignment phase (before the lock-time vote) —
         // winner whispers a player name to give them 5 min, or "skip".
         if (this.tryHandleWinner69Assignment(memberNumber, msg)) return;

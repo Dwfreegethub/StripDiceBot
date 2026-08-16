@@ -338,3 +338,8 @@ export const TOURNAMENT_ENTRY_STATUS_COOLDOWN_MS = 15 * 60 * 1000;
 // which meant a quiet room with everyone already present could sit past a
 // deadline indefinitely — including the very first "start Round 1" transition.
 export const TOURNAMENT_TICK_MS = 60 * 1000;
+
+// How long the "ready for your next tournament game?" prompt stays open after
+// a player finishes one. They have to get dressed again first, so this is
+// generous — missing it just means using !tournament play instead.
+export const TOURNAMENT_NEXT_GAME_PROMPT_MS = 5 * 60 * 1000;
