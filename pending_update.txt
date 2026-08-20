@@ -1,8 +1,5 @@
-2026-08-19T21:30:00
-🔔 New: whisper !bd register, then !looking beeps everyone online when you want a game.
-Matchmaking pool — nobody should have to sit in an empty room hoping someone turns up. Whisper !bd register once (you'll add me as a friend too, which is how beeps reach you), and from then on you get a beep whenever someone is here looking for a game.
-When YOU are the one waiting, whisper !looking and I'll beep every registered player who's online right now, telling them you're here. If any of them reply to that beep, I pass their reply straight back to you.
-!bd pause and !bd resume turn the beeps off and on without leaving the pool; !bd unregister leaves it entirely; !bd status shows where you stand. Whisper !bd for the full list.
-Two house rules: !looking has a 30-minute cooldown so the pool doesn't get spammed, and please stay in the room for at least 3 minutes after calling it — people need time to see the beep and travel over. Walking straight back out after calling wastes everyone's beep, and doing it repeatedly drops you from the pool.
-Also on this update: solo games now offer you last game's outfit instead of asking about every item again, the same way !same works in a multiplayer game. Reply 1 to reuse it or 2 to go through the list.
-And: tournament mode is installed but dormant. Unless an admin actually starts one, nothing about the room, your games, or your commands behaves differently — !tournament only appears in the help while a tournament is genuinely running. A small test tournament with volunteers comes first, on very short rounds. Format when it does run: Swiss pairing with double elimination — each round you're paired with someone on a similar record, you each play solo Survive games on your own time, most rolls survived wins, lose twice and you're out.
+2026-08-19T22:15:00 | minor
+Tidied up the whispers you get on walking in — one message now instead of three.
+Walking into the room used to fire three whispers back to back: a welcome, a matchmaking nudge, and a "there's been an update" nudge. They're one message now, and it says what the room is up to, all three ways to play on a single line (!join for multiplayer, !teamgame for 2v2 or 3v3, !solo race / !solo survive on your own), and anything new.
+The matchmaking line only shows if you haven't joined the pool yet — once you've whispered !bd register it stops nagging you, and you just get a "whisper !looking" note when you turn up to an empty room.
+Nothing about how any of the games work has changed.
