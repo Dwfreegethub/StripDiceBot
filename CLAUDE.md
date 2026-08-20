@@ -73,7 +73,15 @@ Dependency direction (never violate — module-load cycles crash the bot at star
   Keep the headline genuinely short — room chat shows nothing else. Put the reasoning
   in the detail lines. On restart the bot appends the entry to `changelog.json`, and
   players who were away get a one-line nudge to whisper `!changelog`.
-- Branches: `dev` is the working branch; merge to `master` when field-tested stable.
+- Branches: `dev` is the working branch. `master` is deliberately the **tournament-free
+  build** — the one the panel switches to if a live tournament misbehaves and the room
+  still needs to work. That only helps if master is otherwise current, so **any change
+  that is not specifically about tournaments must land on both branches**, and the shared
+  code is kept byte-identical (lift blocks verbatim rather than retyping) so merging in
+  either direction stays clean. Tournament-only files: `tournament.ts`, `tournamentLogic.ts`,
+  `tournamentSim.ts`, plus their hooks in `game.ts`/`soloGame.ts`/`host.ts`/`types.ts`/
+  `constants.ts`/`storage.ts`. Once a tournament has run for real, master can simply take
+  the lot and this split goes away.
 - Runtime data files (`players.json`, `game_counts.json`, `game_log.json`, ...) are
   tracked and churn constantly — commit them along with code changes, don't fret them.
 
