@@ -434,7 +434,7 @@ function testSetupInterview(): void {
     // Walk the interview with short, test-run style values.
     // Order: reg opens, sign-up length, round 1 start, round length,
     //        first-loss punish, elimination punish, grace rounds, withdrawals.
-    const answers = ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "0", "yes"];
+    const answers = ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "0", "yes", "3"];
     for (const answer of answers) {
         const consumed = manager.handleSetupAnswer(ADMIN, answer);
         check(consumed, `answer "${answer}" consumed`);
@@ -455,6 +455,29 @@ function testSetupInterview(): void {
     check(state?.config.allowsWithdrawal === true, "withdrawal answer stored");
     check(state?.config.graceRounds === 0, "grace rounds configurable to zero",
         String(state?.config.graceRounds));
+    check(state?.config.gamesPerMatch === 3, "games per match stored from setup",
+        String(state?.config.gamesPerMatch));
+
+    // A 1-game match is the point of the question — it makes a test run short.
+    const { host: gHost, getSaved: gSaved } = makeStubHost([ADMIN]);
+    const gManager = new TournamentManager(gHost);
+    gManager.handleSetup(ADMIN);
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes", "1"]) {
+        gManager.handleSetupAnswer(ADMIN, a);
+    }
+    gManager.handleSetupAnswer(ADMIN, "yes");
+    check(gSaved()!.config.gamesPerMatch === 1, "a 1-game match can be configured",
+        String(gSaved()!.config.gamesPerMatch));
+
+    // Anything other than 1/3/5 is rejected rather than silently accepted.
+    const { host: bHost } = makeStubHost([ADMIN]);
+    const bManager = new TournamentManager(bHost);
+    bManager.handleSetup(ADMIN);
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes"]) {
+        bManager.handleSetupAnswer(ADMIN, a);
+    }
+    bManager.handleSetupAnswer(ADMIN, "4");
+    check(bManager.isSettingUp(ADMIN), "an invalid games-per-match keeps the interview open");
     check(!manager.isSettingUp(ADMIN), "setup ends after creation");
 
     // Bad input is rejected and re-asked rather than guessed at.
@@ -491,7 +514,7 @@ function testSetupInterview(): void {
     const { host: fHost, getSaved: fSaved } = makeStubHost([ADMIN], friends);
     const fManager = new TournamentManager(fHost);
     fManager.handleSetup(ADMIN);
-    for (const answer of ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "1", "yes"]) {
+    for (const answer of ["now", "2 hours", "2 hours", "1 hour", "5 minutes", "15 minutes", "1", "yes", "3"]) {
         fManager.handleSetupAnswer(ADMIN, answer);
     }
     fManager.handleSetupAnswer(ADMIN, "yes");
@@ -519,7 +542,7 @@ function testSetupInterview(): void {
     check(fSaved()!.players.length === 2, "already-friended players register immediately",
         `${fSaved()!.players.length} players`);
 
-    console.log("  30 assertions");
+    console.log("  33 assertions");
 }
 
 // ---- end-to-end through the real manager --------------------------------
@@ -545,7 +568,7 @@ function testEndToEnd(): void {
     manager.handleSetup(ADMIN);
     // Registration opens now, closes immediately, round 1 starts immediately,
     // 1-hour rounds, no grace round so punishment is exercised from round 1.
-    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes"]) {
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes", "3"]) {
         manager.handleSetupAnswer(ADMIN, a);
     }
     manager.handleSetupAnswer(ADMIN, "yes");
@@ -751,7 +774,7 @@ function testEndToEnd(): void {
     const aManager = new TournamentManager(aHost);
     aManager.handleSetup(ADMIN);
     // A deliberately long window — a week of registration, round 1 in a week.
-    for (const ans of ["now", "1 week", "1 week", "48 hours", "15 minutes", "1 hour", "1", "yes"]) {
+    for (const ans of ["now", "1 week", "1 week", "48 hours", "15 minutes", "1 hour", "1", "yes", "3"]) {
         aManager.handleSetupAnswer(ADMIN, ans);
     }
     aManager.handleSetupAnswer(ADMIN, "yes");
@@ -795,7 +818,7 @@ function testEndToEnd(): void {
     pHost.isInRoom = (mn: number) => inRoom.has(mn);
     const pManager = new TournamentManager(pHost);
     pManager.handleSetup(ADMIN);
-    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes"]) {
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "0", "yes", "3"]) {
         pManager.handleSetupAnswer(ADMIN, a);
     }
     pManager.handleSetupAnswer(ADMIN, "yes");
@@ -839,7 +862,7 @@ function testEndToEnd(): void {
     nHost.startTournamentGame = () => { nStarts++; return null; };
     const nManager = new TournamentManager(nHost);
     nManager.handleSetup(ADMIN);
-    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "1", "yes"]) {
+    for (const a of ["now", "1 minute", "1 minute", "1 hour", "5 minutes", "15 minutes", "1", "yes", "3"]) {
         nManager.handleSetupAnswer(ADMIN, a);
     }
     nManager.handleSetupAnswer(ADMIN, "yes");

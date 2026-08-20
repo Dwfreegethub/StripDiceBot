@@ -36,7 +36,7 @@ interface SetupStep {
 const SETUP_STEPS: SetupStep[] = [
     {
         key: "registrationOpensAt",
-        prompt: "1/8 — When does registration open?\nAnswer with `now`, a delay like `3 days`, or a date like `2026-08-10`.",
+        prompt: "1/9 — When does registration open?\nAnswer with `now`, a delay like `3 days`, or a date like `2026-08-10`.",
         apply: (draft, answer, now) => {
             const when = parseWhen(answer, now);
             if (when === null) return "I couldn't read that as a time.";
@@ -46,7 +46,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "signUpLength",
-        prompt: "2/8 — How long is the sign-up window?\ne.g. `1 week`, `2 days`, `2 hours` (short values are fine for a test run).",
+        prompt: "2/9 — How long is the sign-up window?\ne.g. `1 week`, `2 days`, `2 hours` (short values are fine for a test run).",
         apply: (draft, answer, _now) => {
             const length = parseDuration(answer);
             if (length === null) return "I couldn't read that as a length of time.";
@@ -57,7 +57,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "firstRoundStart",
-        prompt: "3/8 — When does Round 1 begin?\n`now`, a delay like `1 hour`, or a date. It can't be before sign-ups close.",
+        prompt: "3/9 — When does Round 1 begin?\n`now`, a delay like `1 hour`, or a date. It can't be before sign-ups close.",
         apply: (draft, answer, now) => {
             const when = parseWhen(answer, now);
             if (when === null) return "I couldn't read that as a time.";
@@ -71,7 +71,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "roundLength",
-        prompt: "4/8 — How long is each round?\ne.g. `48 hours`, `3 days`, or `1 hour` for testing.",
+        prompt: "4/9 — How long is each round?\ne.g. `48 hours`, `3 days`, or `1 hour` for testing.",
         apply: (draft, answer) => {
             const length = parseDuration(answer);
             if (length === null) return "I couldn't read that as a length of time.";
@@ -81,7 +81,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "firstLossPunish",
-        prompt: "5/8 — How long bound and claimable for a FIRST loss?\ne.g. `15 minutes`, or `0` for none.",
+        prompt: "5/9 — How long bound and claimable for a FIRST loss?\ne.g. `15 minutes`, or `0` for none.",
         apply: (draft, answer) => {
             if (answer.trim() === "0" || answer.trim().toLowerCase() === "none") {
                 draft.firstLossPunishMs = 0;
@@ -95,7 +95,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "eliminationPunish",
-        prompt: "6/8 — How long bound and claimable when ELIMINATED (2nd loss)?\ne.g. `1 hour`, or `0` for none.",
+        prompt: "6/9 — How long bound and claimable when ELIMINATED (2nd loss)?\ne.g. `1 hour`, or `0` for none.",
         apply: (draft, answer) => {
             if (answer.trim() === "0" || answer.trim().toLowerCase() === "none") {
                 draft.eliminationPunishMs = 0;
@@ -109,7 +109,7 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "graceRounds",
-        prompt: "7/8 — How many opening rounds are grace rounds (losing costs nothing)?\n" +
+        prompt: "7/9 — How many opening rounds are grace rounds (losing costs nothing)?\n" +
             "`1` is the usual answer. `0` means punishment applies from Round 1.",
         apply: (draft, answer) => {
             const n = parseInt(answer.trim(), 10);
@@ -120,12 +120,23 @@ const SETUP_STEPS: SetupStep[] = [
     },
     {
         key: "allowsWithdrawal",
-        prompt: "8/8 — Can players withdraw between rounds? (yes / no)",
+        prompt: "8/9 — Can players withdraw between rounds? (yes / no)",
         apply: (draft, answer) => {
             const a = answer.trim().toLowerCase();
             if (a === "yes" || a === "y") { draft.allowsWithdrawal = true; return null; }
             if (a === "no" || a === "n") { draft.allowsWithdrawal = false; return null; }
             return "Please answer yes or no.";
+        },
+    },
+    {
+        key: "gamesPerMatch",
+        prompt: "9/9 — How many games per match? (1 / 3 / 5)\n" +
+            "`1` is fastest for testing. The real event uses `3` (best of 3).",
+        apply: (draft, answer) => {
+            const n = parseInt(answer.trim(), 10);
+            if (n !== 1 && n !== 3 && n !== 5) return "Please answer 1, 3, or 5.";
+            draft.gamesPerMatch = n;
+            return null;
         },
     },
 ];
@@ -330,7 +341,7 @@ export class TournamentManager {
             `Elimination: ${punish(draft.eliminationPunishMs)} bound & claimable\n` +
             `Grace rounds: ${draft.graceRounds === 0 ? "none — punishment from Round 1" : `${draft.graceRounds} (no punishment)`}\n` +
             `Withdrawals: ${draft.allowsWithdrawal ? "allowed between rounds" : "not allowed"}\n` +
-            `Format: best of ${TOURNAMENT_DEFAULT_GAMES_PER_MATCH} Survive games, ` +
+            `Format: ${draft.gamesPerMatch === 1 ? "1 Survive game" : `best of ${draft.gamesPerMatch} Survive games`}, ` +
             `${TOURNAMENT_DEFAULT_CLOTHING} clothing items\n` +
             `Target field: ${TOURNAMENT_DEFAULT_MIN_PLAYERS} players (advisory — a smaller field still runs)`;
     }
@@ -346,7 +357,7 @@ export class TournamentManager {
             signUpDeadline: draft.signUpDeadline!,
             firstRoundStart: draft.firstRoundStart!,
             roundLengthMs: draft.roundLengthMs!,
-            gamesPerMatch: TOURNAMENT_DEFAULT_GAMES_PER_MATCH,
+            gamesPerMatch: draft.gamesPerMatch!,
             clothingCount: TOURNAMENT_DEFAULT_CLOTHING,
             // Advisory only: below this the bot warns but still runs, so a
             // two-player rehearsal works without special-casing anything.
