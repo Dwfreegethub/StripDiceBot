@@ -307,6 +307,29 @@ export const FEEDBACK_VALID_STATUSES: FeedbackItemStatus[] = [
 export const FEEDBACK_NUDGE_CHANCE = 0.20;
 
 // ============================================================
+// MATCHMAKING POOL - the opt-in list of players who agree to be
+// beeped when someone is at the room wanting a game. Values match
+// WinnersDice's pool exactly (see its design_matchmaking.md) so a
+// player who knows the rules there knows them here.
+// ============================================================
+// Minimum gap between one player's !looking calls. Admins are exempt.
+export const LOOKING_COOLDOWN_MS = 30 * 60 * 1000;
+// How long after a !looking call the bot keeps relaying beep-replies back to
+// the seeker. Longer than the stay timer — people reply a few minutes late.
+export const LOOKING_RELAY_WINDOW_MS = 10 * 60 * 1000;
+// How long a seeker is expected to stay in the room after calling !looking.
+// Leaving before this expires is an early leave (a strike); staying the whole
+// window is good behaviour and decays one strike.
+export const LOOKING_STAY_MS = 3 * 60 * 1000;
+// When to whisper the seeker "looks like nobody made it over". Deliberately
+// just after LOOKING_STAY_MS so the nudge can't arrive while they're still
+// expected to wait.
+export const LOOKING_NO_RESPONSE_MS = 3.5 * 60 * 1000;
+// Strikes before a player is dropped from the pool. Only an admin
+// (!bd unblock) can put them back.
+export const LOOKING_STRIKE_LIMIT = 4;
+
+// ============================================================
 // TOURNAMENT MODE - format defaults. Every *duration* is chosen by
 // the admin during !tournament setup (so a rehearsal can use 1-hour
 // rounds); only the structural defaults live here.

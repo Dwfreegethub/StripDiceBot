@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "tsc && node build/index.js",
-    "sim": "tsc && node build/tournamentSim.js"
+    "sim": "tsc && node build/tournamentSim.js",
+    "sim:mm": "tsc && node build/matchmakingSim.js"
   },
   "keywords": [],
   "author": "",

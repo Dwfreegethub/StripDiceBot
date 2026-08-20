@@ -1,5 +1,7 @@
-2026-08-12T18:00:00 | minor
-Tournament mode is installed and being tested — nothing changes for you yet.
-Tournament support is now on the bot but completely dormant: unless an admin actually starts one, nothing about the room, your games, or your commands behaves any differently. You'll see !tournament in the help only while a tournament is actually running.
-The plan is a small test tournament with a few volunteers first, on very short rounds, before anything real is announced. If you'd like to be one of the guinea pigs, say so in the room.
-Format, when it does run: Swiss pairing with double elimination. Each round you're paired with someone on a similar record and you each play 3 solo Survive games on your own time — no need to be online together. Most rolls survived wins. Lose twice and you're out. The last two meet in a grand final.
+2026-08-19T21:30:00
+🔔 New: whisper !bd register, then !looking beeps everyone online when you want a game.
+Matchmaking pool — nobody should have to sit in an empty room hoping someone turns up. Whisper !bd register once (you'll add me as a friend too, which is how beeps reach you), and from then on you get a beep whenever someone is here looking for a game.
+When YOU are the one waiting, whisper !looking and I'll beep every registered player who's online right now, telling them you're here. If any of them reply to that beep, I pass their reply straight back to you.
+!bd pause and !bd resume turn the beeps off and on without leaving the pool; !bd unregister leaves it entirely; !bd status shows where you stand. Whisper !bd for the full list.
+Two house rules: !looking has a 30-minute cooldown so the pool doesn't get spammed, and please stay in the room for at least 3 minutes after calling it — people need time to see the beep and travel over. Walking straight back out after calling wastes everyone's beep, and doing it repeatedly drops you from the pool.
+Also on this update: tournament mode is installed but dormant. Unless an admin actually starts one, nothing about the room, your games, or your commands behaves differently — !tournament only appears in the help while a tournament is genuinely running. A small test tournament with volunteers comes first, on very short rounds. Format when it does run: Swiss pairing with double elimination — each round you're paired with someone on a similar record, you each play solo Survive games on your own time, most rolls survived wins, lose twice and you're out.

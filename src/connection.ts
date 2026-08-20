@@ -232,6 +232,7 @@ export class BCConnection {
             "ChatRoomSyncItem",
             "ChatRoomSyncSingle",
             "AccountBeep",
+            "AccountQueryResult",
         ];
         events.forEach(event => {
             this.socket.on(event, (data: any) => {
@@ -315,5 +316,34 @@ export class BCConnection {
     // logs the raw event; this lets game logic act on it too.
     public onAccountBeep(handler: (data: any) => void): void {
         this.socket.on("AccountBeep", handler);
+    }
+
+    // Asks BC which of this account's friends are online right now. There is
+    // no passive presence push — you ask, and the server answers with a single
+    // AccountQueryResult carrying { Query: "OnlineFriends", Result: [...] },
+    // one entry per online friend with MemberNumber, MemberName and the room
+    // they're in. Friendship must be mutual for a player to show up here.
+    //
+    // Resolves with the Result array, or [] on timeout — callers can't tell a
+    // timeout from "nobody is online", and deliberately don't need to: both
+    // mean "there is nobody to beep right now".
+    public queryOnlineFriends(timeoutMs = 8000): Promise<any[]> {
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = (result: any[]) => {
+                if (done) return;
+                done = true;
+                this.socket.off("AccountQueryResult", handler);
+                clearTimeout(timer);
+                resolve(result);
+            };
+            const handler = (data: any) => {
+                if (data?.Query !== "OnlineFriends") return;
+                finish(Array.isArray(data.Result) ? data.Result : []);
+            };
+            const timer = setTimeout(() => finish([]), timeoutMs);
+            this.socket.on("AccountQueryResult", handler);
+            this.socket.emit("AccountQuery", { Query: "OnlineFriends" });
+        });
     }
 }

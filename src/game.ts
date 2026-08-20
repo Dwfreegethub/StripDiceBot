@@ -35,6 +35,7 @@ import { GameHost } from "./host";
 import { BotStorage } from "./storage";
 import { SoloGameManager } from "./soloGame";
 import { FeedbackManager } from "./feedback";
+import { MatchmakingManager } from "./matchmaking";
 import { TournamentManager } from "./tournament";
 
 // ============================================================
@@ -237,6 +238,7 @@ export class StripDiceGame implements GameHost {
     public readonly storage: BotStorage = new BotStorage();
     public readonly solo: SoloGameManager;
     public readonly feedback: FeedbackManager;
+    public readonly matchmaking: MatchmakingManager;
     public readonly tournament: TournamentManager;
 
     // ============================================================
@@ -257,6 +259,7 @@ export class StripDiceGame implements GameHost {
         this.bot = bot;
         this.solo = new SoloGameManager(this);
         this.feedback = new FeedbackManager(this);
+        this.matchmaking = new MatchmakingManager(this);
         this.tournament = new TournamentManager(this);
         this.bondageUsage = this.storage.loadBondageUsage();
         this.itemSettings = this.storage.loadItemSettings();
@@ -322,6 +325,8 @@ export class StripDiceGame implements GameHost {
         // releases whoever they were holding.
         this.tournament.onLeaveRoom(memberNumber);
         this.tournament.onAnyoneLeftRoom(memberNumber);
+        // Walking out moments after calling !looking wastes everyone's beep.
+        this.matchmaking.onLeaveRoom(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
 
         // If the team game host leaves during setup (before joining a team), auto-cancel.
@@ -619,6 +624,16 @@ export class StripDiceGame implements GameHost {
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
         "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
+        // Matchmaking pool. "!bd " (with the space) has to come first or the
+        // bare form would swallow every subcommand. All of these work from
+        // room chat as well as whisper — replies are always whispered — and
+        // "!looking for a game" is a prefix match so the natural phrasing works.
+        "!bd ": {
+            handler: (mn, name, _msg, message) => this.matchmaking.handleCommand(mn, name, message.trim().slice("!bd".length)),
+            prefix: true,
+        },
+        "!bd": { handler: (mn) => this.matchmaking.handleHelp(mn) },
+        "!looking": { handler: (mn, name) => void this.matchmaking.handleLooking(mn, name), prefix: true },
         // Tournament — longer forms first so "!tournament register" isn't
         // swallowed by the bare "!tournament" status command. All of these work
         // from room chat as well as whisper (replies are always whispered);
@@ -664,6 +679,7 @@ export class StripDiceGame implements GameHost {
             // Already friends but possibly mid-registration (e.g. they whispered
             // !friend twice) — let the tournament finish its handshake anyway.
             this.tournament.onFriendAdded(memberNumber, name);
+            this.matchmaking.onFriendAdded(memberNumber);
             return;
         }
 
@@ -676,8 +692,10 @@ export class StripDiceGame implements GameHost {
             `I'll appear. Whisper !unfriend any time to undo this.`
         );
 
-        // Completes a tournament registration that was waiting on this link.
+        // Completes a tournament registration, or a matchmaking sign-up, that
+        // was waiting on this link.
         this.tournament.onFriendAdded(memberNumber, name);
+        this.matchmaking.onFriendAdded(memberNumber);
     }
 
     private handleUnfriend(memberNumber: number): void {
@@ -685,9 +703,15 @@ export class StripDiceGame implements GameHost {
             this.bot.whisper(memberNumber, "You weren't on my friend list to begin with.");
             return;
         }
+        // Their pool entry survives, but nothing can reach it — say so rather
+        // than leaving them wondering why the beeps stopped.
+        const poolNote = this.matchmaking.isRegistered(memberNumber)
+            ? ` Heads up: you're still in the matchmaking pool, but beeps only go to friends — so you won't get game ` +
+              `calls until you friend me again (or whisper !bd unregister to leave the pool for good).`
+            : "";
         this.bot.whisper(memberNumber,
             `Removed you from my friend list — I won't show up there any more. ` +
-            `Whisper !friend if you ever want me back.`
+            `Whisper !friend if you ever want me back.${poolNote}`
         );
     }
 
@@ -1993,6 +2017,18 @@ export class StripDiceGame implements GameHost {
         this.bot.whisper(memberNumber, `Next roll forced to ${n}. Will clear after use.`);
     }
 
+    // Every incoming beep, routed from index.ts. Two kinds arrive: plain
+    // human beeps, where Message is a string, and addon beeps (BeepType
+    // "GGC_BEEP" and the like) where Message is a protocol object. Only the
+    // former can be a reply to a matchmaking game call, which is why the
+    // manager type-checks before acting on it.
+    public onAccountBeep(data: any): void {
+        const from = data?.MemberNumber ?? data?.MemberNumberFrom;
+        const name = data?.MemberName ?? (typeof from === "number" ? this.getPlayerName(from) : "?");
+        if (typeof from !== "number") return;
+        this.matchmaking.onIncomingBeep(from, name, data?.Message);
+    }
+
     // !testbeep <memberNumber|name> [message] — admin-only. Beeps the target so
     // we can confirm (a) beeps arrive at all and (b) the Message text rides
     // along. Beeps only reach players who are ONLINE, so this also doubles as
@@ -2848,6 +2884,9 @@ export class StripDiceGame implements GameHost {
                     "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
             }
+            // Walking into an empty room is exactly the moment matchmaking is
+            // worth knowing about — and the only moment it's not noise.
+            this.nudgeMatchmakingIfAlone(memberNumber);
             return;
         }
 
@@ -2861,6 +2900,19 @@ export class StripDiceGame implements GameHost {
                 "A multiplayer game is in progress and it's too late to join, but you can play a solo game! Type !solo race or !solo survive to start."
             );
         }
+    }
+
+    // Tells someone who has arrived to an empty room about the matchmaking
+    // pool: !looking if they're already in it, !bd register if they aren't.
+    // Only when they really are on their own — anyone who walks in on company
+    // doesn't need to summon more, and a permanent line about it would just
+    // get skimmed past.
+    private nudgeMatchmakingIfAlone(memberNumber: number): void {
+        if (this.getRoomMembers().some(n => n !== memberNumber)) return;
+        this.bot.whisper(memberNumber, this.matchmaking.isRegistered(memberNumber)
+            ? "Quiet in here — whisper !looking and I'll beep everyone who's registered and online."
+            : "Quiet in here? Whisper !bd register to join the matchmaking pool — then !looking beeps everyone " +
+              "who's registered and online, and you'll get a beep when they're the ones waiting.");
     }
 
     // True if a normal !join would currently be accepted (i.e. not the
@@ -2999,7 +3051,8 @@ export class StripDiceGame implements GameHost {
             `=== Strip Dice Help ===\n` +
             `!help player - Multiplayer game commands (join, clothing, rolling, locks)\n` +
             `!help solo - Solo whisper game & leaderboard commands\n` +
-            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n`;
+            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n` +
+            `!bd - Matchmaking: get beeped when someone wants a game, and beep them back\n`;
 
         // Only advertised while a tournament actually exists — there's nothing
         // for a player to do with these commands otherwise, and a permanent
@@ -3059,6 +3112,8 @@ export class StripDiceGame implements GameHost {
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
             `!friend - Add me to your friend list so you can see when the room is up (!unfriend to undo)\n` +
+            `!bd register - Join the matchmaking pool so players can beep you when they want a game\n` +
+            `!looking - Room empty? Beep every registered player who's online (!bd for the full list)\n` +
             `!changelog - See what's changed recently\n` +
             `!about - About this bot\n` +
             `!help - Show the help menu`;
@@ -3096,6 +3151,11 @@ export class StripDiceGame implements GameHost {
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
             `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
             `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
+            `--- Matchmaking ---\n` +
+            `!bd pool - Everyone registered, who's online, and their strike counts\n` +
+            `!bd clearstrikes [name|memberNumber] - Reset a player's early-leave strikes\n` +
+            `!bd unblock [name|memberNumber] - Put a blocked player back in the pool\n` +
+            `(admins have no !looking cooldown and earn no strikes)\n` +
             `--- Tournament ---\n` +
             `!tournament setup - Create a tournament (asks 8 questions; durations in plain language)\n` +
             `!tournament advance - Start Round 1 now, or close the current round early (unplayed games count as losses)\n` +

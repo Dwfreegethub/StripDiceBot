@@ -393,6 +393,25 @@ export interface TournamentState {
 }
 
 // ============================================================
+// MATCHMAKING POOL
+// ============================================================
+// One player's opt-in to being beeped when someone wants a game.
+// Persisted in registered_players.json. Pool membership is deliberately
+// independent of BC friendship: unregistering never unfriends, because the
+// friend link also drives the "see the room on your friend list" feature.
+// A stale friendship is harmless — only registered players are ever beeped.
+export interface RegisteredPlayer {
+    memberNumber: number;
+    name: string;
+    registeredAt: number;
+    paused: boolean;              // still registered, but receives no beeps
+    earlyLeaveCount: number;      // strikes for leaving right after !looking
+    blocked: boolean;             // dropped from the pool; admin must unblock
+    lastLookingAt: number | null;
+    lookingCooldownUntil: number | null;
+}
+
+// ============================================================
 // COMMAND DISPATCH TABLE
 // ============================================================
 export type CommandHandler = (memberNumber: number, name: string, msg: string, message: string) => void;

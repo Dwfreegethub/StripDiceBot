@@ -11,7 +11,7 @@ import * as path from "path";
 import { log } from "./logger";
 import {
     ChangelogEntry, FeedbackStatusEntry, GameLogEntry, ItemSettingsLibrary, OutfitSuggestion,
-    PlayerRecord, SoloRecordsData, TournamentState,
+    PlayerRecord, RegisteredPlayer, SoloRecordsData, TournamentState,
 } from "./types";
 import { CHANGELOG_MAX_ENTRIES, GAME_LOG_RETENTION_MS } from "./constants";
 import { emptySoloRecordsData, utcDateString } from "./util";
@@ -43,6 +43,7 @@ export class BotStorage {
     private readonly tournamentPath = path.join(this.baseDir, "tournament.json");
     private readonly tournamentLogPath = path.join(this.baseDir, "tournament_game_log.txt");
     private readonly changelogPath = path.join(this.baseDir, "changelog.json");
+    private readonly registeredPlayersPath = path.join(this.baseDir, "registered_players.json");
 
     // ---- changelog ---------------------------------------------------
 
@@ -208,6 +209,27 @@ export class BotStorage {
             fs.writeFileSync(this.playerRecordsPath, JSON.stringify(records, null, 2), "utf8");
         } catch (err) {
             log("ERROR: Failed to write players.json: " + err);
+        }
+    }
+
+    // ---- matchmaking pool --------------------------------------------------
+
+    // Keyed by member number as a string, same shape WinnersDice uses, so the
+    // two bots' pool files can be eyeballed (or merged) interchangeably.
+    loadRegisteredPlayers(): Record<string, RegisteredPlayer> {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(this.registeredPlayersPath, "utf8"));
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    saveRegisteredPlayers(players: Record<string, RegisteredPlayer>): void {
+        try {
+            fs.writeFileSync(this.registeredPlayersPath, JSON.stringify(players, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write registered_players.json: " + err);
         }
     }
 
