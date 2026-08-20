@@ -12,6 +12,13 @@ export const GAME_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const CHANGELOG_MAX_ENTRIES = 40;
 export const CHANGELOG_ENTRIES_SHOWN = 5;
 
+// When the entry whisper stops calling the current headline feature "new".
+// The old "🆕 NEW: Try !teamgame" line sat in the welcome message for two
+// months after team mode shipped, which is how a banner stops being read at
+// all — so this one expires on its own. Push the date out (and rewrite
+// newFeatureLine in game.ts) when there's a new thing to shout about.
+export const NEW_FEATURE_UNTIL = "2026-10-15";
+
 // ============================================================
 // TEST MODE - set to false for production
 // ============================================================
