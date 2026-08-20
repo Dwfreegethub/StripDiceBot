@@ -232,6 +232,7 @@ export class BCConnection {
             "ChatRoomSyncItem",
             "ChatRoomSyncSingle",
             "AccountBeep",
+            "AccountQueryResult",
         ];
         events.forEach(event => {
             this.socket.on(event, (data: any) => {
@@ -295,5 +296,54 @@ export class BCConnection {
         this.socket.emit("AccountUpdate", { FriendList: this.friendList });
         log(`Unfriended #${memberNumber} (${this.friendList.length} total).`);
         return true;
+    }
+
+    // Sends a beep (optionally carrying a text message) to a member. BC
+    // delivers it wherever the target is, so it's the only way to reach
+    // someone who isn't in the room — but it only lands if they're ONLINE.
+    // Treat every beep as best-effort: never make correctness depend on one
+    // arriving. Same emit shape as SlaveParking and WinnersDice.
+    public beep(memberNumber: number, message?: string): void {
+        this.socket.emit("AccountBeep", {
+            MemberNumber: memberNumber,
+            BeepType: "",
+            Message: message ?? "",
+        });
+        log(`Beeped #${memberNumber}${message ? `: "${message}"` : ""}.`);
+    }
+
+    // Incoming beeps (including replies to a beep we sent). listenAll already
+    // logs the raw event; this lets game logic act on it too.
+    public onAccountBeep(handler: (data: any) => void): void {
+        this.socket.on("AccountBeep", handler);
+    }
+
+    // Asks BC which of this account's friends are online right now. There is
+    // no passive presence push — you ask, and the server answers with a single
+    // AccountQueryResult carrying { Query: "OnlineFriends", Result: [...] },
+    // one entry per online friend with MemberNumber, MemberName and the room
+    // they're in. Friendship must be mutual for a player to show up here.
+    //
+    // Resolves with the Result array, or [] on timeout — callers can't tell a
+    // timeout from "nobody is online", and deliberately don't need to: both
+    // mean "there is nobody to beep right now".
+    public queryOnlineFriends(timeoutMs = 8000): Promise<any[]> {
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = (result: any[]) => {
+                if (done) return;
+                done = true;
+                this.socket.off("AccountQueryResult", handler);
+                clearTimeout(timer);
+                resolve(result);
+            };
+            const handler = (data: any) => {
+                if (data?.Query !== "OnlineFriends") return;
+                finish(Array.isArray(data.Result) ? data.Result : []);
+            };
+            const timer = setTimeout(() => finish([]), timeoutMs);
+            this.socket.on("AccountQueryResult", handler);
+            this.socket.emit("AccountQuery", { Query: "OnlineFriends" });
+        });
     }
 }

@@ -128,7 +128,7 @@ const SOLO_THEME_OFFER_TIMEOUT_MS = 30 * 1000;
 
 export class SoloGameManager {
     private soloGames: Map<number, SoloGameState> = new Map();
-    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[] }> = new Map();
+    private pendingSoloSetup: Map<number, { mode: SoloMode; name: string; clothingPath: ClothingPath; clothingQuestionIndex: number; pendingClothing: string[]; awaitingOutfitChoice: boolean }> = new Map();
     // Players who finished a solo game and are awaiting a yes/no to the prize question.
     private pendingSoloPrizeQuestion: Map<number, string> = new Map(); // memberNumber → name
     // Players who said yes to the prize question and are now describing what it means to them.
@@ -224,9 +224,57 @@ export class SoloGameManager {
             return;
         }
         const clothingPath = this.host.resolveClothingPath(memberNumber);
-        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [] });
+        this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [], awaitingOutfitChoice: false });
+
+        // Offer last game's outfit instead of walking the whole yes/no list
+        // again — the multiplayer game has had !same for ages and back-to-back
+        // solo runs are where the re-declaring gets tedious. Only offered when
+        // the remembered outfit is still valid: enough items for a bracket, and
+        // every slot on the list they're currently using (a player who switched
+        // between the male and female lists gets asked properly).
+        const last = this.host.getLastClothing(memberNumber);
+        const slots = clothingSlotsFor(clothingPath);
+        if (last && last.length >= SOLO_BRACKET_MIN && last.every(item => slots.includes(item))) {
+            const pending = this.pendingSoloSetup.get(memberNumber)!;
+            pending.awaitingOutfitChoice = true;
+            pending.pendingClothing = [...last];
+            this.host.sendLongWhisper(memberNumber,
+                `Last time you wore: ${last.join(", ")}.\n` +
+                `Same outfit? Reply **1** or **same** to start now, or **2** or **new** to go through it item by item.`);
+            return;
+        }
+
         this.host.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
         this.askClothingQuestion(memberNumber);
+    }
+
+    // True while this member owes a "same outfit or new?" answer.
+    public hasPendingOutfitChoice(memberNumber: number): boolean {
+        return this.pendingSoloSetup.get(memberNumber)?.awaitingOutfitChoice === true;
+    }
+
+    // Resolves the "same or new?" reply. Returns true if it was consumed.
+    public handleOutfitChoice(memberNumber: number, msg: string): boolean {
+        const pending = this.pendingSoloSetup.get(memberNumber);
+        if (!pending?.awaitingOutfitChoice) return false;
+
+        const a = msg.trim().toLowerCase();
+        if (a === "1" || a === "same" || a === "yes" || a === "y") {
+            pending.awaitingOutfitChoice = false;
+            const clothing = [...pending.pendingClothing];
+            this.startGame(memberNumber, pending.mode, pending.name, clothing);
+            return true;
+        }
+        if (a === "2" || a === "new" || a === "no" || a === "n") {
+            pending.awaitingOutfitChoice = false;
+            pending.pendingClothing = [];
+            pending.clothingQuestionIndex = 0;
+            this.host.bot.whisper(memberNumber, "No problem — let's go through your outfit.");
+            this.askClothingQuestion(memberNumber);
+            return true;
+        }
+        this.host.bot.whisper(memberNumber, "Reply **1**/same to reuse it, or **2**/new to declare a different outfit.");
+        return true;
     }
 
     private askClothingQuestion(memberNumber: number): void {
@@ -286,6 +334,10 @@ export class SoloGameManager {
             inactivityTimer: null,
         };
         this.soloGames.set(memberNumber, solo);
+        // Remember the outfit so the next game can offer to reuse it. Shared
+        // with the multiplayer game's memory, so declaring here also saves the
+        // player re-declaring when they !join a normal game.
+        this.host.setLastClothing(memberNumber, clothing);
         this.host.saveBotState();
         logGameEvent(`[SOLO START] mode: ${solo.mode} | bracket: ${bracket} | player: ${solo.name} (#${memberNumber})`);
 

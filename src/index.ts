@@ -193,6 +193,17 @@ async function main() {
         game.onReconnect();
     });
 
+    // Incoming beeps — replies to a matchmaking game call, replies to
+    // !testbeep, plus any unsolicited beep. Logged with the full payload
+    // because the reply shape is the only place we can see it.
+    bot.onAccountBeep((data: any) => {
+        const from = data?.MemberNumber ?? data?.MemberNumberFrom ?? "unknown";
+        const msg = data?.Message ?? "";
+        const msgStr = typeof msg === "string" ? msg : `[${typeof msg}]`;
+        log(`BEEP received from #${from}${msgStr ? `: "${msgStr}"` : " (no message)"} — raw: ${JSON.stringify(data)}`);
+        game.onAccountBeep(data);
+    });
+
     bot.listenAll();
 
     try {

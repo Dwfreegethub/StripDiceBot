@@ -1,6 +1,7 @@
-2026-08-06T22:00:00
-Fixed: prize lock passwords could be wrong. One password now opens everything.
-If you won a game and claimed a prize, the password you were given could fail to open some of their restraints. This happened to Candy claiming Oklin: the bot said the password was OBEDIENT, but several of Oklin's locks were actually set to PLAYFUL, that game's shared password.
-The cause: a prize player's restraints were locked twice. First with the game's shared password like everyone else, then locked again a minute later with their own private prize password. Anything that touched a lock in between — or any part of that second pass that didn't land — left them with a mix of both, while !claim only ever knew about the second one.
-Now a prize player's own password is decided before a single lock goes on, and every lock they receive uses it from the start, including the collar and leash and any lock the bot has to re-apply. There is no second pass to go wrong, and the password !claim gives you is the only one on them.
-Side effects, both good: end-game locking now sends about half as many item updates for prize players, so the whole sequence finishes faster and is less likely to hit Bondage Club's rate limit. And in team games, prize players were being given a shorter lock timer than everyone else because the shared 69-roll bonus was left out of their time — they now get the same duration as the rest of the losing team.
+2026-08-19T21:30:00
+🔔 New: whisper !bd register, then !looking beeps everyone online when you want a game.
+Matchmaking pool — nobody should have to sit in an empty room hoping someone turns up. Whisper !bd register once (you'll add me as a friend too, which is how beeps reach you), and from then on you get a beep whenever someone is here looking for a game.
+When YOU are the one waiting, whisper !looking and I'll beep every registered player who's online right now, telling them you're here. If any of them reply to that beep, I pass their reply straight back to you.
+!bd pause and !bd resume turn the beeps off and on without leaving the pool; !bd unregister leaves it entirely; !bd status shows where you stand. Whisper !bd for the full list.
+Two house rules: !looking has a 30-minute cooldown so the pool doesn't get spammed, and please stay in the room for at least 3 minutes after calling it — people need time to see the beep and travel over. Walking straight back out after calling wastes everyone's beep, and doing it repeatedly drops you from the pool.
+Also on this update: solo games now offer you last game's outfit instead of asking about every item again, the same way !same works in a multiplayer game. Reply 1 to reuse it or 2 to go through the list.

@@ -35,6 +35,7 @@ import { GameHost } from "./host";
 import { BotStorage } from "./storage";
 import { SoloGameManager } from "./soloGame";
 import { FeedbackManager } from "./feedback";
+import { MatchmakingManager } from "./matchmaking";
 
 // ============================================================
 // GAME CLASS
@@ -236,6 +237,7 @@ export class StripDiceGame implements GameHost {
     public readonly storage: BotStorage = new BotStorage();
     public readonly solo: SoloGameManager;
     public readonly feedback: FeedbackManager;
+    public readonly matchmaking: MatchmakingManager;
 
     // ============================================================
     // TEAM MODE (2v2 / 3v3)
@@ -255,6 +257,7 @@ export class StripDiceGame implements GameHost {
         this.bot = bot;
         this.solo = new SoloGameManager(this);
         this.feedback = new FeedbackManager(this);
+        this.matchmaking = new MatchmakingManager(this);
         this.bondageUsage = this.storage.loadBondageUsage();
         this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
@@ -303,6 +306,8 @@ export class StripDiceGame implements GameHost {
     public onMemberLeave(memberNumber: number): void {
         this.roomMembers.delete(memberNumber);
         this.pendingYesNoJoin.delete(memberNumber);
+        // Walking out moments after calling !looking wastes everyone's beep.
+        this.matchmaking.onLeaveRoom(memberNumber);
         this.solo.cleanupOnLeave(memberNumber);
 
         // If the team game host leaves during setup (before joining a team), auto-cancel.
@@ -599,6 +604,17 @@ export class StripDiceGame implements GameHost {
         "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
+        "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
+        // Matchmaking pool. "!bd " (with the space) has to come first or the
+        // bare form would swallow every subcommand. All of these work from
+        // room chat as well as whisper — replies are always whispered — and
+        // "!looking for a game" is a prefix match so the natural phrasing works.
+        "!bd ": {
+            handler: (mn, name, _msg, message) => this.matchmaking.handleCommand(mn, name, message.trim().slice("!bd".length)),
+            prefix: true,
+        },
+        "!bd": { handler: (mn) => this.matchmaking.handleHelp(mn) },
+        "!looking": { handler: (mn, name) => void this.matchmaking.handleLooking(mn, name), prefix: true },
     };
 
     private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
@@ -623,6 +639,7 @@ export class StripDiceGame implements GameHost {
                 `You're already on my friend list! If you can't see me, add me from your own ` +
                 `friend list too — BC only shows us to each other when we've both added.`
             );
+            this.matchmaking.onFriendAdded(memberNumber);
             return;
         }
 
@@ -634,6 +651,9 @@ export class StripDiceGame implements GameHost {
             `when a game is running. If you haven't added me on your side yet, do that and ` +
             `I'll appear. Whisper !unfriend any time to undo this.`
         );
+
+        // Completes a matchmaking sign-up that was waiting on this link.
+        this.matchmaking.onFriendAdded(memberNumber);
     }
 
     private handleUnfriend(memberNumber: number): void {
@@ -641,9 +661,15 @@ export class StripDiceGame implements GameHost {
             this.bot.whisper(memberNumber, "You weren't on my friend list to begin with.");
             return;
         }
+        // Their pool entry survives, but nothing can reach it — say so rather
+        // than leaving them wondering why the beeps stopped.
+        const poolNote = this.matchmaking.isRegistered(memberNumber)
+            ? ` Heads up: you're still in the matchmaking pool, but beeps only go to friends — so you won't get game ` +
+              `calls until you friend me again (or whisper !bd unregister to leave the pool for good).`
+            : "";
         this.bot.whisper(memberNumber,
             `Removed you from my friend list — I won't show up there any more. ` +
-            `Whisper !friend if you ever want me back.`
+            `Whisper !friend if you ever want me back.${poolNote}`
         );
     }
 
@@ -749,6 +775,12 @@ export class StripDiceGame implements GameHost {
             if (accepted) this.solo.acceptThemeOffer(memberNumber);
             else this.solo.declineThemeOffer(memberNumber);
             return;
+        }
+
+        // Solo/tournament setup: "same outfit as last time?" — must be checked
+        // before the yes/no clothing Q&A below, since it accepts yes/no too.
+        if (this.solo.hasPendingOutfitChoice(memberNumber)) {
+            if (this.solo.handleOutfitChoice(memberNumber, msg)) return;
         }
 
         // Solo game setup: guided clothing Q&A (yes/no), same as !wearing
@@ -1908,6 +1940,58 @@ export class StripDiceGame implements GameHost {
         this.bot.whisper(memberNumber, `Next roll forced to ${n}. Will clear after use.`);
     }
 
+    // Every incoming beep, routed from index.ts. Two kinds arrive: plain
+    // human beeps, where Message is a string, and addon beeps (BeepType
+    // "GGC_BEEP" and the like) where Message is a protocol object. Only the
+    // former can be a reply to a matchmaking game call, which is why the
+    // manager type-checks before acting on it.
+    public onAccountBeep(data: any): void {
+        const from = data?.MemberNumber ?? data?.MemberNumberFrom;
+        const name = data?.MemberName ?? (typeof from === "number" ? this.getPlayerName(from) : "?");
+        if (typeof from !== "number") return;
+        this.matchmaking.onIncomingBeep(from, name, data?.Message);
+    }
+
+    // !testbeep <memberNumber|name> [message] — admin-only. Beeps the target so
+    // we can confirm (a) beeps arrive at all and (b) the Message text rides
+    // along. Beeps only reach players who are ONLINE, so this also doubles as
+    // the way to check the offline case: beep someone who has logged off and
+    // confirm nothing lands. Name lookup only works for people in the room —
+    // pass a member number to reach anyone else.
+    private handleTestBeep(memberNumber: number, message: string): void {
+        if (!this.requireAdmin(memberNumber)) return;
+
+        const tokens = message.trim().slice("!testbeep".length).trim().split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) {
+            this.bot.whisper(memberNumber, "Usage: !testbeep <memberNumber|name> [message]");
+            return;
+        }
+
+        const first = tokens[0].replace(/^@/, "");
+        let target: number;
+        let targetName: string;
+
+        if (/^\d{3,}$/.test(first)) {
+            target = Number(first);
+            targetName = this.nameCache.get(target) ?? `#${target}`;
+        } else {
+            const match = this.matchRoomMemberByName(first);
+            if (!match) {
+                this.bot.whisper(memberNumber, `No one in the room matches "${first}" — pass a member number to beep someone outside the room.`);
+                return;
+            }
+            target = match.memberNumber;
+            targetName = match.name;
+        }
+
+        const text = tokens.slice(1).join(" ") || "StripDiceBot test beep — reply to this so we can check the incoming path.";
+        this.bot.beep(target, text);
+
+        const friendNote = this.bot.isFriend(target) ? "" : " (⚠️ not on my friend list — they may not see it)";
+        this.bot.whisper(memberNumber, `Beeped ${targetName} (#${target})${friendNote}. Have them reply so we can see the incoming shape in the log.`);
+        logGameEvent(`[TESTBEEP] admin #${memberNumber} → ${targetName} (#${target}): "${text}"`);
+    }
+
     private handleLockTime(memberNumber: number, message: string): void {
         if (!this.isAdmin(memberNumber)) {
             this.bot.whisper(memberNumber, "Only the game admin can set the lock duration.");
@@ -2716,6 +2800,9 @@ export class StripDiceGame implements GameHost {
                     "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
                 );
             }
+            // Walking into an empty room is exactly the moment matchmaking is
+            // worth knowing about — and the only moment it's not noise.
+            this.nudgeMatchmakingIfAlone(memberNumber);
             return;
         }
 
@@ -2729,6 +2816,19 @@ export class StripDiceGame implements GameHost {
                 "A multiplayer game is in progress and it's too late to join, but you can play a solo game! Type !solo race or !solo survive to start."
             );
         }
+    }
+
+    // Tells someone who has arrived to an empty room about the matchmaking
+    // pool: !looking if they're already in it, !bd register if they aren't.
+    // Only when they really are on their own — anyone who walks in on company
+    // doesn't need to summon more, and a permanent line about it would just
+    // get skimmed past.
+    private nudgeMatchmakingIfAlone(memberNumber: number): void {
+        if (this.getRoomMembers().some(n => n !== memberNumber)) return;
+        this.bot.whisper(memberNumber, this.matchmaking.isRegistered(memberNumber)
+            ? "Quiet in here — whisper !looking and I'll beep everyone who's registered and online."
+            : "Quiet in here? Whisper !bd register to join the matchmaking pool — then !looking beeps everyone " +
+              "who's registered and online, and you'll get a beep when they're the ones waiting.");
     }
 
     // True if a normal !join would currently be accepted (i.e. not the
@@ -2867,7 +2967,8 @@ export class StripDiceGame implements GameHost {
             `=== Strip Dice Help ===\n` +
             `!help player - Multiplayer game commands (join, clothing, rolling, locks)\n` +
             `!help solo - Solo whisper game & leaderboard commands\n` +
-            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n`;
+            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n` +
+            `!bd - Matchmaking: get beeped when someone wants a game, and beep them back\n`;
 
         if (this.isAdmin(memberNumber)) {
             text += `!help admin - Admin commands\n`;
@@ -2919,6 +3020,8 @@ export class StripDiceGame implements GameHost {
             `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
             `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
             `!friend - Add me to your friend list so you can see when the room is up (!unfriend to undo)\n` +
+            `!bd register - Join the matchmaking pool so players can beep you when they want a game\n` +
+            `!looking - Room empty? Beep every registered player who's online (!bd for the full list)\n` +
             `!changelog - See what's changed recently\n` +
             `!about - About this bot\n` +
             `!help - Show the help menu`;
@@ -2954,7 +3057,13 @@ export class StripDiceGame implements GameHost {
             `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
             `!solo_reset - List players with active solo games\n` +
             `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)`;
+            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
+            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
+            `--- Matchmaking ---\n` +
+            `!bd pool - Everyone registered, who's online, and their strike counts\n` +
+            `!bd clearstrikes [name|memberNumber] - Reset a player's early-leave strikes\n` +
+            `!bd unblock [name|memberNumber] - Put a blocked player back in the pool\n` +
+            `(admins have no !looking cooldown and earn no strikes)`;
 
         this.sendLongWhisper(memberNumber, text);
     }
@@ -6506,6 +6615,29 @@ export class StripDiceGame implements GameHost {
         if (this.turnOrder.length === 0) return undefined;
         const memberNumber = this.turnOrder[this.currentTurnIndex];
         return this.players.get(memberNumber);
+    }
+
+    // GameHost: the multiplayer game's outfit memory, shared with solo and
+    // tournament games so a player only declares their outfit once per session
+    // whichever mode they're in.
+    public getLastClothing(memberNumber: number): string[] | undefined {
+        const last = this.lastClothing.get(memberNumber);
+        return last && last.length > 0 ? [...last] : undefined;
+    }
+
+    public setLastClothing(memberNumber: number, clothing: string[]): void {
+        if (clothing.length > 0) this.lastClothing.set(memberNumber, [...clothing]);
+    }
+
+    // GameHost: is this member currently in the room? Out-of-room messaging is
+    // whisper-if-present, beep-if-not (and beeps only reach online players).
+    public isInRoom(memberNumber: number): boolean {
+        return this.roomMembers.has(memberNumber);
+    }
+
+    // GameHost: everyone in the room except the bot itself.
+    public getRoomMembers(): number[] {
+        return [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber());
     }
 
     public getNameFor(memberNumber: number): string | undefined {

@@ -13,17 +13,26 @@ panel in `D:\Games\BC-Bot\panel`.
 | `src/game.ts` | `StripDiceGame` — multiplayer/team game engine, command table, turn flow, bondage, end-game locks |
 | `src/soloGame.ts` | `SoloGameManager` — solo race/survive games, records, `!scores` |
 | `src/feedback.ts` | `FeedbackManager` — `!feedback`, admin proxy flow, status tracking/notifications |
+| `src/matchmaking.ts` | `MatchmakingManager` — `!bd register` pool, `!looking` beeps, strike system, reply relay |
+| `src/matchmakingSim.ts` | Dev-only harness (`npm run sim:mm`): drives the pool against a stub host |
 | `src/storage.ts` | `BotStorage` — ALL JSON/data file reads and writes, one method pair per file |
 | `src/host.ts` | `GameHost` interface — the only surface managers may use to reach shared machinery |
 | `src/constants.ts` | Every tuning knob (timers, brackets, slots, consent tiers, labels) |
 | `src/types.ts` | Shared interfaces/enums. Import-free by design |
-| `src/util.ts` | Pure stateless helpers (no I/O) |
+| `src/util.ts` | Pure stateless helpers (no I/O) — duration parsing, Central-time formatting, passwords |
 | `src/outfits.ts` | Loads `outfits.json` + `bc_items.json` at startup → `BONDAGE_OUTFITS`, `BC_ITEM_CATALOG` |
 | `src/logger.ts` | Central-time logging (`log`, `logError`, `logGameEvent`) |
 
 Dependency direction (never violate — module-load cycles crash the bot at startup):
-`types` ← `constants`/`util` ← `outfits`/`storage` ← `host` ← `soloGame`/`feedback` ← `game` ← `index`.
-Managers must NEVER import `game.ts`.
+`types` ← `constants`/`util` ← `outfits`/`storage` ← `host` ← `soloGame`/`feedback`/`matchmaking`
+← `game` ← `index`. Managers must NEVER import `game.ts`, or each other — two managers that need to
+talk meet on `GameHost` and the game passes the message along.
+
+**This branch is the tournament-free build.** Tournament mode lives on `dev` (`tournament.ts`,
+`tournamentLogic.ts`, `tournamentSim.ts` plus hooks in game.ts/soloGame.ts/host.ts). `master` exists
+so the room can be run without it if a live tournament misbehaves — everything that is *not*
+tournament-specific is kept identical on both branches, deliberately byte-for-byte where the code is
+shared, so merging in either direction stays clean. Port non-tournament work to both.
 
 ## Where new code goes
 
@@ -43,7 +52,11 @@ Managers must NEVER import `game.ts`.
 ## Build / deploy
 
 - `npm run build` (plain `tsc` → `build/`), `npx tsc --noEmit` for a check without
-  touching `build/`. No test suite — the compiler and a live game are the safety net.
+  touching `build/`. No unit-test suite — the compiler and a live game are the safety net.
+- `npm run sim:mm` is a dev harness for the matchmaking pool: its cooldown, strike and relay
+  rules only play out over hours, so a live game can't check them. It drives the real
+  `MatchmakingManager` against a stub `GameHost` — no data files, no network — and exits
+  non-zero on failure, so run it before committing a change in that area.
 - The bot process runs from `build/` and is supervised by the panel; rebuilding on disk
   does not affect the running process until restart.
 - **pending_update.txt convention**: when deploying a player-visible change, overwrite

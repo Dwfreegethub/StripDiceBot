@@ -48,6 +48,14 @@ export interface GameHost {
     // the full rationale (deliberately ignores body/genital data).
     resolveClothingPath(memberNumber: number): "male" | "female";
 
+    // True if this member is currently in the room. Out-of-room delivery is
+    // whisper-first for people who are present and beep-fallback for those who
+    // aren't — beeps only reach players who are online, so neither path is
+    // guaranteed and both are best-effort.
+    isInRoom(memberNumber: number): boolean;
+    // Everyone currently in the room, bot excluded.
+    getRoomMembers(): number[];
+
     // Cached room-member name, if seen.
     getNameFor(memberNumber: number): string | undefined;
     // Cached name with a "Player #N" fallback.
@@ -57,6 +65,12 @@ export interface GameHost {
 
     // Sets the feedbackGiven flag on a player's persistent record.
     markFeedbackGiven(memberNumber: number): void;
+
+    // The outfit this member last declared, in any mode. Shared with the
+    // multiplayer game's "same outfit as last time?" memory, so a declaration
+    // made in one mode carries into the other. In-memory: a restart forgets it.
+    getLastClothing(memberNumber: number): string[] | undefined;
+    setLastClothing(memberNumber: number, clothing: string[]): void;
 
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;
