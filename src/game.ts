@@ -24,6 +24,7 @@ import {
     CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, NEW_ITEMS, MIN_CONSENT_AREAS,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
     MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY, CHANGELOG_ENTRIES_SHOWN,
+    NEW_FEATURE_UNTIL,
 } from "./constants";
 import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
 import { secrets } from "./secrets";
@@ -298,8 +299,10 @@ export class StripDiceGame implements GameHost {
 
         const isNewPlayer = !this.playerRecords[String(memberNumber)];
         this.recordPlayerSeen(memberNumber, name);
-        this.sendWelcomeWhisper(memberNumber, name);
-        this.nudgeChangelogIfBehind(memberNumber, isNewPlayer);
+        // One whisper covering the room, the modes, anything new and the
+        // changelog nudge — see sendWelcomeWhisper. Feedback status stays
+        // separate: it's personal, and rare enough not to be noise.
+        this.sendWelcomeWhisper(memberNumber, name, isNewPlayer);
         this.feedback.notifyStatus(memberNumber, name);
     }
 
@@ -2789,46 +2792,83 @@ export class StripDiceGame implements GameHost {
 
     // Picks the right welcome message based on whether a multiplayer game is
     // running, whether it's still joinable, and whether solo games are active.
-    private sendWelcomeWhisper(memberNumber: number, name: string): void {
-        if (this.state === GameState.Idle) {
-            if (this.solo.activeCount() > 0) {
-                this.bot.whisper(memberNumber,
-                    "Welcome! Some solo games are already going — type !solo race or !solo survive to start your own, or !join to request a multiplayer game.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
-                );
-            } else {
-                this.bot.whisper(memberNumber,
-                    "Welcome! You can play a solo game (!solo race or !solo survive) or type !join to start a multiplayer game and wait for others.\n🆕 NEW: Try !teamgame for 2v2 or 3v3 team play!"
-                );
-            }
-            // Walking into an empty room is exactly the moment matchmaking is
-            // worth knowing about — and the only moment it's not noise.
-            this.nudgeMatchmakingIfAlone(memberNumber);
-            return;
-        }
+    // Everything a player is told on walking in, as ONE whisper. It used to be
+    // up to three (welcome, matchmaking nudge, changelog nudge) arriving back
+    // to back, which reads as spam and gets skimmed — so the same information
+    // is assembled here and sent once: where the room is up to, the three ways
+    // to play, whatever is currently new, and a changelog nudge if they've been
+    // away. Anything genuinely personal still whispers separately — feedback
+    // status, or whatever a subsystem owes one particular player. Those are
+    // about them, not about the room.
+    private sendWelcomeWhisper(memberNumber: number, name: string, isNewPlayer: boolean): void {
+        const lines: string[] = [this.welcomeOpening(memberNumber, name)];
 
-        if (this.isMultiplayerJoinable()) {
-            this.bot.whisper(memberNumber,
-                `Welcome, ${name}! StripDiceBot has been getting regular updates thanks to player feedback. ` +
-                `Play a round and let us know what you think — type !join to jump in or !help to see the rules. 🎲`
-            );
-        } else {
-            this.bot.whisper(memberNumber,
-                "A multiplayer game is in progress and it's too late to join, but you can play a solo game! Type !solo race or !solo survive to start."
-            );
-        }
+        lines.push(this.waysToPlayLine());
+
+        const highlight = this.newFeatureLine(memberNumber);
+        if (highlight) lines.push(highlight);
+
+        const changelog = this.changelogNudgeLine(memberNumber, isNewPlayer);
+        if (changelog) lines.push(changelog);
+
+        this.sendLongWhisper(memberNumber, lines.join("\n"));
     }
 
-    // Tells someone who has arrived to an empty room about the matchmaking
-    // pool: !looking if they're already in it, !bd register if they aren't.
-    // Only when they really are on their own — anyone who walks in on company
-    // doesn't need to summon more, and a permanent line about it would just
-    // get skimmed past.
-    private nudgeMatchmakingIfAlone(memberNumber: number): void {
-        if (this.getRoomMembers().some(n => n !== memberNumber)) return;
-        this.bot.whisper(memberNumber, this.matchmaking.isRegistered(memberNumber)
-            ? "Quiet in here — whisper !looking and I'll beep everyone who's registered and online."
-            : "Quiet in here? Whisper !bd register to join the matchmaking pool — then !looking beeps everyone " +
-              "who's registered and online, and you'll get a beep when they're the ones waiting.");
+    // The first line: what the room is doing right now, which is the only part
+    // that changes what they'd want to do next.
+    private welcomeOpening(memberNumber: number, name: string): string {
+        if (this.state !== GameState.Idle) {
+            return this.isMultiplayerJoinable()
+                ? `Welcome, ${name}! 🎲 A game is on right now — whisper !join to get in.`
+                : `Welcome, ${name}! 🎲 A game is running and it's too late to join this one, ` +
+                  `but a solo game starts whenever you like.`;
+        }
+        const others = this.getRoomMembers().filter(n => n !== memberNumber).length;
+        if (this.solo.activeCount() > 0) {
+            return `Welcome, ${name}! 🎲 A few solo games are running — start your own any time, ` +
+                `or call a multiplayer game and see who joins.`;
+        }
+        return others > 0
+            ? `Welcome, ${name}! 🎲 No game running at the moment — start one whenever you're ready.`
+            : `Welcome, ${name}! 🎲 Quiet in here right now.`;
+    }
+
+    // The three ways to play, on one line. Trimmed once a game is up: !join is
+    // already in the opening line if it's still open, and a team game can't
+    // start against a running one either way.
+    private waysToPlayLine(): string {
+        const solo = `!solo race / !solo survive — a whispered game of your own`;
+        const help = `!help — the rules`;
+        if (this.state !== GameState.Idle) return `${solo} · ${help}`;
+        return `!join — multiplayer strip dice · !teamgame — 2v2 or 3v3 teams · ${solo} · ${help}`;
+    }
+
+    // Whatever is currently worth flagging as new, or null. Two rules keep this
+    // from turning into the permanent banner the !teamgame one became: it only
+    // goes to people who haven't taken it up yet, and it stops calling itself
+    // new after NEW_FEATURE_UNTIL regardless.
+    private newFeatureLine(memberNumber: number): string | null {
+        if (this.matchmaking.isRegistered(memberNumber)) {
+            // Already in the pool — the only thing left to say is the thing
+            // they'd actually want on walking into an empty room.
+            const alone = !this.getRoomMembers().some(n => n !== memberNumber);
+            return alone
+                ? `Whisper !looking and I'll beep everyone registered and online.`
+                : null;
+        }
+        const stillNew = Date.now() < Date.parse(NEW_FEATURE_UNTIL);
+        return `${stillNew ? "🆕 New — matchmaking" : "Matchmaking"}: whisper !bd register and I'll beep you ` +
+            `when someone's here wanting a game. When it's you waiting, !looking beeps them.`;
+    }
+
+    // The "I've been updated" nudge, folded into the welcome rather than
+    // arriving as its own whisper a moment later.
+    private changelogNudgeLine(memberNumber: number, isNewPlayer: boolean): string | null {
+        if (isNewPlayer) return null;
+        const latest = this.latestChangelogVersion();
+        if (!latest) return null;
+        if (this.playerRecords[String(memberNumber)]?.lastChangelogVersion === latest) return null;
+        return `📋 I've been updated since your last visit — whisper !changelog to see what changed.`;
     }
 
     // True if a normal !join would currently be accepted (i.e. not the
@@ -2883,18 +2923,6 @@ export class StripDiceGame implements GameHost {
     // One short line on join for players who were away when something shipped,
     // replacing the old habit of posting the whole update into room chat.
     // Skipped for first-time visitors, who have no absence to catch up on.
-    private nudgeChangelogIfBehind(memberNumber: number, isNewPlayer: boolean): void {
-        if (isNewPlayer) return;
-        const latest = this.latestChangelogVersion();
-        if (!latest) return;
-        const record = this.playerRecords[String(memberNumber)];
-        if (record?.lastChangelogVersion === latest) return;
-
-        this.bot.whisper(memberNumber,
-            `📋 I've been updated since your last visit — whisper !changelog to see what changed.`
-        );
-    }
-
     private handleChangelog(memberNumber: number): void {
         const entries = this.storage.loadChangelog();
         if (!entries.length) {
