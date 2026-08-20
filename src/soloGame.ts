@@ -237,6 +237,25 @@ export class SoloGameManager {
         }
         const clothingPath = this.host.resolveClothingPath(memberNumber);
         this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [], tournamentCtx: null, awaitingOutfitChoice: false });
+
+        // Offer last game's outfit instead of walking the whole yes/no list
+        // again — the multiplayer game has had !same for ages and back-to-back
+        // solo runs are where the re-declaring gets tedious. Only offered when
+        // the remembered outfit is still valid: enough items for a bracket, and
+        // every slot on the list they're currently using (a player who switched
+        // between the male and female lists gets asked properly).
+        const last = this.host.getLastClothing(memberNumber);
+        const slots = clothingSlotsFor(clothingPath);
+        if (last && last.length >= SOLO_BRACKET_MIN && last.every(item => slots.includes(item))) {
+            const pending = this.pendingSoloSetup.get(memberNumber)!;
+            pending.awaitingOutfitChoice = true;
+            pending.pendingClothing = [...last];
+            this.host.sendLongWhisper(memberNumber,
+                `Last time you wore: ${last.join(", ")}.\n` +
+                `Same outfit? Reply **1** or **same** to start now, or **2** or **new** to go through it item by item.`);
+            return;
+        }
+
         this.host.bot.whisper(memberNumber, "Let's go through your outfit — yes or no for each item.");
         this.askClothingQuestion(memberNumber);
     }
