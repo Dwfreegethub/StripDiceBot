@@ -28,11 +28,6 @@ Dependency direction (never violate — module-load cycles crash the bot at star
 ← `game` ← `index`. Managers must NEVER import `game.ts`, or each other — two managers that need to
 talk meet on `GameHost` and the game passes the message along.
 
-**This branch is the tournament-free build.** Tournament mode lives on `dev` (`tournament.ts`,
-`tournamentLogic.ts`, `tournamentSim.ts` plus hooks in game.ts/soloGame.ts/host.ts). `master` exists
-so the room can be run without it if a live tournament misbehaves — everything that is *not*
-tournament-specific is kept identical on both branches, deliberately byte-for-byte where the code is
-shared, so merging in either direction stays clean. Port non-tournament work to both.
 
 ## Where new code goes
 
@@ -73,7 +68,15 @@ shared, so merging in either direction stays clean. Port non-tournament work to 
   Keep the headline genuinely short — room chat shows nothing else. Put the reasoning
   in the detail lines. On restart the bot appends the entry to `changelog.json`, and
   players who were away get a one-line nudge to whisper `!changelog`.
-- Branches: `dev` is the working branch; merge to `master` when field-tested stable.
+- Branches: `dev` is the working branch. `master` is deliberately the **tournament-free
+  build** — the one the panel switches to if a live tournament misbehaves and the room
+  still needs to work. That only helps if master is otherwise current, so **any change
+  that is not specifically about tournaments must land on both branches**, and the shared
+  code is kept byte-identical (lift blocks verbatim rather than retyping) so merging in
+  either direction stays clean. Tournament-only files: `tournament.ts`, `tournamentLogic.ts`,
+  `tournamentSim.ts`, plus their hooks in `game.ts`/`soloGame.ts`/`host.ts`/`types.ts`/
+  `constants.ts`/`storage.ts`. Once a tournament has run for real, master can simply take
+  the lot and this split goes away.
 - Runtime data files (`players.json`, `game_counts.json`, `game_log.json`, ...) are
   tracked and churn constantly — commit them along with code changes, don't fret them.
 
