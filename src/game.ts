@@ -6788,7 +6788,7 @@ export class StripDiceGame implements GameHost {
         }, stagger * END_GAME_EMIT_STAGGER_MS);
     }
 
-    // GameHost: is this member currently in the room? Tournament messaging is
+    // GameHost: is this member currently in the room? Out-of-room messaging is
     // whisper-if-present, beep-if-not (and beeps only reach online players).
     public isInRoom(memberNumber: number): boolean {
         return this.roomMembers.has(memberNumber);
