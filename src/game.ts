@@ -2881,8 +2881,9 @@ export class StripDiceGame implements GameHost {
     // to back, which reads as spam and gets skimmed — so the same information
     // is assembled here and sent once: where the room is up to, the three ways
     // to play, whatever is currently new, and a changelog nudge if they've been
-    // away. Anything genuinely personal (feedback status, a tournament round)
-    // still whispers separately; those are about them, not about the room.
+    // away. Anything genuinely personal still whispers separately — feedback
+    // status, or whatever a subsystem owes one particular player. Those are
+    // about them, not about the room.
     private sendWelcomeWhisper(memberNumber: number, name: string, isNewPlayer: boolean): void {
         const lines: string[] = [this.welcomeOpening(memberNumber, name)];
 
