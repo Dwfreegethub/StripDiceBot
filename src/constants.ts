@@ -250,6 +250,36 @@ export const NEW_ITEMS: ReadonlySet<string> = new Set<string>([
     "CybertechMask", // R130 — ItemHood/ItemHead
     "ModularVulvaPiercings", // R130 "Chastity Tunnel Piercings" — ItemVulvaPiercings (verified in-game 2026-07-19)
 ]);
+// ============================================================
+// BODY-FIT MARKING - a restraint whose body prerequisite fails still applies
+// and still burns one of the player's 7 bondage slots, but draws nothing. The
+// picker sees which items those are (they stay pickable — we mark, not filter).
+// Requirements come from item_body_requirements.json; the tests behind them
+// are BODY_PREREQ_TESTS in util.ts.
+// ============================================================
+
+// Shown beside an item that won't draw on the target. Keys are BC prerequisite
+// names; anything unmapped falls back to the raw prerequisite name.
+export const BODY_REQ_LABELS: Record<string, string> = {
+    HasBreasts: "needs breasts",
+    HasFlatChest: "needs a flat chest",
+    HasVagina: "needs a vagina",
+    HasPenis: "needs a penis",
+};
+
+// Shown beside a catalog entry that vanilla BC has no asset for (see
+// BC_ITEM_UNKNOWN) — picking it wastes the turn entirely.
+export const ITEM_UNKNOWN_LABEL = "not in this BC version";
+
+// Separator placed above the first item in a pick list that won't draw.
+// "{name}" is replaced with the target's name.
+export const PICK_LIST_FIT_DIVIDER = "—— below here won't show on {name}'s body ——";
+
+// Appended to a slot in the slot-choice list when NOTHING in that slot can
+// draw on the target (e.g. Breast on a flat-chested character — all 12 items
+// require breasts). Without this the picker burns their turn on a dead slot.
+export const SLOT_NOTHING_FITS_MARKER = " ⚠ nothing shows on {name}";
+
 // Minimum distinct areas a player-pick player must consent to (Mouth counts
 // as one area even though it holds up to 3 gag layers).
 export const MIN_CONSENT_AREAS = 6;

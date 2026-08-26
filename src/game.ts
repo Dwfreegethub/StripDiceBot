@@ -22,14 +22,15 @@ import {
     ClothingPath, clothingSlotsFor, clothingAliasesFor,
     PICK_SLOTS, TIER1_SLOT_GROUPS, TIER2_SLOT_GROUPS, MOUTH_OVERFLOW_GROUPS,
     CONSENT_TOKEN_GROUPS, DEFAULT_BONDAGE_ITEM_LIMIT, PICK_LIST_TOP_N, NEW_ITEMS, MIN_CONSENT_AREAS,
+    BODY_REQ_LABELS, PICK_LIST_FIT_DIVIDER, SLOT_NOTHING_FITS_MARKER, ITEM_UNKNOWN_LABEL,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
     MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY, CHANGELOG_ENTRIES_SHOWN,
     NEW_FEATURE_UNTIL,
 } from "./constants";
-import { BONDAGE_OUTFITS, BC_ITEM_CATALOG } from "./outfits";
+import { BONDAGE_OUTFITS, BC_ITEM_CATALOG, BC_ITEM_BODY_REQS, BC_ITEM_UNKNOWN } from "./outfits";
 import { secrets } from "./secrets";
 import {
-    extractPronouns, cleanDecodedProperty, isLearnableProperty, canonicalJson,
+    extractPronouns, extractBodyTraits, cleanDecodedProperty, isLearnableProperty, canonicalJson,
     deepClone, generatePassword,
 } from "./util";
 import { GameHost } from "./host";
@@ -4707,9 +4708,21 @@ export class StripDiceGame implements GameHost {
     }
 
     private slotPromptText(target: Player): string {
-        const slots = this.availablePickSlots(target);
-        const list = slots.map((s, i) => `${i + 1}. ${s.display}`).join("\n");
-        return `It's your turn to pick a bondage item for ${target.name}. Choose a slot:\n${list}\nType a number.`;
+        return `It's your turn to pick a bondage item for ${target.name}. Choose a slot:\n` +
+            `${this.formatSlotList(target)}\nType a number.`;
+    }
+
+    // Numbered slot list, flagging any slot where nothing in the catalog can
+    // draw on this target — e.g. Breast on a flat chest, where all 12 items
+    // require breasts. The slot stays choosable; the picker just knows.
+    private formatSlotList(target: Player): string {
+        const traits = this.bodyTraitsFor(target.memberNumber);
+        return this.availablePickSlots(target).map((s, i) => {
+            const actual = s.group === "ItemMouth" ? this.resolveMouthGroup(target) : s.group;
+            const dead = actual && !this.slotHasFittingItem(actual, traits);
+            const marker = dead ? SLOT_NOTHING_FITS_MARKER.replace("{name}", target.name) : "";
+            return `${i + 1}. ${s.display}${marker}`;
+        }).join("\n");
     }
 
     // Slots the picker may choose for this target: consented, not already
@@ -4724,6 +4737,42 @@ export class StripDiceGame implements GameHost {
             if (!actual) return false;
             return (BC_ITEM_CATALOG.get(actual) ?? []).length > 0;
         });
+    }
+
+    // ============================================================
+    // BODY-FIT CHECKS - which items will actually DRAW on a given target.
+    // A restraint whose body prerequisite fails still applies and still eats
+    // one of the 7 bondage slots, but shows nothing (reported live by players
+    // as being "poorly bound"). We surface that to the picker rather than
+    // filtering it, so nobody's choice is silently taken away.
+    // ============================================================
+
+    // Body traits for a member, or null when no appearance data is cached —
+    // in which case nothing gets marked, rather than marking everything.
+    private bodyTraitsFor(memberNumber: number): Set<string> | null {
+        return extractBodyTraits(this.characterDataCache.get(memberNumber));
+    }
+
+    // Why picking `item` would be wasted, as player-facing text, or null if
+    // it's a good pick (or we can't tell). Covers two cases: the item doesn't
+    // exist in vanilla BC at all, or its body prerequisites don't hold for
+    // this target. The first is body-independent, so it's checked even when
+    // we have no appearance data.
+    private itemFitProblem(group: string, item: string, traits: Set<string> | null): string | null {
+        if (BC_ITEM_UNKNOWN.get(group)?.has(item)) return ITEM_UNKNOWN_LABEL;
+        if (!traits) return null;
+        const required = BC_ITEM_BODY_REQS.get(group)?.get(item);
+        if (!required || required.length === 0) return null;
+        const unmet = required.filter(r => !traits.has(r));
+        if (unmet.length === 0) return null;
+        return unmet.map(r => BODY_REQ_LABELS[r] ?? r).join(" + ");
+    }
+
+    // True if at least one item in the slot can draw on this target. Used to
+    // flag dead slots (e.g. every Breast item requires breasts).
+    private slotHasFittingItem(group: string, traits: Set<string> | null): boolean {
+        const items = BC_ITEM_CATALOG.get(group) ?? [];
+        return items.some(n => !this.itemFitProblem(group, n, traits));
     }
 
     // First free layer of Mouth/Mouth2/Mouth3, or null if all are filled.
@@ -4798,9 +4847,8 @@ export class StripDiceGame implements GameHost {
         }
 
         if (!match) {
-            const list = slots.map((s, i) => `${i + 1}. ${s.display}`).join("\n");
             this.bot.whisper(pending.pickerNumber,
-                `That's not a valid slot for ${target.name}. Choose one:\n${list}\nType a number.`);
+                `That's not a valid slot for ${target.name}. Choose one:\n${this.formatSlotList(target)}\nType a number.`);
             return;
         }
 
@@ -4810,7 +4858,7 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        const { options, all } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+        const { options, all } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup), pending.targetNumber);
         if (options.length === 0) {
             this.bot.whisper(pending.pickerNumber, `No items are available for that slot — pick a different one.`);
             return;
@@ -4823,7 +4871,7 @@ export class StripDiceGame implements GameHost {
         pending.optionsPage = 0;
         pending.stage = "item";
         const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
-        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, 0, totalPages));
+        this.sendLongWhisper(pending.pickerNumber, this.formatPickList(match.display, options, 0, totalPages, actualGroup, pending.targetNumber));
         this.startPickTimer();
     }
 
@@ -4845,7 +4893,7 @@ export class StripDiceGame implements GameHost {
             pending.optionsPage = (pending.optionsPage + 1) % totalPages;
             const start = pending.optionsPage * PICK_LIST_TOP_N;
             pending.options = allOpts.slice(start, start + PICK_LIST_TOP_N);
-            this.sendLongWhisper(pending.pickerNumber, this.formatPickList(pending.slotDisplay!, pending.options, pending.optionsPage, totalPages));
+            this.sendLongWhisper(pending.pickerNumber, this.formatPickList(pending.slotDisplay!, pending.options, pending.optionsPage, totalPages, pending.slotGroup!, pending.targetNumber));
             this.startPickTimer();
             return;
         }
@@ -4888,7 +4936,13 @@ export class StripDiceGame implements GameHost {
     // is the first PICK_LIST_TOP_N entries. The full list is stored in
     // pendingBondagePick so "M for more" can page through it without
     // re-randomising. Excluded items (vetoed) are filtered out of both lists.
-    private buildPickList(group: string, excluded: string[]): { options: string[]; all: string[] } {
+    //
+    // Items that can't draw on `targetNumber`'s body sink below the ones that
+    // can, keeping their relative order. They stay in the list (and stay
+    // pickable) — they just stop occupying the first page, which is what the
+    // picker actually reads. This also keeps the shuffled-remainder "variety"
+    // picks from routinely surfacing items that would show nothing.
+    private buildPickList(group: string, excluded: string[], targetNumber: number): { options: string[]; all: string[] } {
         const catalogItems = BC_ITEM_CATALOG.get(group) ?? [];
         const usage = this.bondageUsage[group] ?? {};
 
@@ -4921,19 +4975,49 @@ export class StripDiceGame implements GameHost {
         const rest = catalogItems.filter(n => !bootstrapSeen.has(n) && !excluded.includes(n));
         const shuffled = [...rest].sort(() => Math.random() - 0.5);
 
-        const all = [...pinned, ...popularSorted, ...bootstrap, ...shuffled];
+        const ranked = [...pinned, ...popularSorted, ...bootstrap, ...shuffled];
+
+        // Stable partition: fits first, then the rest, each keeping the order
+        // above. With no body data this is a no-op (itemFitProblem returns
+        // null for everything), so the list is exactly as it was before.
+        const traits = this.bodyTraitsFor(targetNumber);
+        const fits: string[] = [];
+        const doesNotFit: string[] = [];
+        for (const name of ranked) {
+            (this.itemFitProblem(group, name, traits) ? doesNotFit : fits).push(name);
+        }
+
+        const all = [...fits, ...doesNotFit];
         const options = all.slice(0, PICK_LIST_TOP_N);
 
         return { options, all };
     }
 
-    private formatPickList(slotDisplay: string, options: string[], page: number, totalPages: number): string {
+    private formatPickList(
+        slotDisplay: string, options: string[], page: number, totalPages: number,
+        group: string, targetNumber: number,
+    ): string {
         const pageNote = totalPages > 1 ? ` (page ${page + 1} of ${totalPages})` : "";
         const lines = [`Slot: ${slotDisplay} — pick one:${pageNote}`];
+
+        const traits = this.bodyTraitsFor(targetNumber);
+        const targetName = this.players.get(targetNumber)?.name ?? "them";
+        let dividerShown = false;
+
         options.forEach((name, i) => {
+            const fitProblem = this.itemFitProblem(group, name, traits);
+            // buildPickList sinks non-fitting items to the end, so the first
+            // one on a page marks the boundary. Pages after the boundary are
+            // entirely non-fitting and don't repeat the divider.
+            if (fitProblem && !dividerShown) {
+                lines.push(PICK_LIST_FIT_DIVIDER.replace("{name}", targetName));
+                dividerShown = true;
+            }
             const newMarker = NEW_ITEMS.has(name) ? " 🆕 new!" : "";
-            lines.push(`${i + 1}. ${name}${newMarker}`);
+            const fitMarker = fitProblem ? ` (${fitProblem})` : "";
+            lines.push(`${i + 1}. ${name}${newMarker}${fitMarker}`);
         });
+
         if (page + 1 < totalPages) lines.push("M. More");
         lines.push("Or type any item name from this slot.");
         return lines.join("\n");
@@ -5005,7 +5089,7 @@ export class StripDiceGame implements GameHost {
         pending.chosenItem = null;
         const pickerName = this.getPlayerName(pending.pickerNumber);
 
-        const { options, all } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!));
+        const { options, all } = this.buildPickList(pending.slotGroup!, this.vetoedItemsFor(pending, pending.slotGroup!), pending.targetNumber);
         if (options.length === 0) {
             // Every item in this slot has been vetoed — back to slot choice.
             pending.stage = "slot";
@@ -5028,7 +5112,7 @@ export class StripDiceGame implements GameHost {
         const totalPages = Math.ceil(all.length / PICK_LIST_TOP_N);
         this.sendLongWhisper(pending.pickerNumber,
             `${target.name} vetoed ${vetoed} — pick a different item.\n` +
-            this.formatPickList(pending.slotDisplay!, options, 0, totalPages));
+            this.formatPickList(pending.slotDisplay!, options, 0, totalPages, pending.slotGroup!, pending.targetNumber));
         this.bot.whisper(target.memberNumber, `Vetoed! ${pickerName} is picking another item.`);
         this.startPickTimer();
     }
@@ -5132,7 +5216,7 @@ export class StripDiceGame implements GameHost {
                 this.beginPlayerPickBondage(target);
                 return;
             }
-            const { options } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup));
+            const { options } = this.buildPickList(actualGroup, this.vetoedItemsFor(pending, actualGroup), pending.targetNumber);
             if (options.length === 0) {
                 this.cancelPendingBondagePick();
                 this.beginPlayerPickBondage(target);
