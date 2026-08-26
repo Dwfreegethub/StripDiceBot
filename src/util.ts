@@ -13,6 +13,45 @@ export function extractPronouns(character: any): string | undefined {
     return character?.Appearance?.find((a: any) => a.Group === "Pronouns")?.Name;
 }
 
+// Which body prerequisites a character satisfies.
+//
+// BC gates whether a restraint DRAWS on these. An item whose prerequisite
+// fails still applies — the server accepts it, it counts as worn, and it
+// consumes one of the player's bondage slots — but it renders nothing. That's
+// how a player ends up "bound" with nothing visible on them.
+//
+// The tests mirror the client exactly (R131 Inventory.js, the "Checks for
+// body" / "Checks for genitalia" cases):
+//   HasBreasts   -> BodyUpper is XLarge/Large/Normal/Small
+//   HasFlatChest -> BodyUpper is FlatSmall/FlatMedium
+//   HasVagina    -> Pussy is Pussy1/Pussy2/Pussy3
+//   HasPenis     -> Pussy is Penis
+//
+// Deliberately NOT keyed off Pronouns or any notion of gender — unlike
+// extractPronouns above, this is about which artwork exists for the body
+// actually being worn, so it stays correct for hermaphrodite and mixed-body
+// characters (breasts + penis, flat chest + vagina, any combination).
+export const BODY_PREREQ_TESTS: { prereq: string; group: string; anyOf: string[] }[] = [
+    { prereq: "HasBreasts", group: "BodyUpper", anyOf: ["XLarge", "Large", "Normal", "Small"] },
+    { prereq: "HasFlatChest", group: "BodyUpper", anyOf: ["FlatSmall", "FlatMedium"] },
+    { prereq: "HasVagina", group: "Pussy", anyOf: ["Pussy1", "Pussy2", "Pussy3"] },
+    { prereq: "HasPenis", group: "Pussy", anyOf: ["Penis"] },
+];
+
+// Returns null when we have no appearance data for the character — callers
+// must treat that as "unknown body" and skip marking rather than assume the
+// character lacks every trait (which would flag half the catalog wrongly).
+export function extractBodyTraits(character: any): Set<string> | null {
+    const appearance = character?.Appearance;
+    if (!Array.isArray(appearance) || appearance.length === 0) return null;
+    const traits = new Set<string>();
+    for (const test of BODY_PREREQ_TESTS) {
+        const worn = appearance.find((a: any) => a?.Group === test.group)?.Name;
+        if (worn && test.anyOf.includes(worn)) traits.add(test.prereq);
+    }
+    return traits;
+}
+
 // Strips owner/lock-specific fields from a decoded appearance item's Property
 // so the bot can apply its own lock on top of it.
 export function cleanDecodedProperty(property: any): any {
