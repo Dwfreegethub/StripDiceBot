@@ -156,19 +156,6 @@ async function main() {
         const name = data.Character?.Nickname || data.Character?.Name || `Player #${memberNumber}`;
         log(`${name} (#${memberNumber}) joined the room.`);
         bot.sendChat(`Welcome to Strip Dice, ${name}! 🎲`);
-        bot.whisper(memberNumber,
-            `=== Welcome to Strip Dice! 🎲 ===\n` +
-            `This is a dice game where you risk your clothing — and your freedom!\n\n` +
-            `HOW IT WORKS:\n` +
-            `• Players take turns rolling dice. The max shrinks each round.\n` +
-            `• Roll a 1 and you lose an item of clothing!\n` +
-            `• Once naked, you start receiving bondage restraints instead.\n` +
-            `• Last player unbound wins!\n\n` +
-            `⚠️ EARLY BETA: Bondage items are limited for now — more coming soon!\n\n` +
-            `COMMANDS: Whisper !help for the full list.\n` +
-            `FEEDBACK: Whisper !feedback [your thoughts] — we read everything!\n\n` +
-            `Whisper !join to play!`
-        );
         game.onMemberJoin(memberNumber, name, data.Character);
     });
 

@@ -2896,6 +2896,8 @@ export class StripDiceGame implements GameHost {
         const changelog = this.changelogNudgeLine(memberNumber, isNewPlayer);
         if (changelog) lines.push(changelog);
 
+        lines.push(`💤 Missy has been hypnotized by a new side project — updates have slowed while she's under, but she hasn't forgotten about Strip Dice and will be back with more soon!`);
+
         this.sendLongWhisper(memberNumber, lines.join("\n"));
     }
 
@@ -3213,7 +3215,12 @@ export class StripDiceGame implements GameHost {
 
     private handleRoll(memberNumber: number, name: string): void {
         if (this.state === GameState.WaitingRemove) {
-            this.bot.sendChat(`⚠️ ${name}, please remove your item first and type !removed before rolling!`);
+            const removingPlayer = this.getCurrentPlayer();
+            if (removingPlayer && removingPlayer.memberNumber !== memberNumber) {
+                this.bot.sendChat(`⚠️ Waiting for ${removingPlayer.name} to remove an item first — hang tight, ${name}!`);
+            } else {
+                this.bot.sendChat(`⚠️ ${name}, please remove your item first and type !removed before rolling!`);
+            }
             return;
         }
         if (this.state !== GameState.Rolling) return;

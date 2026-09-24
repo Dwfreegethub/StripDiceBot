@@ -58,5 +58,11 @@
     "headline": "Tidied up the whispers you get on walking in — one message now instead of three.",
     "detail": "Walking into the room used to fire three whispers back to back: a welcome, a matchmaking nudge, and a \"there's been an update\" nudge. They're one message now, and it says what the room is up to, all three ways to play on a single line (!join for multiplayer, !teamgame for 2v2 or 3v3, !solo race / !solo survive on your own), and anything new.\nThe matchmaking line only shows if you haven't joined the pool yet — once you've whispered !bd register it stops nagging you, and you just get a \"whisper !looking\" note when you turn up to an empty room.\nNothing about how any of the games work has changed.",
     "major": false
+  },
+  {
+    "version": "2026-08-25T12:00:00",
+    "headline": "Pick lists now show which items will actually appear on the player you're binding.",
+    "detail": "Some BC restraints only have artwork for certain bodies — a straitjacket, most harnesses and every corset need breasts, chastity belts need a vagina. Applied to a body they don't fit, they still count as one of your seven items but nothing shows up, which is how people ended up \"bound\" and looking untouched.\nWhen you're picking, items that can't appear on that person now sink to the bottom of the list under a divider, with the reason next to them (needs breasts, needs a vagina). They're still pickable if you want them. Slots where nothing at all would show are flagged in the slot list, so you don't spend your turn on a dead end.\nThis reads the body the character is actually wearing, not their pronouns, so it's right for every combination.\nA batch of items in the catalogue turned out not to exist in this version of BC at all — those are now marked too, instead of quietly ranking near the top.",
+    "major": true
   }
 ]
