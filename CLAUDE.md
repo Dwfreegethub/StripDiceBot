@@ -71,6 +71,9 @@ talk meet on `GameHost` and the game passes the message along.
   it shows on the online/reconnect lines, `!about`, the startup log and new `!changelog`
   entries. Bump it with every code change: patch for a fix, minor for a new feature or a
   change players have to learn. Never reuse a number.
+- **Welcome whisper news**: `WELCOME_NEWS` in `constants.ts` is the announcement at the end of
+  every welcome whisper (the wiki link lives there too). Keep it current or empty; a banner left
+  for months stops being read. The changelog nudge is separate and fires only on new updates.
 - **Wiki**: `wiki/` is mirrored to the GitHub wiki by `.github/workflows/sync-wiki.yml` on
   every push to `dev` that touches it (website edits are overwritten). Update it in the same
   commit as any player-visible change.
