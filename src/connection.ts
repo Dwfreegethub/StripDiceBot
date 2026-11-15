@@ -150,7 +150,7 @@ export class BCConnection {
     private roomConfig(): Record<string, unknown> {
         return {
             Name: secrets.roomName,
-            Description: "A Strip Dice game room - type !join to play!",
+            Description: "A Strip Dice game room - type /bot join to play!",
             Background: "NightClub",
             Space: "X",
             Game: "",

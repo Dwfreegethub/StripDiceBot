@@ -30,7 +30,7 @@ import {
     BODY_REQ_LABELS, PICK_LIST_FIT_DIVIDER, SLOT_NOTHING_FITS_MARKER, ITEM_UNKNOWN_LABEL,
     BONDAGE_MODE_TIMEOUT_MS, PICKER_RESPONSE_TIMEOUT_MS, VETO_TIMEOUT_MS,
     MAX_SETTING_VARIANTS_PER_ITEM, ITEM_SETTING_STRATEGY, CHANGELOG_ENTRIES_SHOWN,
-    NEW_FEATURE_UNTIL,
+    WIKI_URL, WELCOME_NEWS,
 } from "./constants";
 import { BONDAGE_OUTFITS, BC_ITEM_CATALOG, BC_ITEM_BODY_REQS, BC_ITEM_UNKNOWN } from "./outfits";
 import { secrets } from "./secrets";
@@ -2746,10 +2746,10 @@ export class StripDiceGame implements GameHost {
             `=== About StripDiceBot ===\n` +
             `Version ${BOT_VERSION}\n` +
             `Created and owned by Missy 💕\n` +
-            `Source code & updates: https://github.com/Dwfreegethub/StripDiceBot\n` +
+            `Rules & guides: ${WIKI_URL}\n` +
+            `Source code: https://github.com/Dwfreegethub/StripDiceBot\n` +
             `\n` +
-            `⚠️ Currently in early beta — expect bugs and improvements!\n` +
-            `Have a suggestion? Whisper !feedback [your thoughts]`
+            `Have a suggestion? Type /bot feedback and tell me — Missy reads every one 💌`
         );
     }
 
@@ -2945,13 +2945,15 @@ export class StripDiceGame implements GameHost {
 
         lines.push(this.waysToPlayLine());
 
-        const highlight = this.newFeatureLine(memberNumber);
-        if (highlight) lines.push(highlight);
+        const matchmaking = this.matchmakingLine(memberNumber);
+        if (matchmaking) lines.push(matchmaking);
 
+        // Only when something shipped since their last !changelog — not a
+        // standing banner, so it stays.
         const changelog = this.changelogNudgeLine(memberNumber, isNewPlayer);
         if (changelog) lines.push(changelog);
 
-        lines.push(`💤 Missy has been hypnotized by a new side project — updates have slowed while she's under, but she hasn't forgotten about Strip Dice and will be back with more soon!`);
+        lines.push(...WELCOME_NEWS);
 
         this.sendLongWhisper(memberNumber, lines.join("\n"));
     }
@@ -2985,32 +2987,34 @@ export class StripDiceGame implements GameHost {
         return `/bot join — multiplayer strip dice · /bot teamgame — 2v2 or 3v3 teams · ${solo} · ${help}`;
     }
 
-    // Whatever is currently worth flagging as new, or null. Two rules keep this
-    // from turning into the permanent banner the !teamgame one became: it only
-    // goes to people who haven't taken it up yet, and it stops calling itself
-    // new after NEW_FEATURE_UNTIL regardless.
-    private newFeatureLine(memberNumber: number): string | null {
+    // Matchmaking, for whoever would use it right now: how to join the pool,
+    // or, for a registered player alone in the room, how to call people in.
+    private matchmakingLine(memberNumber: number): string | null {
         if (this.matchmaking.isRegistered(memberNumber)) {
-            // Already in the pool — the only thing left to say is the thing
-            // they'd actually want on walking into an empty room.
             const alone = !this.getRoomMembers().some(n => n !== memberNumber);
             return alone
-                ? `Type /bot looking and I'll beep everyone registered and online.`
+                ? `Nobody to play with? Type /bot looking and I'll beep everyone registered and online. 📣`
                 : null;
         }
-        const stillNew = Date.now() < Date.parse(NEW_FEATURE_UNTIL);
-        return `${stillNew ? "🆕 New — matchmaking" : "Matchmaking"}: type /bot bd register and I'll beep you ` +
-            `when someone's here wanting a game. When it's you waiting, /bot looking beeps them.`;
+        return `Empty room? Type /bot bd register and I'll beep you whenever someone's here wanting a game.`;
     }
 
     // The "I've been updated" nudge, folded into the welcome rather than
-    // arriving as its own whisper a moment later.
+    // arriving as its own whisper a moment later. Shows only to returning
+    // players who haven't read the newest !changelog entry yet.
     private changelogNudgeLine(memberNumber: number, isNewPlayer: boolean): string | null {
         if (isNewPlayer) return null;
         const latest = this.latestChangelogVersion();
         if (!latest) return null;
         if (this.playerRecords[String(memberNumber)]?.lastChangelogVersion === latest) return null;
         return `📋 I've been updated since your last visit — type /bot changelog to see what changed.`;
+    }
+
+    // The version a returning player is compared against — null when nothing
+    // has shipped yet, which suppresses the nudge entirely.
+    private latestChangelogVersion(): string | null {
+        const entries = this.storage.loadChangelog();
+        return entries.length ? entries[entries.length - 1].version : null;
     }
 
     // True if a normal !join would currently be accepted (i.e. not the
@@ -3055,16 +3059,9 @@ export class StripDiceGame implements GameHost {
         this.storage.appendChangelogEntry(entry);
     }
 
-    // The version a returning player is compared against — null when nothing
-    // has shipped yet, which suppresses the nudge entirely.
-    private latestChangelogVersion(): string | null {
-        const entries = this.storage.loadChangelog();
-        return entries.length ? entries[entries.length - 1].version : null;
-    }
-
-    // One short line on join for players who were away when something shipped,
-    // replacing the old habit of posting the whole update into room chat.
-    // Skipped for first-time visitors, who have no absence to catch up on.
+    // !changelog: the last few shipped updates, newest first. (The welcome
+    // whisper no longer nudges returning players about it: WELCOME_NEWS in
+    // constants.ts carries whatever is worth announcing.)
     private handleChangelog(memberNumber: number): void {
         const entries = this.storage.loadChangelog();
         if (!entries.length) {
