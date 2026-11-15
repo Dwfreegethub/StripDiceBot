@@ -130,7 +130,8 @@ Nobody in the room? Register once, then beep everyone who's online when you want
 | `/bot solo_reset` | *(admin)* List players with active solo games |
 | `/bot solo_reset [player name]` | *(admin)* Discard a player's solo game with no penalty |
 | `/bot feedback list` | *(admin)* View a summary of all tracked feedback |
-| `/bot setstatus [playerID] [status]` | *(admin)* Set a player's feedback status (pending, reviewing, testing, researching, implemented, partly_implemented, declined) |
+| `/bot setstatus [playerID] [item#\|all] [status]` | *(admin)* Set one feedback item's status (numbers from /bot feedback list): pending, reviewing, testing, researching, implemented, partly_implemented, declined, thanks. Resolved ones are whispered to the player once |
+| `/bot feedback remove [playerID] [item#]` | *(admin)* Delete an accidental feedback item so it is never whispered back |
 | `/bot outfits` | *(admin)* View submitted outfit suggestions |
 | `/bot gamestats` | *(admin)* Show cumulative game counts (multiplayer / team / solo / aborted) |
 | `/bot testoutfit [name]` | *(admin)* Force your next bondage outfit (for testing) |
