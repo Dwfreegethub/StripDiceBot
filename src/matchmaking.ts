@@ -27,6 +27,7 @@ import {
 } from "./constants";
 import { log, logGameEvent } from "./logger";
 import { secrets } from "./secrets";
+import { renderSection, HELP_MATCHMAKING } from "./help";
 
 export class MatchmakingManager {
     private pool: Record<string, RegisteredPlayer>;
@@ -95,19 +96,12 @@ export class MatchmakingManager {
     }
 
     public handleHelp(memberNumber: number): void {
-        this.host.sendLongWhisper(memberNumber,
-            `=== Matchmaking ===\n` +
-            `Nobody in the room? Register once, then beep everyone who's online when you want a game.\n` +
-            `!bd register - Join the pool (you'll add me as a friend too)\n` +
-            `!bd unregister - Leave the pool\n` +
-            `!bd pause / !bd resume - Stop / restart getting beeps (you stay registered)\n` +
-            `!bd status - Your current status\n` +
-            `!looking - Beep every registered player who's online that you're here for a game` +
-            (this.host.isAdmin(memberNumber)
-                ? `\n(admin) !bd pool - Everyone registered, and who's online\n` +
-                  `(admin) !bd clearstrikes [name|memberNumber] - Reset someone's strikes\n` +
-                  `(admin) !bd unblock [name|memberNumber] - Put someone back in the pool`
-                : ""));
+        // Built from src/help.ts, like !help and the wiki's Commands page.
+        this.host.sendLongWhisper(memberNumber, renderSection(HELP_MATCHMAKING, {
+            isAdmin: this.host.isAdmin(memberNumber),
+            tournamentRunning: false,
+            teamGameRunning: false,
+        }));
     }
 
     // ---- registration ------------------------------------------------------

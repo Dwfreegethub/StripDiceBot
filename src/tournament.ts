@@ -9,6 +9,7 @@
 // ============================================================
 import { log, logError, logGameEvent } from "./logger";
 import { GameHost } from "./host";
+import { renderSection, HELP_TOURNAMENT } from "./help";
 import {
     TournamentConfig, TournamentGameContext, TournamentMatch, TournamentPlayer, TournamentState,
 } from "./types";
@@ -1709,9 +1710,7 @@ export class TournamentManager {
             "You don't have to serve it all at once — you can stop, leave, and come back to serve the rest. " +
             "You can't play BD while you still owe time. Champion and runner-up serve nothing.\n\n" +
             "COMMANDS\n" +
-            "!tournament — standings, your opponent, time left\n" +
-            "!tournament register — sign up while registration is open\n" +
-            "!tournament play — play one of your games for this round\n" +
-            "!tournament withdraw — leave (between rounds, if allowed)");
+            // Built from src/help.ts, like !help and the wiki's Commands page.
+            renderSection(HELP_TOURNAMENT, { isAdmin: false, tournamentRunning: true, teamGameRunning: false }, { header: false }));
     }
 }

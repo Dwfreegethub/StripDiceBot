@@ -25,6 +25,9 @@ panel in `D:\Games\BC-Bot\panel`.
 | `src/util.ts` | Pure stateless helpers (no I/O) — duration parsing, Central-time formatting, passwords |
 | `src/outfits.ts` | Loads `outfits.json` + `bc_items.json` at startup → `BONDAGE_OUTFITS`, `BC_ITEM_CATALOG` |
 | `src/logger.ts` | Central-time logging (`log`, `logError`, `logGameEvent`) |
+| `src/help.ts` | Every player-facing command description; `!help`, `!bd`, tournament rules and `wiki/Commands.md` render from it. Imports only `constants` |
+| `src/helpTools.ts` | Dev-only: `npm run check:help` (help vs. commandTable vs. wiki) and `npm run wiki` (writes `wiki/Commands.md`) |
+| `src/version.ts` | `BOT_VERSION`, read from `package.json` |
 
 Dependency direction (never violate — module-load cycles crash the bot at startup):
 `types` ← `constants`/`util` ← `outfits`/`storage` ← `host` ← `soloGame`/`feedback`/`matchmaking`/`tournament`
@@ -36,6 +39,14 @@ Dependency direction (never violate — module-load cycles crash the bot at star
 - **New command**: add a `commandTable` entry in game.ts (longer prefixes before shorter,
   e.g. `"!feedback list"` before `"!feedback"`). Implement the handler in the subsystem
   it belongs to, or in game.ts for multiplayer-core commands.
+  Then describe it in `src/help.ts` (or list it in `HIDDEN_COMMANDS` with the reason),
+  run `npm run wiki`, and check with `npm run check:help`, which fails on any mismatch.
+  `!help`, `!bd`, the tournament rules' command list and `wiki/Commands.md` are all built
+  from `help.ts`: never hand-write a command list anywhere else.
+- **Commands in player-facing text** are written in the `/bot` form (`/bot roll`). BC sends
+  `/bot <text>` to the bot as a Hidden `ChatRoomBot <text>` message the room never sees;
+  `handleBotCommand` treats it as a whisper, adding the `!` when the text is a command.
+  Every `!` command keeps working and must keep working.
 - **New tuning value**: `constants.ts`, exported, with a comment saying what it tunes.
 - **New persisted file**: path + load/save (or append) pair in `storage.ts`. Never call
   `fs` from game logic. In-memory caches live with the code that owns them.
@@ -57,6 +68,20 @@ Dependency direction (never violate — module-load cycles crash the bot at star
   - `npm run sim:mm` — the matchmaking pool's cooldown, strike and relay rules.
   They drive the real manager classes against a stub `GameHost`, so extending a manager
   usually means extending the stub too. Neither touches a data file or the network.
+  - `npm run check:help` — every command is described in `help.ts` (or hidden on purpose),
+    every usage line reaches its command, and `wiki/Commands.md` is current.
+  Note that `sim`, `sim:mm`, `check:help` and `wiki` all run `tsc`, which rewrites `build/`:
+  the next restart of the live bot (even a crash restart) runs whatever was built.
+- **Version**: `package.json` `version` is the single source; `src/version.ts` reads it and
+  it shows on the online/reconnect lines, `!about`, the startup log and new `!changelog`
+  entries. Bump it with every code change: patch for a fix, minor for a new feature or a
+  change players have to learn. Never reuse a number.
+- **Wiki**: `wiki/` is mirrored to the GitHub wiki by `.github/workflows/sync-wiki.yml` on
+  every push to `dev` that touches it (website edits are overwritten). Update it in the same
+  commit as any player-visible change.
+- **Test scripts**: every build DW is to test live comes with `script_test.md` (local, not
+  committed): numbered checkbox steps, each with Do / Expect / Fail if, expected text copied
+  from the source.
 - The bot process runs from `build/` and is supervised by the panel; rebuilding on disk
   does not affect the running process until restart.
 - **pending_update.txt convention**: when deploying a player-visible change, overwrite
