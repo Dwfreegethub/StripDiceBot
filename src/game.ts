@@ -595,7 +595,7 @@ export class StripDiceGame implements GameHost {
         "!about": { handler: (mn) => this.handleAbout(mn) },
         "!solo race": { handler: (mn, name) => this.solo.start(mn, name, "race"), whisperOnly: true },
         "!solo survive": { handler: (mn, name) => this.solo.start(mn, name, "survive"), whisperOnly: true },
-        "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: !solo race or !solo survive"), whisperOnly: true },
+        "!solo": { handler: (mn) => this.bot.whisper(mn, "Usage: /bot solo race or /bot solo survive"), whisperOnly: true },
         "!solo_reset ": { handler: (mn, _name, _msg, message) => this.solo.handleReset(mn, message), whisperOnly: true, prefix: true },
         "!solo_reset": { handler: (mn) => this.solo.handleReset(mn, ""), whisperOnly: true },
         "!gamestats": { handler: (mn) => this.handleGameStats(mn), whisperOnly: true },
@@ -701,7 +701,7 @@ export class StripDiceGame implements GameHost {
             `Added you back! 🎲 I'll now show up on your friend list whenever I'm online, ` +
             `with the room name and how many players are in it — so you can tell at a glance ` +
             `when a game is running. If you haven't added me on your side yet, do that and ` +
-            `I'll appear. Whisper !unfriend any time to undo this.`
+            `I'll appear. Type /bot unfriend any time to undo this.`
         );
 
         // Completes a matchmaking sign-up that was waiting on this link.
@@ -717,11 +717,11 @@ export class StripDiceGame implements GameHost {
         // than leaving them wondering why the beeps stopped.
         const poolNote = this.matchmaking.isRegistered(memberNumber)
             ? ` Heads up: you're still in the matchmaking pool, but beeps only go to friends — so you won't get game ` +
-              `calls until you friend me again (or whisper !bd unregister to leave the pool for good).`
+              `calls until you friend me again (or type /bot bd unregister to leave the pool for good).`
             : "";
         this.bot.whisper(memberNumber,
             `Removed you from my friend list — I won't show up there any more. ` +
-            `Whisper !friend if you ever want me back.${poolNote}`
+            `Type /bot friend if you ever want me back.${poolNote}`
         );
     }
 
@@ -881,10 +881,10 @@ export class StripDiceGame implements GameHost {
                 player.awaitingOutfitChoice = false;
                 this.bot.whisper(memberNumber,
                     `Declare your outfit:\n` +
-                    `!wearing - go through it one item at a time (yes/no)\n` +
-                    `!wearing [items] - e.g. !wearing shoes socks top bottom bra panties\n` +
-                    `!naked - if you have nothing on\n` +
-                    `Whisper !ready when done.`
+                    `/bot wearing - go through it one item at a time (yes/no)\n` +
+                    `/bot wearing [items] - e.g. /bot wearing shoes socks top bottom bra panties\n` +
+                    `/bot naked - if you have nothing on\n` +
+                    `Type /bot ready when done.`
                 );
                 return;
             }
@@ -976,19 +976,19 @@ export class StripDiceGame implements GameHost {
         // to whisper instead of silently dropping their yes/no.
         const player = this.players.get(memberNumber);
         if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (Your outfit choices are between us.)");
+            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). Your outfit choices are between us.");
             return;
         }
 
         // Pre-game toys consent question is whisper-only — same nudge.
         if (this.awaitingToysConsent && player?.toysConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (Toy consent is between us.)");
+            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). Toy consent is between us.");
             return;
         }
 
         // Toys consent question for a mid-game joiner is whisper-only — same nudge.
         if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me!");
+            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me).");
             return;
         }
 
@@ -1002,7 +1002,7 @@ export class StripDiceGame implements GameHost {
 
         // Solo game setup clothing Q&A is whisper-only — same nudge.
         if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your yes or no to me! (The solo game is just between us.)");
+            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). The solo game is just between us.");
             return;
         }
 
@@ -1027,7 +1027,7 @@ export class StripDiceGame implements GameHost {
         // Min/max reply from host during lobby setup is whisper-only — nudge
         // instead of silently dropping their digits.
         if (this.awaitingMinMaxReply && memberNumber === this.hostMemberNumber && /^\d/.test(msg)) {
-            this.bot.whisper(memberNumber, "Psst — whisper your min and max to me! (e.g., whisper `2 6`)");
+            this.bot.whisper(memberNumber, "Psst — send your min and max privately, e.g. `/bot 2 6` (or whisper `2 6` to me).");
             return;
         }
 
@@ -1039,27 +1039,27 @@ export class StripDiceGame implements GameHost {
         // silently dropping it.
         if (this.awaitingTeamParityVote && this.teamParityVoters.has(memberNumber) &&
             (msg === "keep" || msg === "drop")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your keep or drop vote to me!");
+            this.bot.whisper(memberNumber, "Psst — vote privately: /bot keep or /bot drop (or whisper it to me).");
             return;
         }
 
         // Lock-time vote is whisper-only — nudge instead of silently dropping it.
         if (this.pendingLockTimeVote?.boundPlayers.some(p => p.memberNumber === memberNumber) &&
             (msg === "1" || msg === "2" || msg === "3")) {
-            this.bot.whisper(memberNumber, "Psst — whisper your lock-time vote (1/2/3) to me!");
+            this.bot.whisper(memberNumber, "Psst — vote privately: /bot 1, /bot 2 or /bot 3 (or whisper it to me).");
             return;
         }
 
         // !solo / !solo race / !solo survive are whisper-only — nudge instead
         // of silently dropping the command.
         if (msg === "!solo" || msg.startsWith("!solo ")) {
-            this.bot.whisper(memberNumber, "Solo games start with a whisper! Whisper me `!solo race` or `!solo survive` to get started.");
+            this.bot.whisper(memberNumber, "Solo games are private! Type `/bot solo race` or `/bot solo survive` to get started.");
             return;
         }
 
         // !feedback is whisper-only — nudge instead of silently dropping it.
         if (msg === "!feedback" || msg.startsWith("!feedback ")) {
-            this.bot.whisper(memberNumber, "Feedback is sent privately — whisper `!feedback your message` to me so it stays between us.");
+            this.bot.whisper(memberNumber, "Feedback is private — type `/bot feedback your message` so it stays between us.");
             return;
         }
 
@@ -1087,7 +1087,7 @@ export class StripDiceGame implements GameHost {
         if (oss?.AllowItem === false) {
             this.bot.whisper(memberNumber,
                 "⚠️ To play Strip Dice, you need to allow item interactions. " +
-                "Go to Online Settings → Items and enable \"Allow others to add items\", then !join again."
+                "Go to Online Settings → Items and enable \"Allow others to add items\", then /bot join again."
             );
             log(`Permission pre-flight: ${name} (#${memberNumber}) has AllowItem=false.`);
             passed = false;
@@ -1106,13 +1106,13 @@ export class StripDiceGame implements GameHost {
             return;
         }
         if (this.isTeamMode && !this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "A team game is in progress — you're welcome to watch! Say !help for more info.");
+            this.bot.whisper(memberNumber, "A team game is in progress — you're welcome to watch! Type /bot help for more info.");
             return;
         }
         if (this.state === GameState.Idle && Date.now() < this.gameCooldownUntil) {
             const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
             this.bot.whisper(memberNumber,
-                `⏳ We just wrapped up a game — give everyone a few minutes to confirm their locks released properly before the next one starts. Try !join again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
+                `⏳ We just wrapped up a game — give everyone a few minutes to confirm their locks released properly before the next one starts. Try /bot join again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
             );
             return;
         }
@@ -1132,7 +1132,7 @@ export class StripDiceGame implements GameHost {
             return;
         }
         if (this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !naked if you have nothing on.");
+            this.bot.whisper(memberNumber, "You've already joined! Type /bot wearing followed by your items, or /bot naked if you have nothing on.");
             return;
         }
 
@@ -1244,7 +1244,7 @@ export class StripDiceGame implements GameHost {
                 if (inlineMin !== null && inlineMax !== null) {
                     const error = this.validateMinMax(inlineMin, inlineMax);
                     if (error) {
-                        this.bot.whisper(memberNumber, `${error} Please use !join [min] [max] with valid values (e.g. !join 2 6).`);
+                        this.bot.whisper(memberNumber, `${error} Please type /bot join [min] [max] with valid values (e.g. /bot join 2 6).`);
                         this.players.delete(memberNumber);
                         this.state = GameState.Idle;
                         this.lobbyOpen = false;
@@ -1259,11 +1259,11 @@ export class StripDiceGame implements GameHost {
                 this.announceGameStart(name);
                 const onlyOneInRoom = [...this.roomMembers].filter(n => n !== this.bot.getMemberNumber()).length <= 1;
                 if (onlyOneInRoom) {
-                    this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with !wearing while you wait, or try a solo game.");
+                    this.bot.whisper(memberNumber, "You're the only one here right now — feel free to get your outfit ready with /bot wearing while you wait, or try a solo game.");
                 }
             } else {
                 this.bot.sendChat(`${name} has joined the game! (${this.players.size}/${this.maxPlayers})`);
-                this.bot.whisper(memberNumber, `You're in! (${this.players.size}/${this.maxPlayers} players joined). Declare your outfit with !wearing or !naked, then whisper !ready when done.`);
+                this.bot.whisper(memberNumber, `You're in! (${this.players.size}/${this.maxPlayers} players joined). Declare your outfit with /bot wearing or /bot naked, then type /bot ready when done.`);
             }
         }
 
@@ -1277,11 +1277,11 @@ export class StripDiceGame implements GameHost {
         } else {
             this.bot.whisper(memberNumber,
                 `Welcome to Strip Dice! 🎲\n` +
-                `Whisper !wearing and I'll ask about your outfit one item at a time (yes/no).\n` +
-                `Or declare it all at once: !wearing shoes socks top bottom bra panties\n` +
-                `Or whisper !naked if you have nothing on.\n` +
-                `(Wrong clothing list? Whisper !clothes male or !clothes female to switch.)\n` +
-                `Whisper !ready when done.`
+                `Type /bot wearing and I'll ask about your outfit one item at a time (yes/no).\n` +
+                `Or declare it all at once: /bot wearing shoes socks top bottom bra panties\n` +
+                `Or type /bot naked if you have nothing on.\n` +
+                `(Wrong clothing list? Type /bot clothes male or /bot clothes female to switch.)\n` +
+                `Type /bot ready when done.`
             );
         }
 
@@ -1303,12 +1303,12 @@ export class StripDiceGame implements GameHost {
         const n1 = parseInt(parts[0], 10);
         const n2 = parts.length >= 2 ? parseInt(parts[1], 10) : n1;
         if (isNaN(n1)) {
-            this.bot.whisper(memberNumber, "Usage: !players [min] [max] — e.g. !players 2 6 or !players 4");
+            this.bot.whisper(memberNumber, "Usage: /bot players [min] [max] — e.g. /bot players 2 6 or /bot players 4");
             return;
         }
         const error = this.validateMinMax(n1, n2);
         if (error) {
-            this.bot.whisper(memberNumber, `${error} Try again — e.g. !players 2 6`);
+            this.bot.whisper(memberNumber, `${error} Try again — e.g. /bot players 2 6`);
             return;
         }
         this.minPlayers = n1;
@@ -1327,13 +1327,13 @@ export class StripDiceGame implements GameHost {
 
     private announceGameStart(hostName: string): void {
         this.bot.sendChat(
-            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers === this.maxPlayers ? `exactly ${this.minPlayers}` : `${this.minPlayers}–${this.maxPlayers}`} players. Type !join to join!`
+            `🎲 ${hostName} has started a game! Looking for ${this.minPlayers === this.maxPlayers ? `exactly ${this.minPlayers}` : `${this.minPlayers}–${this.maxPlayers}`} players. Type /bot join to join!`
         );
         this.bot.sendChat(
-            `Lock duration: type !lock10, !lock15, or !lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
+            `Lock duration: type /bot lock10, /bot lock15, or /bot lock20 to set the timer. Default is ${DEFAULT_LOCK_MINUTES} minutes.`
         );
         this.bot.sendChat(
-            `You're the only player right now! A second player needs to join before the game can start, or you can go solo with !solo.`
+            `You're the only player right now! A second player needs to join before the game can start, or you can go solo with /bot solo race.`
         );
         this.announcePlayerUpdates();
     }
@@ -1343,7 +1343,7 @@ export class StripDiceGame implements GameHost {
     // skipping clothing declaration and going straight to bondage on their first loss.
     private handleLateJoin(memberNumber: number, name: string): void {
         if (this.players.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "You've already joined! Whisper !wearing followed by your items, or !naked if you have nothing on.");
+            this.bot.whisper(memberNumber, "You've already joined! Type /bot wearing followed by your items, or /bot naked if you have nothing on.");
             return;
         }
 
@@ -1355,7 +1355,7 @@ export class StripDiceGame implements GameHost {
             }, JOIN_CONFIRMATION_WINDOW_MS);
             this.pendingLateJoinConfirmations.set(memberNumber, timer);
             this.bot.whisper(memberNumber,
-                "The game has already started. You can join naked (no starting clothes, straight to bondage penalties) — type !join again to confirm."
+                "The game has already started. You can join naked (no starting clothes, straight to bondage penalties) — type /bot join again to confirm."
             );
             return;
         }
@@ -1469,7 +1469,7 @@ export class StripDiceGame implements GameHost {
         if (Date.now() < this.gameCooldownUntil) {
             const remainingMin = Math.ceil((this.gameCooldownUntil - Date.now()) / 60000);
             this.bot.whisper(memberNumber,
-                `⏳ We just wrapped up a game — give everyone a few minutes before the next one starts. Try !teamgame again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
+                `⏳ We just wrapped up a game — give everyone a few minutes before the next one starts. Try /bot teamgame again in about ${remainingMin} minute${remainingMin === 1 ? "" : "s"}.`
             );
             return;
         }
@@ -1501,7 +1501,7 @@ export class StripDiceGame implements GameHost {
         }
         this.awaitingTeamSizeReply = false;
         this.teamSize = n;
-        this.bot.sendChat(`Starting a ${n}v${n} team game! Use !join team1 or !join team2 to pick your side.`);
+        this.bot.sendChat(`Starting a ${n}v${n} team game! Type /bot join team1 or /bot join team2 to pick your side.`);
         return true;
     }
 
@@ -1519,7 +1519,7 @@ export class StripDiceGame implements GameHost {
         else if (teamArg === "team2" || teamArg === "2") team = 2;
 
         if (team === null) {
-            this.bot.sendChat(`${name}, use !join team1 or !join team2 to pick your side.`);
+            this.bot.sendChat(`${name}, type /bot join team1 or /bot join team2 to pick your side.`);
             return;
         }
 
@@ -1591,7 +1591,7 @@ export class StripDiceGame implements GameHost {
 
     private handleTeams(memberNumber: number): void {
         if (!this.isTeamMode) {
-            this.bot.whisper(memberNumber, "No team game is active. Try !teamgame to start one!");
+            this.bot.whisper(memberNumber, "No team game is active. Try /bot teamgame to start one!");
             return;
         }
         const format = (team: 1 | 2): string => {
@@ -1620,7 +1620,7 @@ export class StripDiceGame implements GameHost {
                 .map(p => p.name);
             if (sender && !sender.ready) {
                 const also = others.length > 0 ? ` (Also waiting on: ${others.join(", ")}.)` : "";
-                this.bot.whisper(memberNumber, `The game has already started — finish declaring your outfit and whisper !ready to join in!${also}`);
+                this.bot.whisper(memberNumber, `The game has already started — finish declaring your outfit and type /bot ready to join in!${also}`);
             } else if (others.length > 0) {
                 this.bot.whisper(memberNumber, `The game has already started — waiting on ${others.join(", ")} to finish declaring.`);
             } else {
@@ -1644,10 +1644,10 @@ export class StripDiceGame implements GameHost {
     private handleCancel(memberNumber: number): void {
         if (this.state === GameState.PausedForJoin) {
             if (!this.players.has(memberNumber) && !this.isAdmin(memberNumber)) {
-                this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+                this.bot.whisper(memberNumber, "You haven't joined the game yet! Type /bot join first.");
                 return;
             }
-            this.bot.sendChat(`${this.getPlayerName(memberNumber)} called !cancel — resuming the game now.`);
+            this.bot.sendChat(`${this.getPlayerName(memberNumber)} called /bot cancel — resuming the game now.`);
             this.resumeFromJoinPause();
             return;
         }
@@ -1664,7 +1664,7 @@ export class StripDiceGame implements GameHost {
             this.hostMemberNumber = null;
             this.players.clear();
             this.state = GameState.Idle;
-            this.bot.sendChat(`Team game cancelled by ${this.getPlayerName(memberNumber)}. Type !join to start a new game, or !teamgame for another team game.`);
+            this.bot.sendChat(`Team game cancelled by ${this.getPlayerName(memberNumber)}. Type /bot join to start a new game, or /bot teamgame for another team game.`);
             return;
         }
 
@@ -1674,7 +1674,7 @@ export class StripDiceGame implements GameHost {
         }
         this.clearCountdown();
         this.state = GameState.Registration;
-        this.bot.sendChat(`Countdown cancelled by ${this.getPlayerName(memberNumber)}. Waiting for more players. Whisper !start when ready.`);
+        this.bot.sendChat(`Countdown cancelled by ${this.getPlayerName(memberNumber)}. Waiting for more players. Type /bot start when ready.`);
     }
 
     // Auto-detects a member's clothing-question path from BC's Pronouns
@@ -1708,7 +1708,7 @@ export class StripDiceGame implements GameHost {
         if (arg !== "male" && arg !== "female") {
             const current = this.resolveClothingPath(memberNumber);
             this.bot.whisper(memberNumber,
-                `You're currently on the ${current} clothing list. Whisper !clothes male or !clothes female to switch.`
+                `You're currently on the ${current} clothing list. Type /bot clothes male or /bot clothes female to switch.`
             );
             return;
         }
@@ -1728,7 +1728,7 @@ export class StripDiceGame implements GameHost {
             player.ready = false;
         }
 
-        this.bot.whisper(memberNumber, `Switched to the ${arg} clothing list. Whisper !wearing to declare your outfit.`);
+        this.bot.whisper(memberNumber, `Switched to the ${arg} clothing list. Type /bot wearing to declare your outfit.`);
     }
 
     private handleWearing(memberNumber: number, message: string): void {
@@ -1762,11 +1762,11 @@ export class StripDiceGame implements GameHost {
         player.ready = false;
         player.clothingQuestionIndex = null;
         const unknownNote = unrecognized.length > 0
-            ? `\n⚠️ Didn't recognize: ${unrecognized.join(", ")} — whisper !wearing to go through it one item at a time.`
+            ? `\n⚠️ Didn't recognize: ${unrecognized.join(", ")} — type /bot wearing to go through it one item at a time.`
             : "";
         this.bot.whisper(memberNumber,
             `Got it! Your clothing list in order: ${player.clothing.join(", ")}.${unknownNote}\n` +
-            `Whisper !ready when done, or !wearing again to change.`
+            `Type /bot ready when done, or /bot wearing again to change.`
         );
     }
 
@@ -1793,10 +1793,10 @@ export class StripDiceGame implements GameHost {
             if (player.clothing.length > 0) {
                 this.bot.whisper(memberNumber,
                     `Got it! Your clothing list: ${player.clothing.join(", ")}.\n` +
-                    `Whisper !ready when done, or !wearing to redo this.`
+                    `Type /bot ready when done, or /bot wearing to redo this.`
                 );
             } else {
-                this.bot.whisper(memberNumber, "Got it — you're starting naked! !ready when done.");
+                this.bot.whisper(memberNumber, "Got it — you're starting naked! /bot ready when done.");
             }
             return;
         }
@@ -1804,7 +1804,7 @@ export class StripDiceGame implements GameHost {
         // Note which list we're on only for the first question — no need to
         // repeat it every time.
         const prefix = idx === 0
-            ? `You're on the ${path} clothing list (whisper !clothes male or !clothes female to switch). `
+            ? `You're on the ${path} clothing list (type /bot clothes male or /bot clothes female to switch). `
             : "";
         this.bot.whisper(memberNumber, `${prefix}Do you have ${slots[idx]} on? (yes/no)`);
     }
@@ -1828,7 +1828,7 @@ export class StripDiceGame implements GameHost {
         if (!player) return;
         const last = this.lastClothing.get(memberNumber);
         if (!last || last.length === 0) {
-            this.bot.whisper(memberNumber, "No previous outfit on record. Please use !wearing to declare your clothing.");
+            this.bot.whisper(memberNumber, "No previous outfit on record. Please type /bot wearing to declare your clothing.");
             return;
         }
         player.clothing = [...last];
@@ -1837,7 +1837,7 @@ export class StripDiceGame implements GameHost {
         player.clothingQuestionIndex = null;
         this.bot.whisper(memberNumber,
             `Using your last outfit: ${player.clothing.join(", ")}.\n` +
-            `Whisper !ready when done, or !wearing to change.`
+            `Type /bot ready when done, or /bot wearing to change.`
         );
     }
 
@@ -1848,7 +1848,7 @@ export class StripDiceGame implements GameHost {
         player.isNaked = true;
         player.ready = false;
         player.clothingQuestionIndex = null;
-        this.bot.whisper(memberNumber, "Got it — you're starting naked! Bondage applies directly on your next loss. !ready when done.");
+        this.bot.whisper(memberNumber, "Got it — you're starting naked! Bondage applies directly on your next loss. /bot ready when done.");
     }
 
     private handleReady(memberNumber: number): void {
@@ -1868,7 +1868,7 @@ export class StripDiceGame implements GameHost {
                 this.askClothingQuestion(memberNumber);
                 return;
             }
-            this.bot.whisper(memberNumber, "Please declare your clothing first with !wearing or !naked.");
+            this.bot.whisper(memberNumber, "Please declare your clothing first with /bot wearing or /bot naked.");
             return;
         }
 
@@ -1939,7 +1939,7 @@ export class StripDiceGame implements GameHost {
         this.bot.sendChat(`${player.name} is ready! (${readyCount}/${this.players.size})`);
         if (this.players.size === 1) {
             this.bot.sendChat(
-                `Waiting for a second player to join — the game will start automatically when they do! Or type !solo to play solo right now.`
+                `Waiting for a second player to join — the game will start automatically when they do! Or type /bot solo race to play solo right now.`
             );
         }
         this.checkAllReady();
@@ -1954,7 +1954,7 @@ export class StripDiceGame implements GameHost {
     private requirePlayer(memberNumber: number): Player | null {
         const player = this.players.get(memberNumber);
         if (!player) {
-            this.bot.whisper(memberNumber, "You haven't joined the game yet! Whisper !join first.");
+            this.bot.whisper(memberNumber, "You haven't joined the game yet! Type /bot join first.");
             return null;
         }
         return player;
@@ -1991,7 +1991,7 @@ export class StripDiceGame implements GameHost {
         const parts = message.trim().split(/\s+/);
         const n = parseInt(parts[1]);
         if (isNaN(n) || n < 1) {
-            this.bot.whisper(memberNumber, "Usage: !debugroll <number>");
+            this.bot.whisper(memberNumber, "Usage: /bot debugroll <number>");
             return;
         }
         this.debugNextRoll = n;
@@ -2021,7 +2021,7 @@ export class StripDiceGame implements GameHost {
 
         const tokens = message.trim().slice("!testbeep".length).trim().split(/\s+/).filter(Boolean);
         if (tokens.length === 0) {
-            this.bot.whisper(memberNumber, "Usage: !testbeep <memberNumber|name> [message]");
+            this.bot.whisper(memberNumber, "Usage: /bot testbeep <memberNumber|name> [message]");
             return;
         }
 
@@ -2058,7 +2058,7 @@ export class StripDiceGame implements GameHost {
         const parts = message.trim().split(/\s+/);
         const minutes = parseInt(parts[1]);
         if (isNaN(minutes) || minutes < 1 || minutes > 720) {
-            this.bot.whisper(memberNumber, "Invalid lock time. Use !locktime [minutes] (1-720).");
+            this.bot.whisper(memberNumber, "Invalid lock time. Type /bot locktime [minutes] (1-720).");
             return;
         }
         this.lockDurationMinutes = minutes;
@@ -2089,7 +2089,7 @@ export class StripDiceGame implements GameHost {
         }
         const setting = message.trim().toLowerCase().split(/\s+/)[1];
         if (setting !== "on" && setting !== "off") {
-            this.bot.whisper(memberNumber, "Invalid option. Use !midgamejoin on or !midgamejoin off.");
+            this.bot.whisper(memberNumber, "Invalid option. Type /bot midgamejoin on or /bot midgamejoin off.");
             return;
         }
         this.allowMidGameJoin = setting === "on";
@@ -2131,7 +2131,7 @@ export class StripDiceGame implements GameHost {
     // Solo mode: !claim lists prizes; !claim 1 2 delivers passwords by index.
     private handleClaim(memberNumber: number, message: string): void {
         if (!this.lastWinners.has(memberNumber)) {
-            this.bot.whisper(memberNumber, "Only the most recent winner(s) can use !claim.");
+            this.bot.whisper(memberNumber, "Only the most recent winner(s) can type /bot claim.");
             return;
         }
 
@@ -2176,13 +2176,13 @@ export class StripDiceGame implements GameHost {
                 const minsLeft = Math.max(0, Math.ceil((lockEndTime - Date.now()) / 60000));
                 return `${i + 1}. ${name} (${minsLeft} min remaining)`;
             }).join("\n");
-            this.bot.whisper(memberNumber, `🏆 Claimable prizes:\n${lines}\nWhisper !claim 1 (or !claim 1 2) to receive their password.`);
+            this.bot.whisper(memberNumber, `🏆 Claimable prizes:\n${lines}\nType /bot claim 1 (or /bot claim 1 2) to receive their password.`);
             return;
         }
 
         const indices = args.split(/\s+/).map(s => parseInt(s, 10)).filter(n => !isNaN(n));
         if (indices.length === 0) {
-            this.bot.whisper(memberNumber, "Usage: !claim (list) or !claim 1 2 (get passwords by number).");
+            this.bot.whisper(memberNumber, "Usage: /bot claim (list) or /bot claim 1 2 (get passwords by number).");
             return;
         }
 
@@ -2221,7 +2221,7 @@ export class StripDiceGame implements GameHost {
 
         const requested = message.trim().slice("!free ".length).trim();
         if (!requested) {
-            this.bot.whisper(memberNumber, "Usage: !free [player name]");
+            this.bot.whisper(memberNumber, "Usage: /bot free [player name]");
             return;
         }
 
@@ -2313,7 +2313,7 @@ export class StripDiceGame implements GameHost {
 
         const requested = message.trim().slice("!kick ".length).trim();
         if (!requested) {
-            this.bot.whisper(memberNumber, "Usage: !kick [player name]");
+            this.bot.whisper(memberNumber, "Usage: /bot kick [player name]");
             return;
         }
 
@@ -2416,12 +2416,12 @@ export class StripDiceGame implements GameHost {
 
         const others = [...this.players.values()].filter(p => p.memberNumber !== memberNumber);
         if (others.length === 0) {
-            this.bot.sendChat(`Game ended. Type !join to start a new game.`);
+            this.bot.sendChat(`Game ended. Type /bot join to start a new game.`);
             this.resetGame();
             return;
         }
 
-        this.bot.sendChat(`Should the game continue without ${name}? Type !continue in chat within 60 seconds, otherwise the game will end.`);
+        this.bot.sendChat(`Should the game continue without ${name}? Type /bot continue within 60 seconds, otherwise the game will end.`);
         this.turnTimer = setTimeout(() => {
             if (this.state === GameState.SafewordPause) {
                 this.bot.sendChat(`No response — ending the game.`);
@@ -2599,7 +2599,7 @@ export class StripDiceGame implements GameHost {
         this.clearTurnTimer();
         this.prePauseState = this.state;
         this.state = GameState.Paused;
-        this.bot.sendChat(`⏸️ ${name} has requested a quick pause. Type !resume when ready to continue.`);
+        this.bot.sendChat(`⏸️ ${name} has requested a quick pause. Type /bot resume when ready to continue.`);
     }
 
     private handleResume(memberNumber: number): void {
@@ -2620,7 +2620,7 @@ export class StripDiceGame implements GameHost {
             const current = this.getCurrentPlayer();
             if (current) {
                 const nextItem = current.clothing[current.clothingRemoved];
-                this.bot.sendChat(`${current.name}, please remove your ${nextItem ?? "item"} and type !removed when done.`);
+                this.bot.sendChat(`${current.name}, please remove your ${nextItem ?? "item"} and type /bot removed when done.`);
                 this.startTurnTimer(20000);
             }
         }
@@ -2691,7 +2691,7 @@ export class StripDiceGame implements GameHost {
     private handleOutfitSubmission(memberNumber: number, name: string, message: string): void {
         const description = message.trim().slice("!outfit ".length).trim();
         if (!description) {
-            this.bot.whisper(memberNumber, "Please describe the outfit! e.g. !outfit Pink leotard with matching gloves");
+            this.bot.whisper(memberNumber, "Please describe the outfit! e.g. /bot outfit Pink leotard with matching gloves");
             return;
         }
 
@@ -3102,7 +3102,7 @@ export class StripDiceGame implements GameHost {
 
     private handleRoll(memberNumber: number, name: string): void {
         if (this.state === GameState.WaitingRemove) {
-            this.bot.sendChat(`⚠️ ${name}, please remove your item first and type !removed before rolling!`);
+            this.bot.sendChat(`⚠️ ${name}, please remove your item first and type /bot removed before rolling!`);
             return;
         }
         if (this.state !== GameState.Rolling) return;
@@ -3266,7 +3266,7 @@ export class StripDiceGame implements GameHost {
         const isBankedEarly = !isLiveTurn && player.pendingRemovalKick;
 
         if (!isLiveTurn && !isBankedEarly) {
-            this.bot.whisper(memberNumber, "Got it — I'll be watching for your wardrobe to close, no need to send !removed right now.");
+            this.bot.whisper(memberNumber, "Got it — I'll be watching for your wardrobe to close, no need to send /bot removed right now.");
             return;
         }
 
@@ -3308,7 +3308,7 @@ export class StripDiceGame implements GameHost {
     private resumeRollsFirst(name: string): void {
         this.state = GameState.Rolling;
         this.startTurnTimer();
-        this.bot.sendChat(`🎲 ${name} rolls first — !roll (D${this.currentDiceMax})`);
+        this.bot.sendChat(`🎲 ${name} rolls first — /bot roll (D${this.currentDiceMax})`);
     }
 
     // ============================================================
@@ -3336,7 +3336,7 @@ export class StripDiceGame implements GameHost {
         const headline = this.players.size >= this.maxPlayers
             ? "All player slots are filled"
             : `Enough players to start (${this.players.size}/${this.maxPlayers} joined)`;
-        this.bot.sendChat(`${headline}! 🎲 Game starts in 30 seconds... Whisper !start to begin early or !cancel to wait for more players.`);
+        this.bot.sendChat(`${headline}! 🎲 Game starts in 30 seconds... Type /bot start to begin early or /bot cancel to wait for more players.`);
 
         let seconds = 30;
         this.countdownTimer = setInterval(() => {
@@ -3360,7 +3360,7 @@ export class StripDiceGame implements GameHost {
 
     private beginClothingDeclaration(): void {
         this.state = GameState.Registration;
-        this.bot.sendChat(`Please whisper me your clothing declaration! Whisper !help for instructions.`);
+        this.bot.sendChat(`Please declare your clothing! Type /bot help player for how.`);
 
         // Warn any already-joined player whose permissions may have changed
         // since they used !join (e.g. they toggled AllowItem off, or the bot
@@ -3387,11 +3387,11 @@ export class StripDiceGame implements GameHost {
             if (player.clothingQuestionIndex !== null) continue;
             if (player.clothing.length > 0 || player.isNaked) {
                 this.bot.whisper(player.memberNumber,
-                    `Game is starting soon — your outfit is declared, just whisper !ready to join in!`
+                    `Game is starting soon — your outfit is declared, just type /bot ready to join in!`
                 );
             } else {
                 this.bot.whisper(player.memberNumber,
-                    `Game is starting soon — declare your outfit (!wearing or !naked) and whisper !ready to join in!`
+                    `Game is starting soon — declare your outfit (/bot wearing or /bot naked) and type /bot ready to join in!`
                 );
             }
         }
@@ -3660,7 +3660,7 @@ export class StripDiceGame implements GameHost {
         const { p1, p2 } = swap;
         this.bot.sendChat(
             `🔀 Prize tip: if ${p1.name} (Team ${p1.teamId}) and ${p2.name} (Team ${p2.teamId}) swap teams, ` +
-            `the prize system can activate! Both players whisper !swap within 30 seconds to confirm.`
+            `the prize system can activate! Both players type /bot swap within 30 seconds to confirm.`
         );
         logGameEvent(`[PrizeSwap] Suggesting swap: ${p1.name} (#${p1.memberNumber}) T${p1.teamId} ↔ ${p2.name} (#${p2.memberNumber}) T${p2.teamId}`);
 
@@ -3711,7 +3711,7 @@ export class StripDiceGame implements GameHost {
         if (swap.confirmed.size < 2) {
             const other = memberNumber === swap.player1.memberNumber ? swap.player2.memberNumber : swap.player1.memberNumber;
             const otherName = this.nameCache.get(other) ?? "the other player";
-            this.bot.whisper(memberNumber, `Swap confirmed your side — waiting for ${otherName} to also whisper !swap.`);
+            this.bot.whisper(memberNumber, `Swap confirmed your side — waiting for ${otherName} to also type /bot swap.`);
             return;
         }
 
@@ -3814,7 +3814,7 @@ export class StripDiceGame implements GameHost {
     private announceCurrentTurn(): void {
         const player = this.getCurrentPlayer();
         if (!player) return;
-        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with !roll or !r`);
+        this.bot.whisper(player.memberNumber, `${player.name} roll your (D${this.currentDiceMax}) dice with /bot roll`);
     }
 
     private advanceTurn(): void {
@@ -3893,7 +3893,7 @@ export class StripDiceGame implements GameHost {
             // Player skipped a removal last round — give them 20 seconds to confirm or be kicked.
             if (player.pendingRemovalKick) {
                 this.state = GameState.WaitingRemove;
-                this.bot.sendChat(`⚠️ ${player.name}, you still need to remove your item! Whisper !removed within 20 seconds or you'll be removed from the game.`);
+                this.bot.sendChat(`⚠️ ${player.name}, you still need to remove your item! Type /bot removed within 20 seconds or you'll be removed from the game.`);
                 this.startTurnTimer(20000);
                 return true;
             }
@@ -5052,7 +5052,7 @@ export class StripDiceGame implements GameHost {
 
         this.bot.whisper(target.memberNumber,
             `You are about to have ${pending.chosenItem} applied to your ${pending.slotDisplay}. ` +
-            `Type !veto to decline, or !accept to confirm (or wait 30s to auto-accept). Yes/no works too.`);
+            `Type /bot veto to decline, or /bot accept to confirm (or wait 30s to auto-accept). Yes/no works too.`);
         pending.timer = setTimeout(() => this.applyPickedItem(), VETO_TIMEOUT_MS);
     }
 
@@ -5934,7 +5934,7 @@ export class StripDiceGame implements GameHost {
             const prizeNames = prizePlan.prizePlayers.map(p => p.name).join(", ");
             for (const winner of winners ?? []) {
                 this.bot.whisper(winner.memberNumber,
-                    `🏆 Willing prizes: ${prizeNames}. Whisper !claim to see the list and get their lock passwords.`
+                    `🏆 Willing prizes: ${prizeNames}. Type /bot claim to see the list and get their lock passwords.`
                 );
             }
         }
@@ -6030,7 +6030,7 @@ export class StripDiceGame implements GameHost {
             this.activeLockEndTimes.delete(memberNumber);
             this.pendingLockConfirmations.set(memberNumber, { name, items });
             this.bot.whisper(memberNumber,
-                `Your locks should have been released — did your bondage items come off? Reply !released or !stuck so we can track any issues.`
+                `Your locks should have been released — did your bondage items come off? Reply /bot released or /bot stuck so we can track any issues.`
             );
         }, delay);
     }
@@ -6085,7 +6085,7 @@ export class StripDiceGame implements GameHost {
                 name, bondageApplied, bondageOutfit, lockDurationMinutes, lockEndTime, timeout
             });
 
-            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply !yes or !no");
+            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply yes or no (whisper it, or /bot yes)");
         }, sendDelay);
     }
 
@@ -6287,7 +6287,7 @@ export class StripDiceGame implements GameHost {
         this.awaitingTeamSizeReply = false;
         this.clearTeamParityVote();
 
-        this.bot.sendChat(`Game reset! Whisper !join to start a new game. 🎲`);
+        this.bot.sendChat(`Game reset! Type /bot join to start a new game. 🎲`);
     }
 
     // ============================================================
@@ -6482,7 +6482,7 @@ export class StripDiceGame implements GameHost {
             player.removalWarned = false;
             player.pendingRemovalKick = true;
             this.bot.whisper(player.memberNumber,
-                `Skipping your turn — open your wardrobe and remove the item or whisper !removed before your next roll.`
+                `Skipping your turn — open your wardrobe and remove the item or type /bot removed before your next roll.`
             );
             this.advanceTurn();
         } else {
@@ -6535,7 +6535,7 @@ export class StripDiceGame implements GameHost {
         this.activeSecondChance = memberNumber;
         this.state = GameState.Rolling;
         this.bot.whisper(memberNumber,
-            `⚠️ You missed your turn! This is your second chance — type !roll now (${SECOND_CHANCE_TIMER_MS / 1000}s).`
+            `⚠️ You missed your turn! This is your second chance — type /bot roll now (${SECOND_CHANCE_TIMER_MS / 1000}s).`
         );
         this.secondChanceTimer = setTimeout(() => {
             this.handleSecondChanceTimeout(memberNumber);
@@ -6651,7 +6651,7 @@ export class StripDiceGame implements GameHost {
     private sendJoinPauseInstructions(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             `⏸️ The game is paused for you to get set up (up to 60 seconds). The dice is currently down to D${this.currentDiceMax}. ` +
-            `Finish declaring your outfit (!wearing / !naked) and whisper !ready to join this round's rotation — ` +
+            `Finish declaring your outfit (/bot wearing / /bot naked) and type /bot ready to join this round's rotation — ` +
             `if the pause ends before you're ready, you'll join the rotation as soon as you are.`
         );
     }

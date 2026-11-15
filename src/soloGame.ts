@@ -201,7 +201,7 @@ export class SoloGameManager {
         // Prize system is in development — thank them and let them know it's coming.
         this.host.bot.whisper(memberNumber,
             "🏆 It's coming — someone's going to get to claim you properly soon. " +
-            "If you've shared your thoughts via !feedback, we've read every one. Thank you! 💕"
+            "If you've shared your thoughts via /bot feedback, we've read every one. Thank you! 💕"
         );
     }
 
@@ -220,7 +220,7 @@ export class SoloGameManager {
 
     public start(memberNumber: number, name: string, mode: SoloMode): void {
         if (this.soloGames.has(memberNumber)) {
-            this.host.bot.whisper(memberNumber, "You already have a solo game in progress — !roll to continue.");
+            this.host.bot.whisper(memberNumber, "You already have a solo game in progress — /bot roll to continue.");
             return;
         }
         const clothingPath = this.host.resolveClothingPath(memberNumber);
@@ -296,7 +296,7 @@ export class SoloGameManager {
         }
 
         const prefix = idx === 0
-            ? `You're on the ${pending.clothingPath} clothing list (whisper !clothes male or !clothes female, then !solo again, to switch). `
+            ? `You're on the ${pending.clothingPath} clothing list (type /bot clothes male or /bot clothes female, then /bot solo again, to switch). `
             : "";
         this.host.bot.whisper(memberNumber, `${prefix}Wearing ${slots[idx]}? (yes/no)`);
     }
@@ -353,7 +353,7 @@ export class SoloGameManager {
             `${objective}\n` +
             `This is just between us.`
         );
-        this.host.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
+        this.host.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — /bot roll.`);
         this.startInactivityTimer(memberNumber);
     }
 
@@ -395,7 +395,7 @@ export class SoloGameManager {
         }
 
         solo.currentMax = roll;
-        this.host.bot.whisper(memberNumber, `You are now at ${roll} — !roll again.`);
+        this.host.bot.whisper(memberNumber, `You are now at ${roll} — /bot roll again.`);
         this.startInactivityTimer(memberNumber);
     }
 
@@ -416,7 +416,7 @@ export class SoloGameManager {
         solo.currentMax = SOLO_DICE_MAX;
         solo.rollsThisItem = 0;
         this.host.bot.whisper(memberNumber, `${solo.clothingRemaining.length} item${solo.clothingRemaining.length === 1 ? "" : "s"} left: ${solo.clothingRemaining.join(", ")}.`);
-        this.host.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — !roll.`);
+        this.host.bot.whisper(memberNumber, `${solo.name}, you're at ${solo.currentMax} — /bot roll.`);
         this.startInactivityTimer(memberNumber);
     }
 
@@ -435,13 +435,13 @@ export class SoloGameManager {
             solo.inactivityTimer = setTimeout(() => {
                 solo.inactivityTimer = null;
                 const lostItem = solo.clothingLost[solo.clothingLost.length - 1];
-                this.host.bot.whisper(memberNumber, `Remove your ${lostItem} or type !removed if you have already removed them to continue.`);
+                this.host.bot.whisper(memberNumber, `Remove your ${lostItem} or type /bot removed if you have already removed them to continue.`);
                 this.startInactivityTimer(memberNumber);
             }, SOLO_REMOVAL_REMINDER_MS);
         } else {
             solo.inactivityTimer = setTimeout(() => {
                 solo.inactivityTimer = null;
-                this.host.bot.whisper(memberNumber, "Whenever you're ready — type !roll to continue.");
+                this.host.bot.whisper(memberNumber, "Whenever you're ready — type /bot roll to continue.");
             }, SOLO_INACTIVITY_TIMEOUT_MS);
         }
     }
@@ -686,7 +686,7 @@ export class SoloGameManager {
         this.pendingThemeOffer.set(memberNumber, { theme, penaltyMinutes, timer });
         this.host.bot.whisper(memberNumber,
             `⛓️ You lost! I'm going to put you in ${theme.name} bondage. ` +
-            `Say yes to accept or no for a random preset instead. (30s — !yes/!no also work)`
+            `Say yes to accept or no for a random preset instead. (30s — whisper it, or /bot yes / /bot no)`
         );
     }
 
@@ -797,7 +797,7 @@ export class SoloGameManager {
                 const modeLabel = solo.mode === "race" ? "Race to Naked" : "Survive";
                 return `${solo.name} (#${solo.memberNumber}) - ${modeLabel}, ${solo.bracket}-item bracket, ${solo.clothingLost.length}/${solo.bracket} lost, ${solo.totalRolls} rolls so far`;
             });
-            this.host.sendLongWhisper(memberNumber, `=== Active Solo Games ===\n${lines.join("\n")}\nUsage: !solo_reset [player name] to reset one.`);
+            this.host.sendLongWhisper(memberNumber, `=== Active Solo Games ===\n${lines.join("\n")}\nUsage: /bot solo_reset [player name] to reset one.`);
             return;
         }
 
@@ -819,7 +819,7 @@ export class SoloGameManager {
         });
 
         this.host.bot.whisper(memberNumber, `Solo game for ${target.name} has been reset.`);
-        this.host.bot.whisper(target.memberNumber, "An admin reset your solo game — !solo race or !solo survive to start a new one.");
+        this.host.bot.whisper(target.memberNumber, "An admin reset your solo game — /bot solo race or /bot solo survive to start a new one.");
     }
 
     // Asks the player if they'd like to be a prize — solo prize system design
@@ -859,7 +859,7 @@ export class SoloGameManager {
                 lines.push(this.formatScoreLine(records, "survive", b));
             }
         }
-        lines.push("Type !scores me for your personal stats.");
+        lines.push("Type /bot scores me for your personal stats.");
 
         this.host.sendLongWhisper(memberNumber, lines.join("\n"));
     }
@@ -893,7 +893,7 @@ export class SoloGameManager {
             }
         }
 
-        if (lines.length === 1) lines.push("No personal records yet — try !solo race or !solo survive!");
+        if (lines.length === 1) lines.push("No personal records yet — try /bot solo race or /bot solo survive!");
 
         this.host.sendLongWhisper(memberNumber, lines.join("\n"));
     }

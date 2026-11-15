@@ -112,7 +112,7 @@ export class MatchmakingManager {
 
         if (existing?.blocked) {
             this.host.bot.whisper(memberNumber,
-                "You've been removed from matchmaking. An admin has to whisper !bd unblock before you can rejoin.");
+                "You've been removed from matchmaking. An admin has to type /bot bd unblock before you can rejoin.");
             return;
         }
 
@@ -136,7 +136,7 @@ export class MatchmakingManager {
             logGameEvent(`[MATCHMAKING] ${name} (#${memberNumber}) registered — pool is now ${Object.keys(this.pool).length}.`);
             this.host.bot.whisper(memberNumber,
                 "✅ You're in the matchmaking pool! You'll get a beep when someone's at the room looking for a game, " +
-                "and !looking beeps them back when you want one.");
+                "and /bot looking beeps them back when you want one.");
         }
 
         // Deliberately NOT calling addFriend here. Everywhere else in the bot,
@@ -152,9 +152,9 @@ export class MatchmakingManager {
 
         this.awaitingFriend.add(memberNumber);
         this.host.sendLongWhisper(memberNumber,
-            `One more step: add ${secrets.username} to your BC friend list (or whisper me !friend and I'll walk you through it). ` +
-            `Beeps only reach people the bot is friends with, so until that's done I can't include you when someone calls !looking. ` +
-            `Whisper !bd status any time to check.`);
+            `One more step: add ${secrets.username} to your BC friend list (or type /bot friend and I'll walk you through it). ` +
+            `Beeps only reach people the bot is friends with, so until that's done I can't include you when someone calls /bot looking. ` +
+            `Type /bot bd status any time to check.`);
     }
 
     // Called from the game when a friend link completes, so someone who
@@ -164,7 +164,7 @@ export class MatchmakingManager {
         if (!this.entry(memberNumber)) return;
         this.host.bot.whisper(memberNumber,
             "🎲 That's matchmaking live — you'll be beeped when someone's at the room looking for a game. " +
-            "Whisper !bd pause any time you'd rather not be.");
+            "Type /bot bd pause any time you'd rather not be.");
     }
 
     public handleUnregister(memberNumber: number): void {
@@ -181,22 +181,22 @@ export class MatchmakingManager {
         // still want. !unfriend is the command for that.
         this.host.bot.whisper(memberNumber,
             "You're out of matchmaking — no more game beeps. (I've kept the friend link so you can still see the room " +
-            "on your friend list; whisper !unfriend if you want that gone too.) Whisper !bd register to rejoin anytime.");
+            "on your friend list; type /bot unfriend if you want that gone too.) Type /bot bd register to rejoin anytime.");
     }
 
     public handlePause(memberNumber: number): void {
         const p = this.entry(memberNumber);
-        if (!p) { this.host.bot.whisper(memberNumber, "You're not registered — whisper !bd register first."); return; }
+        if (!p) { this.host.bot.whisper(memberNumber, "You're not registered — type /bot bd register first."); return; }
         if (p.paused) { this.host.bot.whisper(memberNumber, "You're already paused."); return; }
         p.paused = true;
         this.save();
         this.host.bot.whisper(memberNumber,
-            "⏸️ Paused — you stay registered but won't get game beeps. Whisper !bd resume when you're back.");
+            "⏸️ Paused — you stay registered but won't get game beeps. Type /bot bd resume when you're back.");
     }
 
     public handleResume(memberNumber: number): void {
         const p = this.entry(memberNumber);
-        if (!p) { this.host.bot.whisper(memberNumber, "You're not registered — whisper !bd register first."); return; }
+        if (!p) { this.host.bot.whisper(memberNumber, "You're not registered — type /bot bd register first."); return; }
         if (!p.paused) { this.host.bot.whisper(memberNumber, "You're already active (not paused)."); return; }
         p.paused = false;
         this.save();
@@ -206,7 +206,7 @@ export class MatchmakingManager {
     public handleStatus(memberNumber: number): void {
         const p = this.entry(memberNumber);
         if (!p) {
-            this.host.bot.whisper(memberNumber, "You're not registered. Whisper !bd register to join matchmaking.");
+            this.host.bot.whisper(memberNumber, "You're not registered. Type /bot bd register to join matchmaking.");
             return;
         }
         const state = p.blocked ? "blocked" : (p.paused ? "paused" : "active");
@@ -220,7 +220,7 @@ export class MatchmakingManager {
             `Matchmaking status: ${state}. Strikes: ${p.earlyLeaveCount}/${LOOKING_STRIKE_LIMIT}.\n` +
             (friended
                 ? `We're friended, so beeps will reach you whenever you're online.`
-                : `⚠️ We aren't friended yet — add ${secrets.username} in BC, or whisper !friend. Until then I can't beep you.`) +
+                : `⚠️ We aren't friended yet — add ${secrets.username} in BC, or type /bot friend. Until then I can't beep you.`) +
             cooldown);
     }
 
@@ -304,18 +304,18 @@ export class MatchmakingManager {
         const p = this.entry(memberNumber);
         if (!p || p.blocked) {
             this.host.bot.whisper(memberNumber, p?.blocked
-                ? "You've been removed from matchmaking — an admin needs to !bd unblock you."
-                : "You need to register first — whisper !bd register. (It's mutual: you can beep the pool because " +
+                ? "You've been removed from matchmaking — an admin needs to /bot bd unblock you."
+                : "You need to register first — type /bot bd register. (It's mutual: you can beep the pool because " +
                   "you're in it too.)");
             return;
         }
         if (p.paused) {
-            this.host.bot.whisper(memberNumber, "You're paused. Whisper !bd resume first, then !looking.");
+            this.host.bot.whisper(memberNumber, "You're paused. Type /bot bd resume first, then /bot looking.");
             return;
         }
         if (!this.host.isInRoom(memberNumber)) {
             this.host.bot.whisper(memberNumber,
-                `Use !looking from inside the room ("${secrets.roomName}") — there's no point beeping people over ` +
+                `Type /bot looking from inside the room ("${secrets.roomName}") — there's no point beeping people over ` +
                 `if you aren't there when they arrive.`);
             return;
         }
@@ -324,7 +324,7 @@ export class MatchmakingManager {
         const admin = this.host.isAdmin(memberNumber);
         if (!admin && p.lookingCooldownUntil && now < p.lookingCooldownUntil) {
             const mins = Math.max(1, Math.ceil((p.lookingCooldownUntil - now) / 60000));
-            this.host.bot.whisper(memberNumber, `You used !looking recently — try again in ~${mins} min.`);
+            this.host.bot.whisper(memberNumber, `You used /bot looking recently — try again in ~${mins} min.`);
             return;
         }
 
@@ -333,10 +333,10 @@ export class MatchmakingManager {
         // confusing when it's attached to the thing being warned about.
         if (!admin && p.earlyLeaveCount === LOOKING_STRIKE_LIMIT - 2) {
             this.host.bot.whisper(memberNumber,
-                "⚠️ Please stay at least 3 minutes after !looking — people need time to see the beep and get here.");
+                "⚠️ Please stay at least 3 minutes after /bot looking — people need time to see the beep and get here.");
         } else if (!admin && p.earlyLeaveCount >= LOOKING_STRIKE_LIMIT - 1) {
             this.host.bot.whisper(memberNumber,
-                "⚠️ Last warning: stay at least 3 minutes after !looking. One more early leave removes you from matchmaking.");
+                "⚠️ Last warning: stay at least 3 minutes after /bot looking. One more early leave removes you from matchmaking.");
         }
 
         if (this.queryInFlight.has(memberNumber)) {
@@ -373,7 +373,7 @@ export class MatchmakingManager {
         if (recipients.length === 0) {
             this.host.bot.whisper(memberNumber,
                 "No registered players are online right now — nobody to beep. Hang out in the room and try again later, " +
-                "or whisper !solo race / !solo survive for a game on your own in the meantime.");
+                "or type /bot solo race / /bot solo survive for a game on your own in the meantime.");
             return;
         }
 
@@ -436,7 +436,7 @@ export class MatchmakingManager {
             if (someoneCame) return;
             this.host.bot.whisper(seeker,
                 `Looks like nobody's made it over yet — no worries, beeps often take a while to get noticed. ` +
-                `You can try !looking again in about 30 minutes, or whisper !solo survive for a game on your own.`);
+                `You can try /bot looking again in about 30 minutes, or type /bot solo survive for a game on your own.`);
         }, LOOKING_NO_RESPONSE_MS));
     }
 
@@ -464,8 +464,8 @@ export class MatchmakingManager {
 
         if (p.blocked) {
             this.host.bot.beep(memberNumber,
-                "You've been removed from Strip Dice matchmaking after leaving right after !looking four times. " +
-                "An admin can put you back — whisper !bd status for where you stand.");
+                "You've been removed from Strip Dice matchmaking after leaving right after /bot looking four times. " +
+                "An admin can put you back — type /bot bd status for where you stand.");
         }
     }
 

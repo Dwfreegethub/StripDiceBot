@@ -59,7 +59,7 @@ export class FeedbackManager {
     public handleFeedback(memberNumber: number, name: string, message: string): void {
         const text = message.trim().slice("!feedback ".length).trim();
         if (!text) {
-            this.host.bot.whisper(memberNumber, "Please include your feedback! e.g. !feedback The game was great but...");
+            this.host.bot.whisper(memberNumber, "Please include your feedback! e.g. /bot feedback The game was great but...");
             return;
         }
 
@@ -125,7 +125,7 @@ export class FeedbackManager {
     public maybeSuggestFeedback(memberNumber: number): void {
         if (Math.random() >= FEEDBACK_NUDGE_CHANCE) return;
         this.host.bot.whisper(memberNumber,
-            "💬 Enjoyed that? Whisper !feedback with any thoughts, ideas, or bugs — we read every one.");
+            "💬 Enjoyed that? Type /bot feedback with any thoughts, ideas, or bugs — we read every one.");
     }
 
     // Starts (or restarts) the yes/no confirmation window for an admin's
@@ -183,7 +183,7 @@ export class FeedbackManager {
     // and only those are re-armed for the join whisper.
     public handleSetStatus(memberNumber: number, message: string): void {
         if (!this.host.requireAdmin(memberNumber)) return;
-        const usage = "Usage: !setstatus [playerID] [item#|all] [status] — item numbers as shown by !feedback list.";
+        const usage = "Usage: /bot setstatus [playerID] [item#|all] [status] — item numbers as shown by /bot feedback list.";
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
         const which = (parts[2] ?? "").toLowerCase();
@@ -240,7 +240,7 @@ export class FeedbackManager {
         const playerId = parts[2];
         const index = parseInt(parts[3] ?? "", 10);
         if (!playerId || !/^\d+$/.test(playerId) || !Number.isInteger(index)) {
-            this.host.bot.whisper(memberNumber, "Usage: !feedback remove [playerID] [item#] — item numbers as shown by !feedback list.");
+            this.host.bot.whisper(memberNumber, "Usage: /bot feedback remove [playerID] [item#] — item numbers as shown by /bot feedback list.");
             return;
         }
         const entry = this.feedbackStatus[playerId];
