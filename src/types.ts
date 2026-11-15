@@ -152,7 +152,7 @@ export interface PendingLockApplyCheck {
 // ============================================================
 // FEEDBACK STATUS TRACKING
 // ============================================================
-export type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "researching" | "implemented" | "declined" | "partly_implemented";
+export type FeedbackItemStatus = "pending" | "reviewing" | "testing" | "researching" | "implemented" | "declined" | "partly_implemented" | "thanks";
 
 export interface FeedbackItem {
     timestamp: string;

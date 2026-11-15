@@ -312,6 +312,8 @@ export const FEEDBACK_STATUS_LABELS: Record<FeedbackItemStatus, string> = {
     implemented: "✅ Implemented",
     declined: "❌ Declined",
     partly_implemented: "🔧 Partly implemented",
+    // For compliments: "implemented" would read oddly next to "great game!".
+    thanks: "💕 Thank you — that made our day!",
 };
 
 // Statuses that count as "resolved" - shown to the submitter only once.
@@ -319,6 +321,7 @@ export const RESOLVED_FEEDBACK_STATUSES: ReadonlySet<FeedbackItemStatus> = new S
     "implemented",
     "declined",
     "partly_implemented",
+    "thanks",
 ]);
 
 // Statuses that are still "in progress" - covered by the single bundled
@@ -341,6 +344,7 @@ export const FEEDBACK_VALID_STATUSES: FeedbackItemStatus[] = [
     "implemented",
     "partly_implemented",
     "declined",
+    "thanks",
 ];
 
 // Chance (0-1) that finishing an activity earns a one-line !feedback nudge.

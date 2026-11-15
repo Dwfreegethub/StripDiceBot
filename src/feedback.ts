@@ -175,21 +175,23 @@ export class FeedbackManager {
         return false;
     }
 
-    // Admin: !setstatus [playerID] [status] — updates every feedback item for
-    // that player and re-arms the join notification for resolved statuses.
+    // Admin: !setstatus [playerID] [item#|all] [status]. Item numbers are the
+    // ones !feedback list shows. It used to set every item of the player and
+    // clear statusShown on all of them, which forced mixed outcomes to one
+    // status and re-sent updates already delivered (feedback review,
+    // 2026-11-15). Now only items whose status actually changes are touched,
+    // and only those are re-armed for the join whisper.
     public handleSetStatus(memberNumber: number, message: string): void {
         if (!this.host.requireAdmin(memberNumber)) return;
+        const usage = "Usage: !setstatus [playerID] [item#|all] [status] — item numbers as shown by !feedback list.";
         const parts = message.trim().split(/\s+/);
         const playerId = parts[1];
-        const status = (parts[2] ?? "").toLowerCase() as FeedbackItemStatus;
-        // Every status the type allows. "declined" and "pending" were missing,
-        // so an admin literally could not set them despite both having labels
-        // and "declined" counting as resolved — it had to be hand-edited in
-        // feedback_status.json. Same fix SlaveParking made.
+        const which = (parts[2] ?? "").toLowerCase();
+        const status = (parts[3] ?? "").toLowerCase() as FeedbackItemStatus;
         const validStatuses: FeedbackItemStatus[] = FEEDBACK_VALID_STATUSES;
 
-        if (!playerId || !/^\d+$/.test(playerId)) {
-            this.host.bot.whisper(memberNumber, "Usage: !setstatus [playerID] [status]");
+        if (!playerId || !/^\d+$/.test(playerId) || !(which === "all" || /^\d+$/.test(which))) {
+            this.host.bot.whisper(memberNumber, usage);
             return;
         }
         if (!validStatuses.includes(status)) {
@@ -203,12 +205,53 @@ export class FeedbackManager {
             return;
         }
 
-        for (const item of entry.items) {
+        let targets = entry.items;
+        if (which !== "all") {
+            const index = parseInt(which, 10);
+            if (index < 1 || index > entry.items.length) {
+                this.host.bot.whisper(memberNumber, `${entry.name} (#${playerId}) has ${entry.items.length} feedback item(s); pick 1–${entry.items.length}.`);
+                return;
+            }
+            targets = [entry.items[index - 1]];
+        }
+
+        let changed = 0;
+        for (const item of targets) {
+            if (item.status === status) continue;
             item.status = status;
             item.statusShown = false;
+            changed++;
         }
         this.host.storage.saveFeedbackStatus(this.feedbackStatus);
-        this.host.bot.whisper(memberNumber, `Updated ${entry.items.length} feedback item(s) for ${entry.name} (#${playerId}) to "${status}".`);
+        const label = FEEDBACK_STATUS_LABELS[status] ?? status;
+        this.host.bot.whisper(memberNumber,
+            changed === 0
+                ? `Nothing to change — already "${status}".`
+                : `Updated ${changed} item(s) for ${entry.name} (#${playerId}) to ${label}.` +
+                  (RESOLVED_FEEDBACK_STATUSES.has(status) ? " They'll be told next time they join." : ""));
+    }
+
+    // Admin: !feedback remove [playerID] [item#] — deletes one item, for
+    // accidental captures ("!join", "yes") that should never be whispered
+    // back. feedback.log keeps the original line; later items renumber.
+    public handleRemove(memberNumber: number, message: string): void {
+        if (!this.host.requireAdmin(memberNumber)) return;
+        const parts = message.trim().split(/\s+/);
+        const playerId = parts[2];
+        const index = parseInt(parts[3] ?? "", 10);
+        if (!playerId || !/^\d+$/.test(playerId) || !Number.isInteger(index)) {
+            this.host.bot.whisper(memberNumber, "Usage: !feedback remove [playerID] [item#] — item numbers as shown by !feedback list.");
+            return;
+        }
+        const entry = this.feedbackStatus[playerId];
+        if (!entry || index < 1 || index > entry.items.length) {
+            this.host.bot.whisper(memberNumber, `No item ${index} for player #${playerId}.`);
+            return;
+        }
+        const [removed] = entry.items.splice(index - 1, 1);
+        if (entry.items.length === 0) delete this.feedbackStatus[playerId];
+        this.host.storage.saveFeedbackStatus(this.feedbackStatus);
+        this.host.bot.whisper(memberNumber, `Removed from ${entry.name} (#${playerId}): "${removed.text}". Their later items move up one number.`);
     }
 
     // On join: whisper any unshown resolved-status updates, plus a single

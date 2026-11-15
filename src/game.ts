@@ -571,6 +571,7 @@ export class StripDiceGame implements GameHost {
         "!setstatus ": { handler: (mn, _name, _msg, message) => this.feedback.handleSetStatus(mn, message), whisperOnly: true, prefix: true },
         "!free ": { handler: (mn, _name, _msg, message) => this.handleFree(mn, message), whisperOnly: true, prefix: true },
         "!kick ": { handler: (mn, _name, _msg, message) => this.handleKick(mn, message), whisperOnly: true, prefix: true },
+        "!feedback remove ": { handler: (mn, _name, _msg, message) => this.feedback.handleRemove(mn, message), whisperOnly: true, prefix: true },
         "!feedback list": { handler: (mn) => this.feedback.handleList(mn), whisperOnly: true },
         "!feedback": { handler: (mn) => this.feedback.handlePrompt(mn), whisperOnly: true },
         "!outfit ": { handler: (mn, name, _msg, message) => this.handleOutfitSubmission(mn, name, message), prefix: true },

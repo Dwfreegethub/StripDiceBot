@@ -479,7 +479,10 @@ export class SoloGameManager {
 
         this.host.bot.whisper(memberNumber, `🎉 You're naked! Final score: ${score} roll${score === 1 ? "" : "s"}.`);
         this.host.feedback.maybeSuggestFeedback(memberNumber);
-        this.askSoloPrizeQuestion(memberNumber, solo.name);
+        // The "would you want to be left as a prize?" question is off until the
+        // solo prize exists: its "It's coming" reply had been promising it since
+        // July (feedback review, 2026-11-15). Re-enable with the feature.
+        // this.askSoloPrizeQuestion(memberNumber, solo.name);
 
         const entry: SoloRecordEntry = { memberNumber, name: solo.name, rolls: score };
 
