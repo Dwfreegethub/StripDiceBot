@@ -193,7 +193,10 @@ export interface PlayerRecord {
 // One shipped update, appended to changelog.json when the bot restarts and
 // picks up a pending_update.txt version it hasn't seen before. Oldest first.
 export interface ChangelogEntry {
+    /** The pending_update.txt stamp (a timestamp) — what "seen" is compared on. */
     version: string;
+    /** package.json version running when the entry was recorded; absent on older entries. */
+    release?: string;
     headline: string;
     detail: string;
     major: boolean;

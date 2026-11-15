@@ -7,6 +7,7 @@ import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES, TEAM_69_ME
 // index.ts's job on startup, and doing it here suppressed the changelog entry
 // and the room announcement. See checkPendingUpdate().
 import { readPendingUpdate, getSeenVersion } from "./pendingUpdate";
+import { BOT_VERSION } from "./version";
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
@@ -658,15 +659,58 @@ export class StripDiceGame implements GameHost {
         "!tournament": { handler: (mn) => this.tournament.handleStatus(mn) },
     };
 
-    private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat"): void {
+    // "bot" is a `/bot <command>` (see handleBotCommand). It is private like a
+    // whisper, and nobody else sees it, so it may run both whisper-only and
+    // chat-only commands. Returns whether a command ran.
+    private dispatchCommand(memberNumber: number, name: string, message: string, msg: string, source: "whisper" | "chat" | "bot"): boolean {
         for (const [command, def] of Object.entries(this.commandTable)) {
             const matches = def.prefix ? msg.startsWith(command) : msg === command;
             if (!matches) continue;
-            if (def.whisperOnly && source !== "whisper") continue;
-            if (def.chatOnly && source !== "chat") continue;
+            if (def.whisperOnly && source === "chat") continue;
+            if (def.chatOnly && source === "whisper") continue;
             def.handler(memberNumber, name, msg, message);
+            return true;
+        }
+        return false;
+    }
+
+    private isCommand(msg: string): boolean {
+        return Object.entries(this.commandTable).some(([command, def]) =>
+            def.prefix ? msg.startsWith(command) : msg === command);
+    }
+
+    // `/bot <text>` is BC's own command for talking to bots: the player's
+    // client sends it as a Hidden message ("ChatRoomBot <text>") to each
+    // character in the room, so it never shows in room chat. That is the
+    // point — "/bot roll" does what "!roll" does without the room seeing
+    // the line. Every "!" command still works as before.
+    //
+    // The text is handled exactly like a whisper, so every prompt answer
+    // works too ("/bot yes", "/bot 2", "/bot skip"). A leading "!" is added
+    // when the text is a command ("/bot roll" -> "!roll"), except for the
+    // yes/no answers and while the player owes a free-text reply, where the
+    // raw text is what the prompt wants.
+    public handleBotCommand(memberNumber: number, name: string, text: string): void {
+        text = this.stripOocParens(text.trim());
+        if (!text) {
+            this.bot.whisper(memberNumber, "Try /bot help — any ! command works after /bot, e.g. /bot join or /bot roll.");
             return;
         }
+        const lower = text.toLowerCase();
+        const isAnswer = ["yes", "y", "no", "n"].includes(lower) || this.expectsFreeText(memberNumber);
+        const message = !lower.startsWith("!") && !isAnswer && this.isCommand("!" + lower) ? "!" + text : text;
+        log(`/bot from ${name} (#${memberNumber}): ${text}${message !== text ? ` -> ${message}` : ""}`);
+        this.handleWhisper(memberNumber, name, message, "bot");
+    }
+
+    // True while this player's next whisper is free text a prompt is waiting
+    // for, which "/bot" must pass through untouched.
+    private expectsFreeText(memberNumber: number): boolean {
+        return this.feedback.hasPendingRequest(memberNumber)
+            || this.tournament.isSettingUp(memberNumber)
+            || this.solo.isAwaitingPrizeDescription(memberNumber)
+            || this.pendingSlotConsent.has(memberNumber)
+            || this.pendingWinner69Assignment?.winnerNumber === memberNumber;
     }
 
     // Reciprocate a friending so the player can see the room on their friend
@@ -759,7 +803,7 @@ export class StripDiceGame implements GameHost {
         return match ? match[1].trim() : trimmed;
     }
 
-    public handleWhisper(memberNumber: number, name: string, message: string): void {
+    public handleWhisper(memberNumber: number, name: string, message: string, source: "whisper" | "bot" = "whisper"): void {
         message = this.stripOocParens(message);
         const msg = message.toLowerCase();
 
@@ -970,7 +1014,13 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        this.dispatchCommand(memberNumber, name, message, msg, "whisper");
+        const handled = this.dispatchCommand(memberNumber, name, message, msg, source);
+
+        // A plain whisper that matches nothing stays unanswered (players chat
+        // with the bot), but "/bot" is always addressed to it, so say so.
+        if (!handled && source === "bot") {
+            this.bot.whisper(memberNumber, `I don't know "/bot ${message}". Try /bot help.`);
+        }
     }
 
     public handleChat(memberNumber: number, name: string, message: string): void {
@@ -2690,6 +2740,7 @@ export class StripDiceGame implements GameHost {
     private handleAbout(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             `=== About StripDiceBot ===\n` +
+            `Version ${BOT_VERSION}\n` +
             `Created and owned by Missy 💕\n` +
             `Source code & updates: https://github.com/Dwfreegethub/StripDiceBot\n` +
             `\n` +
@@ -3020,8 +3071,9 @@ export class StripDiceGame implements GameHost {
         const shown = entries.slice(-CHANGELOG_ENTRIES_SHOWN).reverse();
         const lines = shown.map(entry => {
             const date = entry.version.split("T")[0] || entry.version;
+            const release = entry.release ? `v${entry.release} · ` : "";
             const detail = entry.detail ? `\n${entry.detail}` : "";
-            return `— ${date} —\n${entry.headline}${detail}`;
+            return `— ${release}${date} —\n${entry.headline}${detail}`;
         });
 
         const older = entries.length - shown.length;
