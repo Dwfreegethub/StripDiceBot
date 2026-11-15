@@ -246,7 +246,7 @@ export class TournamentManager {
         if (this.hasTournament()) {
             this.host.bot.whisper(memberNumber,
                 `A tournament already exists (status: ${this.state!.status}). ` +
-                `Use !tournament cancel first if you want to replace it.`);
+                `Type /bot tournament cancel first if you want to replace it.`);
             return;
         }
         if (this.setup) {
@@ -305,7 +305,7 @@ export class TournamentManager {
             if (a === "no" || a === "n") {
                 clearTimeout(this.setup.timeout);
                 this.setup = null;
-                this.host.bot.whisper(memberNumber, "Discarded — no tournament created. Run !tournament setup to start over.");
+                this.host.bot.whisper(memberNumber, "Discarded — no tournament created. Run /bot tournament setup to start over.");
                 return true;
             }
             this.host.bot.whisper(memberNumber, "Please answer yes or no.");
@@ -400,13 +400,13 @@ export class TournamentManager {
         if (now < opens) {
             this.host.bot.sendChat(
                 `🏆 A StripDice Solo Tournament is coming! Registration opens in ${formatDuration(opens - now)}. ` +
-                `Whisper !tournament for details.`);
+                `Type /bot tournament for details.`);
             return;
         }
 
         this.host.bot.sendChat(
-            `🏆 StripDice Solo Tournament — registration is OPEN! Whisper !tournament register to sign up. ` +
-            `Sign-ups close in ${formatDuration(Math.max(0, closes - now))}. Whisper !tournament rules for how it works.`);
+            `🏆 StripDice Solo Tournament — registration is OPEN! Type /bot tournament register to sign up. ` +
+            `Sign-ups close in ${formatDuration(Math.max(0, closes - now))}. Type /bot tournament rules for how it works.`);
     }
 
     // ---- registration -------------------------------------------------------
@@ -433,7 +433,7 @@ export class TournamentManager {
         if (findPlayer(this.state, memberNumber)) {
             this.host.bot.whisper(memberNumber,
                 `You're already registered! ${this.state.players.length} player(s) signed up so far. ` +
-                `Whisper !tournament any time for status.`);
+                `Type /bot tournament any time for status.`);
             return;
         }
 
@@ -450,7 +450,7 @@ export class TournamentManager {
                 this.pendingFriendRegistration.delete(memberNumber);
                 this.host.bot.whisper(memberNumber,
                     "Your tournament registration timed out waiting for the friend request. " +
-                    "Whisper !tournament register again whenever you're ready.");
+                    "Type /bot tournament register again whenever you're ready.");
             }, TOURNAMENT_FRIEND_WAIT_MS);
 
             this.pendingFriendRegistration.set(memberNumber, { name, timeout });
@@ -459,7 +459,7 @@ export class TournamentManager {
                 "Tournament rounds run over hours or days, so I need to be able to reach you when " +
                 "your round starts. That needs us to be friends in BC (it only works both ways).\n\n" +
                 "Add me from your friend list now — I'll add you back automatically and finish your " +
-                "registration straight away. If your client doesn't send it, whisper !friend instead.\n" +
+                "registration straight away. If your client doesn't send it, type /bot friend instead.\n" +
                 `I'll wait ${formatDuration(TOURNAMENT_FRIEND_WAIT_MS)}.`);
             return;
         }
@@ -514,8 +514,8 @@ export class TournamentManager {
             `Sign-ups close in ${formatDuration(Math.max(0, closes - now))}, and Round 1 begins ` +
             `${formatLocalTime(this.state.config.firstRoundStart)}.\n` +
             `We're friends, so I'll beep you when your round starts — though beeps only reach you if ` +
-            `you're online, so check !tournament if you've been away.\n` +
-            `Whisper !tournament rules for the full format, or !tournament any time for status.`);
+            `you're online, so check /bot tournament if you've been away.\n` +
+            `Type /bot tournament rules for the full format, or /bot tournament any time for status.`);
 
         this.host.bot.sendChat(`🏆 ${name} has registered for the tournament! (${this.state.players.length} signed up)`);
     }
@@ -539,7 +539,7 @@ export class TournamentManager {
         if (this.state.status === "registration") {
             this.state.players = this.state.players.filter(p => p.memberNumber !== memberNumber);
             this.save();
-            this.host.bot.whisper(memberNumber, "You've been removed from the tournament. Whisper !tournament register to sign up again.");
+            this.host.bot.whisper(memberNumber, "You've been removed from the tournament. Type /bot tournament register to sign up again.");
             return;
         }
 
@@ -646,7 +646,7 @@ export class TournamentManager {
             : "";
         this.host.bot.sendChat(
             `🏆 Tournament Round ${round} begins! ${formatDuration(this.state.config.roundLengthMs)} to play ` +
-            `your ${this.state.config.gamesPerMatch} games. Whisper !tournament play to start.${graceNote}`);
+            `your ${this.state.config.gamesPerMatch} games. Type /bot tournament play to start.${graceNote}`);
 
         logGameEvent(`[TOURNAMENT] round ${round} started with ${matches.length} match(es), ` +
             `deadline ${this.state.roundDeadline}`);
@@ -661,10 +661,10 @@ export class TournamentManager {
             const bName = this.nameOf(match.playerB);
             this.notify(match.playerA,
                 `🏆 Round ${round}: you're up against ${bName}. ` +
-                `Whisper !tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
+                `Type /bot tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
             this.notify(match.playerB,
                 `🏆 Round ${round}: you're up against ${aName}. ` +
-                `Whisper !tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
+                `Type /bot tournament play to start game 1 of ${this.state.config.gamesPerMatch}.`);
         }
     }
 
@@ -945,7 +945,7 @@ export class TournamentManager {
         const timeout = setTimeout(() => {
             this.pendingNextGamePrompt.delete(memberNumber);
             this.host.bot.whisper(memberNumber,
-                `No rush — whisper !tournament play when you're ready for game ${nextGame} of ${total}.`);
+                `No rush — type /bot tournament play when you're ready for game ${nextGame} of ${total}.`);
         }, TOURNAMENT_NEXT_GAME_PROMPT_MS);
         this.pendingNextGamePrompt.set(memberNumber, timeout);
 
@@ -953,7 +953,7 @@ export class TournamentManager {
         this.host.sendLongWhisper(memberNumber,
             `${total - nextGame + 1} game${total - nextGame + 1 === 1 ? "" : "s"} left this round.\n` +
             `Get dressed again (${clothing} items) and reply **yes** to start game ${nextGame} of ${total} — ` +
-            `or **no** to stop for now and come back with !tournament play.`);
+            `or **no** to stop for now and come back with /bot tournament play.`);
     }
 
     // Consumes the yes/no answering that prompt. Returns true if handled.
@@ -969,7 +969,7 @@ export class TournamentManager {
 
         if (a === "no" || a === "n") {
             this.host.bot.whisper(memberNumber,
-                "No problem — whisper !tournament play whenever you're ready for the next one.");
+                "No problem — type /bot tournament play whenever you're ready for the next one.");
             return true;
         }
 
@@ -1092,8 +1092,8 @@ export class TournamentManager {
         this.host.sendLongWhisper(memberNumber,
             `⛓️ You still owe ${formatDuration(player.punishMsRemaining)} bound and claimable ` +
             `from the tournament, and you can't play your next match until it's served.\n` +
-            `Ready to start now? Reply **yes**, or whisper !tournament serve whenever you are. ` +
-            `You can stop any time with !tournament stop and finish the rest later.`);
+            `Ready to start now? Reply **yes**, or type /bot tournament serve whenever you are. ` +
+            `You can stop any time with /bot tournament stop and finish the rest later.`);
     }
 
     // Consumes a plain yes/no answering the serve prompt. Returns true if it
@@ -1108,7 +1108,7 @@ export class TournamentManager {
 
         if (msg === "no" || msg === "n") {
             this.host.bot.whisper(memberNumber,
-                "No problem — whisper !tournament serve when you're ready. Your time stays owed until then.");
+                "No problem — type /bot tournament serve when you're ready. Your time stays owed until then.");
             return true;
         }
         this.handleServe(memberNumber);
@@ -1133,7 +1133,7 @@ export class TournamentManager {
         }
         if (player.serving) {
             this.host.bot.whisper(memberNumber,
-                `You're already serving — ${formatDuration(owed)} left. Whisper !tournament stop to pause.`);
+                `You're already serving — ${formatDuration(owed)} left. Type /bot tournament stop to pause.`);
             return;
         }
 
@@ -1161,10 +1161,10 @@ export class TournamentManager {
 
         this.host.bot.sendChat(
             `⛓️ ${player.name} is serving tournament punishment — bound and claimable for ` +
-            `${formatDuration(owed)}. Tournament players can whisper !claim to take them.`);
+            `${formatDuration(owed)}. Tournament players can type /bot claim to take them.`);
         this.host.sendLongWhisper(memberNumber,
             `⛓️ Serving now — ${formatDuration(owed)} to go. The clock only runs while you're here and bound. ` +
-            `Whisper !tournament stop to pause and keep the remainder for later.`);
+            `Type /bot tournament stop to pause and keep the remainder for later.`);
     }
 
     public handleStop(memberNumber: number): void {
@@ -1191,7 +1191,7 @@ export class TournamentManager {
         } else {
             this.host.bot.sendChat(`⛓️ ${player.name} has paused their punishment — ${formatDuration(left)} still owed.`);
             this.host.bot.whisper(memberNumber,
-                `Paused with ${formatDuration(left)} left. Whisper !tournament serve to pick it up again — ` +
+                `Paused with ${formatDuration(left)} left. Type /bot tournament serve to pick it up again — ` +
                 `you can't play your next match until it's done.`);
         }
     }
@@ -1273,7 +1273,7 @@ export class TournamentManager {
                     `${formatDuration(player.punishMsRemaining)} still owed`);
                 this.notify(player.memberNumber,
                     `⛓️ You didn't make it back, so your punishment is paused with ` +
-                    `${formatDuration(player.punishMsRemaining)} left. Whisper !tournament serve when you're back.`);
+                    `${formatDuration(player.punishMsRemaining)} left. Type /bot tournament serve when you're back.`);
             }
         }
         this.save();
@@ -1343,7 +1343,7 @@ export class TournamentManager {
                 available.forEach((p, i) => {
                     lines.push(`${i + 1}. ${p.name} — ${formatDuration(punishRemaining(p, Date.now()))} left`);
                 });
-                lines.push(`Whisper !claim 1 to take one. You'll get their lock password and they'll be leashed.`);
+                lines.push(`Type /bot claim 1 to take one. You'll get their lock password and they'll be leashed.`);
             }
             if (alreadyMine.length > 0) {
                 lines.push(`Already yours: ${alreadyMine.map(p => p.name).join(", ")}.`);
@@ -1356,7 +1356,7 @@ export class TournamentManager {
         if (isNaN(index) || index < 1 || index > available.length) {
             this.host.bot.whisper(memberNumber,
                 available.length > 0
-                    ? `Pick a number between 1 and ${available.length} — whisper !claim on its own to see the list.`
+                    ? `Pick a number between 1 and ${available.length} — type /bot claim on its own to see the list.`
                     : "There's nobody available to claim right now.");
             return true;
         }
@@ -1418,7 +1418,7 @@ export class TournamentManager {
         if (!this.state) {
             this.host.bot.whisper(memberNumber,
                 "No tournament is set up right now. When one is, I'll announce it in the room — " +
-                "whisper !tournament rules to read the format in the meantime.");
+                "type /bot tournament rules to read the format in the meantime.");
             return;
         }
 
@@ -1433,7 +1433,7 @@ export class TournamentManager {
                     lines.push(`🏆 Tournament registration opens in ${formatDuration(opens - now)}.`);
                 } else {
                     lines.push(`🏆 Registration is OPEN — closes in ${formatDuration(Math.max(0, closes - now))}.`);
-                    lines.push(`Whisper !tournament register to sign up.`);
+                    lines.push(`Type /bot tournament register to sign up.`);
                 }
                 lines.push(`Signed up (${this.state.players.length}): ${this.state.players.map(p => p.name).join(", ") || "nobody yet"}`);
                 lines.push(`Minimum to start: ${this.state.config.minPlayers}`);
@@ -1509,7 +1509,7 @@ export class TournamentManager {
     private personalBlock(memberNumber: number, now: number): string {
         if (!this.state) return "";
         const player = findPlayer(this.state, memberNumber);
-        if (!player) return "You're not in this tournament — whisper !tournament rules to see how the next one works.";
+        if (!player) return "You're not in this tournament — type /bot tournament rules to see how the next one works.";
 
         const owed = punishRemaining(player, now);
         if (owed > 0) {
@@ -1527,7 +1527,7 @@ export class TournamentManager {
         const left = this.state.config.gamesPerMatch - mine.length;
 
         if (left <= 0) return `✅ You've played all ${this.state.config.gamesPerMatch} games against ${this.nameOf(opponent)}. Waiting on them / the round to close.`;
-        return `🎲 Your opponent: ${this.nameOf(opponent)}. You have ${left} game(s) left to play — whisper !tournament play to start one.`;
+        return `🎲 Your opponent: ${this.nameOf(opponent)}. You have ${left} game(s) left to play — type /bot tournament play to start one.`;
     }
 
     // ---- admin controls -------------------------------------------------------
@@ -1547,7 +1547,7 @@ export class TournamentManager {
         }
         if (this.state.status === "paused" || this.state.status === "frozen") {
             this.host.bot.whisper(memberNumber,
-                `The tournament is ${this.state.status} — whisper !tournament resume first.`);
+                `The tournament is ${this.state.status} — type /bot tournament resume first.`);
             return;
         }
         if (this.state.status === "complete" || this.state.status === "cancelled") {
@@ -1599,7 +1599,7 @@ export class TournamentManager {
         this.state.status = "paused";
         this.save();
         logGameEvent(`[TOURNAMENT] paused by #${memberNumber}`);
-        this.host.bot.whisper(memberNumber, "Tournament paused — rounds won't advance until !tournament resume.");
+        this.host.bot.whisper(memberNumber, "Tournament paused — rounds won't advance until /bot tournament resume.");
         this.host.bot.sendChat("🏆 The tournament has been paused by an admin.");
     }
 
@@ -1669,7 +1669,7 @@ export class TournamentManager {
         logGameEvent(`[TOURNAMENT] FROZEN: ${reason}`);
         this.host.bot.sendChat(`🏆 The tournament is frozen pending an admin decision: ${reason}`);
         for (const admin of this.host.getRoomMembers().filter(n => this.host.isAdmin(n))) {
-            this.host.bot.whisper(admin, `🏆 Tournament frozen — ${reason}\nUse !tournament resume once you've decided, or !tournament cancel.`);
+            this.host.bot.whisper(admin, `🏆 Tournament frozen — ${reason}\nUse /bot tournament resume once you've decided, or /bot tournament cancel.`);
         }
     }
 
