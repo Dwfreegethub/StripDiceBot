@@ -44,6 +44,11 @@ export class FeedbackManager {
         this.host.bot.whisper(memberNumber, "What's your feedback? Go ahead and whisper it to me and I'll pass it along! 💬");
     }
 
+    // True while this member's next whisper will be taken as feedback text.
+    public hasPendingRequest(memberNumber: number): boolean {
+        return this.pendingFeedbackRequest.has(memberNumber);
+    }
+
     // Clears and reports a pending bare-"!feedback" request for this member.
     public consumePendingRequest(memberNumber: number): boolean {
         if (!this.pendingFeedbackRequest.has(memberNumber)) return false;

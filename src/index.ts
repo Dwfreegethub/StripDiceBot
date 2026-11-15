@@ -3,6 +3,7 @@ import { StripDiceGame } from "./game";
 import { log, logError } from "./logger";
 import { decodeMessage } from "./decodeMessage";
 import { readPendingUpdate, getSeenVersion, markVersionSeen, PendingUpdate } from "./pendingUpdate";
+import { BOT_VERSION } from "./version";
 
 process.on("uncaughtException", (err: Error) => {
     logError(`Uncaught exception: ${err.stack || err.message || err}`);
@@ -28,7 +29,7 @@ async function main() {
     }
     let restartAnnounced = false;
 
-    log("StripDiceBot starting...");
+    log(`StripDiceBot v${BOT_VERSION} starting...`);
 
     const bot = new BCConnection();
     const game = new StripDiceGame(bot);
@@ -36,6 +37,7 @@ async function main() {
     if (newUpdate) {
         game.recordUpdate({
             version: newUpdate.version,
+            release: BOT_VERSION,
             headline: newUpdate.headline,
             detail: newUpdate.detail,
             major: newUpdate.major,
@@ -76,6 +78,15 @@ async function main() {
 
         if (data.Type === "Chat") {
             game.handleChat(memberNumber, name, stripOOC(decodeMessage(data)));
+        }
+
+        // "/bot <command>": BC's client sends it to us as a Hidden message
+        // "ChatRoomBot <text>", unseen by the room. Same as whispering the
+        // command — see game.handleBotCommand.
+        if (data.Type === "Hidden" && typeof data.Content === "string" && data.Content.startsWith("ChatRoomBot")) {
+            if (memberNumber !== bot.getMemberNumber()) {
+                game.handleBotCommand(memberNumber, name, data.Content.slice("ChatRoomBot".length));
+            }
         }
         if (data.Type === "Status" && data.Content === "Wardrobe") {
             playersWithOpenWardrobe.add(memberNumber);
@@ -135,7 +146,7 @@ async function main() {
             }
         }
 
-        bot.sendChat("StripDiceBot is online! 🎲 Whisper !join to play Strip Dice or !help for info.");
+        bot.sendChat(`StripDiceBot v${BOT_VERSION} is online! 🎲 Whisper !join to play Strip Dice or !help for info.`);
 
         // Room chat gets the headline only, and only for updates marked major.
         // Everything else lives behind !changelog so the room stays readable.
@@ -189,7 +200,7 @@ async function main() {
 
     bot.onReconnect(() => {
         log("Reconnect complete. Re-announcing bot...");
-        bot.sendChat("StripDiceBot reconnected! 🎲 Whisper !join to play or !help for info.");
+        bot.sendChat(`StripDiceBot v${BOT_VERSION} reconnected! 🎲 Whisper !join to play or !help for info.`);
         game.onReconnect();
     });
 
