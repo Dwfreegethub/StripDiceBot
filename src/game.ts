@@ -9,6 +9,10 @@ import { pickRandomMessage, formatStreakMessage, SIXTY_NINE_MESSAGES, TEAM_69_ME
 import { readPendingUpdate, getSeenVersion } from "./pendingUpdate";
 import { BOT_VERSION } from "./version";
 import {
+    HelpContext, renderSection, HELP_MENU, HELP_PLAYER, HELP_SOLO, HELP_TEAM, HELP_ADMIN,
+    HELP_MATCHMAKING,
+} from "./help";
+import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
     PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry,
@@ -2870,7 +2874,7 @@ export class StripDiceGame implements GameHost {
     private welcomeOpening(memberNumber: number, name: string): string {
         if (this.state !== GameState.Idle) {
             return this.isMultiplayerJoinable()
-                ? `Welcome, ${name}! 🎲 A game is on right now — whisper !join to get in.`
+                ? `Welcome, ${name}! 🎲 A game is on right now — type /bot join to get in.`
                 : `Welcome, ${name}! 🎲 A game is running and it's too late to join this one, ` +
                   `but a solo game starts whenever you like.`;
         }
@@ -2888,10 +2892,10 @@ export class StripDiceGame implements GameHost {
     // already in the opening line if it's still open, and a team game can't
     // start against a running one either way.
     private waysToPlayLine(): string {
-        const solo = `!solo race / !solo survive — a whispered game of your own`;
-        const help = `!help — the rules`;
+        const solo = `/bot solo race or /bot solo survive — a private game of your own`;
+        const help = `/bot help — the rules`;
         if (this.state !== GameState.Idle) return `${solo} · ${help}`;
-        return `!join — multiplayer strip dice · !teamgame — 2v2 or 3v3 teams · ${solo} · ${help}`;
+        return `/bot join — multiplayer strip dice · /bot teamgame — 2v2 or 3v3 teams · ${solo} · ${help}`;
     }
 
     // Whatever is currently worth flagging as new, or null. Two rules keep this
@@ -2904,12 +2908,12 @@ export class StripDiceGame implements GameHost {
             // they'd actually want on walking into an empty room.
             const alone = !this.getRoomMembers().some(n => n !== memberNumber);
             return alone
-                ? `Whisper !looking and I'll beep everyone registered and online.`
+                ? `Type /bot looking and I'll beep everyone registered and online.`
                 : null;
         }
         const stillNew = Date.now() < Date.parse(NEW_FEATURE_UNTIL);
-        return `${stillNew ? "🆕 New — matchmaking" : "Matchmaking"}: whisper !bd register and I'll beep you ` +
-            `when someone's here wanting a game. When it's you waiting, !looking beeps them.`;
+        return `${stillNew ? "🆕 New — matchmaking" : "Matchmaking"}: type /bot bd register and I'll beep you ` +
+            `when someone's here wanting a game. When it's you waiting, /bot looking beeps them.`;
     }
 
     // The "I've been updated" nudge, folded into the welcome rather than
@@ -2919,7 +2923,7 @@ export class StripDiceGame implements GameHost {
         const latest = this.latestChangelogVersion();
         if (!latest) return null;
         if (this.playerRecords[String(memberNumber)]?.lastChangelogVersion === latest) return null;
-        return `📋 I've been updated since your last visit — whisper !changelog to see what changed.`;
+        return `📋 I've been updated since your last visit — type /bot changelog to see what changed.`;
     }
 
     // True if a normal !join would currently be accepted (i.e. not the
@@ -3042,109 +3046,40 @@ export class StripDiceGame implements GameHost {
         this.savePlayerRecords();
     }
 
+    private helpContext(memberNumber: number): HelpContext {
+        return {
+            isAdmin: this.isAdmin(memberNumber),
+            tournamentRunning: false, // master has no tournament
+            teamGameRunning: this.isTeamMode,
+        };
+    }
+
+    // The help pages are built from src/help.ts, the same table the wiki's
+    // Commands page comes from. Edit the wording there, not here.
     private handleHelp(memberNumber: number): void {
-        let text =
-            `=== Strip Dice Help ===\n` +
-            `!help player - Multiplayer game commands (join, clothing, rolling, locks)\n` +
-            `!help solo - Solo whisper game & leaderboard commands\n` +
-            `!help team - Team mode (2v2/3v3) rules${this.isTeamMode ? " — a team game is running now!" : ""}\n` +
-            `!bd - Matchmaking: get beeped when someone wants a game, and beep them back\n`;
-
-        if (this.isAdmin(memberNumber)) {
-            text += `!help admin - Admin commands\n`;
-        }
-
-        text +=
-            `!changelog - What's changed recently\n` +
-            `!about - About this bot`;
-
-        this.sendLongWhisper(memberNumber, text);
+        this.sendLongWhisper(memberNumber, renderSection(HELP_MENU, this.helpContext(memberNumber)));
     }
 
     private handleHelpTeam(memberNumber: number): void {
-        const text =
-            `=== Team Mode (2v2 / 3v3) ===\n` +
-            `!teamgame - Start a team game (asks for team size, then teams sign up)\n` +
-            `!join team1 / !join team2 - Pick your side during team setup\n` +
-            `!teams - Show current team rosters (and who's a ghost)\n` +
-            `Turn order alternates between teams (Team 1, Team 2, Team 1, ...). Everything else — clothing, rolling, bondage — works exactly like a normal game.\n` +
-            `\n` +
-            `Win condition: a team is eliminated once every one of its members is fully bound. The other team wins!\n` +
-            `\n` +
-            `👻 Ghosts: if a player safewords mid-game, they become a ghost instead of leaving — their turns auto-roll a 1 (so they keep stripping/binding) but the game never pauses for them. If this brings both teams back to equal active-player counts, everyone still active gets a whisper vote to keep the ghost rolls or drop that player from the game entirely.`;
-
-        this.sendLongWhisper(memberNumber, text);
+        this.sendLongWhisper(memberNumber, renderSection(HELP_TEAM, this.helpContext(memberNumber)));
     }
 
     private handleHelpPlayer(memberNumber: number): void {
-        const text =
-            `=== Strip Dice Commands ===\n` +
-            `!join - Join the game\n` +
-            `!wearing - Go through your outfit one item at a time (yes/no)\n` +
-            `!wearing [items] - Declare your clothing all at once\n` +
-            `  Valid items (female list): shoes socks top bottom bra panties\n` +
-            `  Valid items (male list): shoes socks jacket shirt pants underwear\n` +
-            `!clothes male / !clothes female - Switch which clothing list !wearing uses\n` +
-            `!naked - Declare you have no clothing on\n` +
-            `!same - Reuse your outfit from last game\n` +
-            `!ready - Confirm you are ready to play\n` +
-            `!lock10 / !lock15 / !lock20 - Set the end-game lock duration (admin only, default ${DEFAULT_LOCK_MINUTES} min)\n` +
-            `!start - Start the game early\n` +
-            `!cancel - Cancel the countdown\n` +
-            `!roll - Roll the dice on your turn (in room chat or whispered to me)\n` +
-            `!removed - Confirm you removed a clothing item\n` +
-            `!safeword - Emergency: remove all restraints immediately\n` +
-            `!pause - Request a quick pause; anyone can type !resume to continue\n` +
-            `!released / !stuck - Confirm whether your locks released at the end of the game\n` +
-            `!feedback [text] - Send feedback to the developers\n` +
-            `!outfit [description] - Submit an outfit idea that may be used as a future penalty\n` +
-            `!leaderboard / !lb - View the multiplayer win/loss leaderboard\n` +
-            `!friend - Add me to your friend list so you can see when the room is up (!unfriend to undo)\n` +
-            `!bd register - Join the matchmaking pool so players can beep you when they want a game\n` +
-            `!looking - Room empty? Beep every registered player who's online (!bd for the full list)\n` +
-            `!changelog - See what's changed recently\n` +
-            `!about - About this bot\n` +
-            `!help - Show the help menu`;
-
-        this.sendLongWhisper(memberNumber, text);
+        this.sendLongWhisper(memberNumber, renderSection(HELP_PLAYER, this.helpContext(memberNumber)));
     }
 
     private handleHelpSolo(memberNumber: number): void {
-        const text =
-            `=== Solo & Stats ===\n` +
-            `!solo race - Solo whisper game: fewest rolls to get naked wins\n` +
-            `!solo survive - Solo whisper game: most rolls before getting naked wins\n` +
-            `!removed - Whisper this once you've taken off an item the game told you to remove (or just close your Wardrobe). No rush, the game waits for you.\n` +
-            `!scores / !scores race / !scores survive - View solo leaderboards\n` +
-            `!scores me - View your personal solo stats`;
-
-        this.sendLongWhisper(memberNumber, text);
+        this.sendLongWhisper(memberNumber, renderSection(HELP_SOLO, this.helpContext(memberNumber)));
     }
 
     private handleHelpAdmin(memberNumber: number): void {
         if (!this.requireAdmin(memberNumber)) return;
-
-        const text =
-            `=== Admin Commands ===\n` +
-            `!locktime [mins] - Set end game lock duration\n` +
-            `!reset - End the current game immediately, remove bondage items from all players, and reset for a new game\n` +
-            `!midgamejoin on/off - Allow players to join games already in progress\n` +
-            `!testoutfit [name] - Force your next bondage outfit (for testing)\n` +
-            `!setstatus [playerID] [status] - Set a player's feedback status (pending, reviewing, testing, researching, implemented, partly_implemented, declined)\n` +
-            `!feedback list - View a summary of all tracked feedback\n` +
-            `!outfits - View submitted outfit suggestions\n` +
-            `!free [player name] - Remove all bondage items from a player; they stay in the game\n` +
-            `!kick [player name] - Remove a player from the active game entirely (they keep any bondage already applied)\n` +
-            `!solo_reset - List players with active solo games\n` +
-            `!solo_reset [player name] - Discard a player's solo game with no penalty\n` +
-            `!gamestats - Show cumulative game counts (multiplayer / team / solo / aborted)\n` +
-            `!testbeep [memberNumber|name] [message] - Beep a player to test out-of-room contact (online only)\n` +
-            `--- Matchmaking ---\n` +
-            `!bd pool - Everyone registered, who's online, and their strike counts\n` +
-            `!bd clearstrikes [name|memberNumber] - Reset a player's early-leave strikes\n` +
-            `!bd unblock [name|memberNumber] - Put a blocked player back in the pool\n` +
-            `(admins have no !looking cooldown and earn no strikes)`;
-
+        const ctx = this.helpContext(memberNumber);
+        const text = [
+            renderSection(HELP_ADMIN, ctx, { note: false }),
+            `--- Matchmaking ---`,
+            renderSection(HELP_MATCHMAKING, ctx, { header: false, adminEntriesOnly: true }),
+        ].join("\n");
         this.sendLongWhisper(memberNumber, text);
     }
 

@@ -1,0 +1,56 @@
+# Publishes wiki/ to the GitHub wiki whenever it changes on dev, the branch the live bot runs.
+#
+# GitHub keeps a wiki in its own git repository (StripDiceBot.wiki.git). This makes wiki/ the single
+# source: the wiki repo is overwritten to match it, page for page, and a page deleted from wiki/ is
+# deleted from the wiki. An edit made on the website's own editor is LOST on the next sync.
+# Edit wiki/ instead. wiki/Commands.md is generated: edit src/help.ts and run npm run wiki.
+#
+# The built-in token can push to the wiki with contents: write. The wiki repo must already exist:
+# GitHub creates it when the first page is saved on the website, once. If nothing changed, nothing
+# is committed and the job still passes, so a manual run is always safe.
+name: Sync wiki
+
+on:
+  push:
+    branches: [dev]
+    paths: ["wiki/**", ".github/workflows/sync-wiki.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two quick pushes to dev must not race each other into the wiki; the later one wins.
+concurrency:
+  group: sync-wiki
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone the wiki
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "$RUNNER_TEMP/wiki"
+
+      - name: Mirror wiki/ into it
+        run: |
+          rsync -a --delete --exclude .git wiki/ "$RUNNER_TEMP/wiki/"
+
+      - name: Commit and push if anything changed
+        working-directory: ${{ runner.temp }}/wiki
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki already matches wiki/ at ${GITHUB_SHA::7}; nothing to push."
+            exit 0
+          fi
+          git status --short
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync from ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}: $(git -C "$GITHUB_WORKSPACE" log -1 --format=%s)"
+          git push origin HEAD

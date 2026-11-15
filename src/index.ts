@@ -146,16 +146,16 @@ async function main() {
             }
         }
 
-        bot.sendChat(`StripDiceBot v${BOT_VERSION} is online! 🎲 Whisper !join to play Strip Dice or !help for info.`);
+        bot.sendChat(`StripDiceBot v${BOT_VERSION} is online! 🎲 Type /bot join to play Strip Dice, or /bot help for info.`);
 
         // Room chat gets the headline only, and only for updates marked major.
         // Everything else lives behind !changelog so the room stays readable.
         if (!restartAnnounced) {
             restartAnnounced = true;
             if (newUpdate && newUpdate.major && newUpdate.headline) {
-                bot.sendChat(`⚙️ Update applied — ${newUpdate.headline} Whisper !changelog for details.`);
+                bot.sendChat(`⚙️ Update applied — ${newUpdate.headline} Type /bot changelog for details.`);
             } else if (newUpdate) {
-                bot.sendChat("Back online! Whisper !changelog to see what's new.");
+                bot.sendChat("Back online! Type /bot changelog to see what's new.");
             } else {
                 bot.sendChat("Sorry for the interruption — I'm back!");
             }
@@ -200,7 +200,7 @@ async function main() {
 
     bot.onReconnect(() => {
         log("Reconnect complete. Re-announcing bot...");
-        bot.sendChat(`StripDiceBot v${BOT_VERSION} reconnected! 🎲 Whisper !join to play or !help for info.`);
+        bot.sendChat(`StripDiceBot v${BOT_VERSION} reconnected! 🎲 Type /bot join to play, or /bot help for info.`);
         game.onReconnect();
     });
 
