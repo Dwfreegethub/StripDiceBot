@@ -17,7 +17,7 @@ The bot whispers a list of areas: Arms, Legs, Feet, Torso, Hands, Head, Hood, Ne
 
 ### Saying no to a pick
 
-When someone picks a restraint for you, you have 30 seconds:
+When someone picks a restraint for you, you have 30 seconds. Just say **yes** or **no** in the room, or use the commands:
 
 * `/bot veto`: refuse it. They choose something else.
 * `/bot accept`: take it. Silence counts as accepting.

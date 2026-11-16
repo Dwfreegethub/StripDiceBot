@@ -629,8 +629,8 @@ export class StripDiceGame implements GameHost {
         "!changelog": { handler: (mn) => this.handleChangelog(mn) },
         "!friend": { handler: (mn, name) => this.handleFriendRequest(mn, name) },
         "!unfriend": { handler: (mn) => this.handleUnfriend(mn) },
-        "!veto": { handler: (mn) => this.handleVeto(mn), whisperOnly: true },
-        "!accept": { handler: (mn) => this.handleVetoAccept(mn), whisperOnly: true },
+        "!veto": { handler: (mn) => this.handleVeto(mn) },
+        "!accept": { handler: (mn) => this.handleVetoAccept(mn) },
         "!continue": { handler: (mn) => this.handleContinue(mn), chatOnly: true },
         "!debugroll ": { handler: (mn, _name, _msg, message) => this.handleDebugRoll(mn, message), whisperOnly: true, prefix: true },
         "!testbeep ": { handler: (mn, _name, _msg, message) => this.handleTestBeep(mn, message), whisperOnly: true, prefix: true },
@@ -1134,6 +1134,11 @@ export class StripDiceGame implements GameHost {
             this.bot.whisper(memberNumber, "Solo games are private! Type `/bot solo race` or `/bot solo survive` to get started.");
             return;
         }
+
+        // The restraint someone picked for you: a yes/no said out loud counts
+        // too. Only the target's answer, and only during the veto window, so
+        // nobody else saying "yes" in chat is taken as an answer.
+        if (this.tryHandleVetoYesNo(memberNumber, msg)) return;
 
         // !feedback is whisper-only — nudge instead of silently dropping it.
         if (msg === "!feedback" || msg.startsWith("!feedback ")) {
@@ -5144,7 +5149,7 @@ export class StripDiceGame implements GameHost {
 
         this.bot.whisper(target.memberNumber,
             `You are about to have ${pending.chosenItem} applied to your ${pending.slotDisplay}. ` +
-            `Type /bot veto to decline, or /bot accept to confirm (or wait 30s to auto-accept). Yes/no works too.`);
+            `Say yes to accept or no to veto — out loud in the room is fine — or /bot accept / /bot veto. (30s, then it's accepted.)`);
         pending.timer = setTimeout(() => this.applyPickedItem(), VETO_TIMEOUT_MS);
     }
 
