@@ -19,7 +19,7 @@ When the bot asks you something (*"Do you have shoes on? (yes/no)"*), answer by 
 ## Your first game
 
 1. **Join.** Type `/bot join`. If no game is running, this starts one, and others have a short while to join too.
-2. **Declare your clothes.** Type `/bot wearing` and answer yes or no for each item, or list them in one go: `/bot wearing shoes socks top bottom bra panties`. Nothing on? `/bot naked`. Played before? `/bot same` reuses your last outfit.
+2. **Declare your clothes.** Type `/bot wearing` and answer yes or no for each item, or list them in one go: `/bot wearing shoes socks top bottom bra panties`. Nothing on? `/bot naked`. Played before? `/bot same` reuses your last outfit. What you're wearing stays between you and the bot: when the game starts, the room only sees how many items you have on, and each one is revealed as it comes off.
 3. **Answer the setup questions.** Before the start the bot whispers a few questions: whether the winner may add toys, whether you want to be a prize if you lose, and how your restraints are chosen. See [Bondage, Locks and Prizes](Bondage-Locks-and-Prizes).
 4. **Ready up.** `/bot ready`. The game starts when the countdown ends, or when someone types `/bot start`.
 5. **Roll on your turn.** `/bot roll`. The bot announces each roll in the room.

@@ -1159,7 +1159,14 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        this.dispatchCommand(memberNumber, name, message, msg, "chat");
+        // A clothing list typed in the room still counts, but the room has
+        // just seen it, so ask for privacy next time (DW, 2026-11-16).
+        const declaredOutLoud = msg.startsWith("!wearing ") || msg === "!naked";
+        const handled = this.dispatchCommand(memberNumber, name, message, msg, "chat");
+        if (handled && declaredOutLoud) {
+            this.bot.whisper(memberNumber,
+                "🤫 Got it! Next time let's keep what you're wearing our little secret — whisper it to me, or type /bot wearing … so only I see it.");
+        }
     }
 
     // ============================================================
@@ -3902,7 +3909,10 @@ export class StripDiceGame implements GameHost {
             if (player.isNaked) {
                 this.bot.sendChat(`${player.name}: Starting naked 😈`);
             } else {
-                this.bot.sendChat(`${player.name}: ${player.clothing.join(", ")}`);
+                // Item count only: what each player has on stays a surprise
+                // until it comes off ("Remove your bra!"). DW, 2026-11-16.
+                const n = player.clothing.length;
+                this.bot.sendChat(`${player.name}: ${n} item${n === 1 ? "" : "s"} on 👗`);
             }
         }
 
