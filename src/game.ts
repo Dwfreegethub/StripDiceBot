@@ -802,6 +802,39 @@ export class StripDiceGame implements GameHost {
         return false;
     }
 
+    // Returning player's reply to "Same outfit this time?" (1/same or 2/new;
+    // yes/no too). Shared by whisper and room chat. True if it was an answer.
+    private tryHandleOutfitChoice(memberNumber: number, answer: string): boolean {
+        const player = this.players.get(memberNumber);
+        if (!player?.awaitingOutfitChoice) return false;
+        if (answer === "1" || answer === "same" || answer === "yes") {
+            player.awaitingOutfitChoice = false;
+            this.handleSame(memberNumber);
+            return true;
+        }
+        if (answer === "2" || answer === "new" || answer === "no") {
+            player.awaitingOutfitChoice = false;
+            this.bot.whisper(memberNumber,
+                `Declare your outfit:\n` +
+                `/bot wearing - go through it one item at a time (yes/no)\n` +
+                `/bot wearing [items] - e.g. /bot wearing shoes socks top bottom bra panties\n` +
+                `/bot naked - if you have nothing on\n` +
+                `Type /bot ready when done.`
+            );
+            return true;
+        }
+        return false;
+    }
+
+    // A forgiving yes/no for answers typed in room chat: "Yes!", "yeah",
+    // "ok", "nope". Takes text already reduced to letters, digits and spaces.
+    // Null when it isn't a yes or a no, so ordinary chat is left alone.
+    private parseYesNo(answer: string): boolean | null {
+        if (/^(yes|y|yeah|yea|yep|yup|sure|ok|okay)( please)?$/.test(answer)) return true;
+        if (/^(no|n|nope|nah)( thanks| thank you)?$/.test(answer)) return false;
+        return null;
+    }
+
     // Strips one layer of enclosing parens so BC's out-of-character
     // convention — e.g. "(!claim)" or "(help)" — parses the same as the
     // bare command. Only affects what the bot reads internally; the
@@ -940,22 +973,7 @@ export class StripDiceGame implements GameHost {
         // "same outfit this time?" whisper sent at join. Cleared once answered,
         // or implicitly bypassed if they use !wearing/!naked/!same directly.
         if (player?.awaitingOutfitChoice) {
-            if (msg === "1" || msg === "same") {
-                player.awaitingOutfitChoice = false;
-                this.handleSame(memberNumber);
-                return;
-            }
-            if (msg === "2" || msg === "new") {
-                player.awaitingOutfitChoice = false;
-                this.bot.whisper(memberNumber,
-                    `Declare your outfit:\n` +
-                    `/bot wearing - go through it one item at a time (yes/no)\n` +
-                    `/bot wearing [items] - e.g. /bot wearing shoes socks top bottom bra panties\n` +
-                    `/bot naked - if you have nothing on\n` +
-                    `Type /bot ready when done.`
-                );
-                return;
-            }
+            if (this.tryHandleOutfitChoice(memberNumber, msg)) return;
             // Any outfit command clears the flag and falls through normally.
             if (msg === "!wearing" || msg.startsWith("!wearing ") || msg === "!naked" || msg === "!same") {
                 player.awaitingOutfitChoice = false;
@@ -1040,37 +1058,100 @@ export class StripDiceGame implements GameHost {
         message = this.stripOocParens(message);
         const msg = message.toLowerCase();
 
-        // Guided clothing Q&A (!wearing) is whisper-only — nudge the player
-        // to whisper instead of silently dropping their yes/no.
+        // Which of the bot's questions may be answered out loud was DW's call
+        // (2026-11-16). Out loud: toys, prize, outfit-or-pick, same outfit
+        // again, the lock-time vote and the locks-OK check. Private: clothing,
+        // areas allowed, the picker's choice, the winner's 69 minutes, the
+        // host's player count, the team keep/drop vote, tournament prompts.
+        // Only something that looks like an answer is acted on, so ordinary
+        // chat from someone with a question pending is left alone.
         const player = this.players.get(memberNumber);
-        if (player && player.clothingQuestionIndex !== null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). Your outfit choices are between us.");
+        const answer = msg.replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+        const yesNo = this.parseYesNo(answer);
+        const yesNoWord = yesNo === null ? null : yesNo ? "yes" : "no";
+        const keepItSecret = "🤫 Let's keep what you're wearing our little secret — whisper yes or no to just me (or /bot yes).";
+
+        // Clothing (multiplayer !wearing Q&A): private, to keep the surprise.
+        if (player && player.clothingQuestionIndex !== null && yesNo !== null) {
+            this.bot.whisper(memberNumber, keepItSecret);
             return;
         }
 
-        // Pre-game toys consent question is whisper-only — same nudge.
-        if (this.awaitingToysConsent && player?.toysConsent === null && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). Toy consent is between us.");
+        // Solo "same outfit as last time?" — fine out loud. Ahead of the solo
+        // clothing nudge below, which would otherwise catch the yes/no.
+        if (this.solo.hasPendingOutfitChoice(memberNumber) && (["1", "2", "same", "new"].includes(answer) || yesNoWord)) {
+            this.solo.handleOutfitChoice(memberNumber, yesNoWord ?? answer);
             return;
         }
 
-        // Toys consent question for a mid-game joiner is whisper-only — same nudge.
-        if (this.pendingLateJoinToysConsent.has(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me).");
+        // Solo clothing Q&A: private, same as multiplayer.
+        if (this.solo.hasPendingSetup(memberNumber) && yesNo !== null) {
+            this.bot.whisper(memberNumber, keepItSecret);
             return;
         }
 
-        // Theme offer yes/no — accept from chat same as whisper (not sensitive).
-        if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
-            const accepted = msg === "!yes" || msg === "yes";
-            if (accepted) this.solo.acceptThemeOffer(memberNumber);
+        // Toys OK? (pre-game, and for a mid-game joiner) — out loud is fine.
+        if (this.awaitingToysConsent && player?.toysConsent === null && yesNo !== null) {
+            this.recordToysConsentAnswer(memberNumber, yesNo);
+            return;
+        }
+        if (this.pendingLateJoinToysConsent.has(memberNumber) && yesNo !== null) {
+            this.handleLateJoinToysConsentAnswer(memberNumber, yesNo);
+            return;
+        }
+
+        // Be a prize? (pre-game, and for a late joiner) — out loud is fine.
+        if (this.awaitingPrizeConsent && player?.prizeConsent === null && yesNo !== null) {
+            this.recordPrizeConsentAnswer(memberNumber, yesNo);
+            return;
+        }
+        if (this.awaitingLatePrizeConsent.has(memberNumber) && yesNo !== null) {
+            this.handleLatePrizeConsentAnswer(memberNumber, yesNo);
+            return;
+        }
+
+        // Same outfit this time? (multiplayer) — out loud is fine.
+        if (player?.awaitingOutfitChoice && this.tryHandleOutfitChoice(memberNumber, yesNoWord ?? answer)) return;
+
+        // Outfit or pick? — out loud is fine. tryHandleBondageModeAnswer only
+        // takes real answers (pick/outfit/1/2) and ignores anything else.
+        if (player && player.bondageMode === null &&
+            (this.awaitingBondageMode || this.awaitingLateBondageMode.has(memberNumber))) {
+            if (this.tryHandleBondageModeAnswer(memberNumber, answer)) return;
+        }
+
+        // Locks OK? check after the end-game locks — out loud is fine.
+        if (this.pendingLockVerifications.has(memberNumber) && yesNo !== null) {
+            if (yesNo) this.handleLockVerificationYes(memberNumber);
+            else this.handleLockVerificationNo(memberNumber);
+            return;
+        }
+
+        // Theme offer yes/no after a solo loss — out loud is fine.
+        if (this.solo.hasThemeOffer(memberNumber) && yesNo !== null) {
+            if (yesNo) this.solo.acceptThemeOffer(memberNumber);
             else this.solo.declineThemeOffer(memberNumber);
             return;
         }
 
-        // Solo game setup clothing Q&A is whisper-only — same nudge.
-        if (this.solo.hasPendingSetup(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
-            this.bot.whisper(memberNumber, "Psst — answer privately: /bot yes or /bot no (or whisper it to me). The solo game is just between us.");
+        // Private answers typed in the room: nudge rather than ignore them.
+        // Areas allowed (pick mode).
+        if (this.pendingSlotConsent.has(memberNumber) &&
+            (answer === "all" || answer.split(" ").some(t => t in CONSENT_TOKEN_GROUPS))) {
+            this.bot.whisper(memberNumber, "Psst — send the areas you allow privately: whisper them to me, or /bot arms, legs, mouth... (or /bot all).");
+            return;
+        }
+        // The picker's slot or item choice.
+        if (this.pendingBondagePick?.pickerNumber === memberNumber &&
+            this.pendingBondagePick.stage !== "veto" && /^\d+$/.test(answer)) {
+            this.bot.whisper(memberNumber, `Psst — make your pick privately so it's a surprise: whisper ${answer} to me, or /bot ${answer}.`);
+            return;
+        }
+        // The winner handing out their 69 minutes.
+        if (this.pendingWinner69Assignment?.winnerNumber === memberNumber &&
+            (["skip", "done", "0", "none", "no one"].includes(answer) ||
+             this.pendingWinner69Assignment.boundPlayers.some(p => p.name.toLowerCase().startsWith(answer) && answer.length >= 2))) {
+            this.bot.whisper(memberNumber, `Psst — hand out your 69 minutes privately: whisper the name to me, or /bot ${answer}.`);
             return;
         }
 
@@ -1129,10 +1210,12 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
-        // Lock-time vote is whisper-only — nudge instead of silently dropping it.
-        if (this.pendingLockTimeVote?.boundPlayers.some(p => p.memberNumber === memberNumber) &&
-            (msg === "1" || msg === "2" || msg === "3")) {
-            this.bot.whisper(memberNumber, "Psst — vote privately: /bot 1, /bot 2 or /bot 3 (or whisper it to me).");
+        // Lock-time vote (1/2/3) — out loud is fine. Only a bare 1, 2 or 3 is
+        // passed on: the vote handler answers anything else from a voter with
+        // "Please reply 1, 2 or 3", which would nag them for ordinary chat.
+        if (this.pendingLockTimeVote?.allVoters.some(p => p.memberNumber === memberNumber) &&
+            (answer === "1" || answer === "2" || answer === "3")) {
+            this.tryHandleEndGameLockVote(memberNumber, answer);
             return;
         }
 
@@ -6193,7 +6276,7 @@ export class StripDiceGame implements GameHost {
                 name, bondageApplied, bondageOutfit, lockDurationMinutes, lockEndTime, timeout
             });
 
-            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Reply yes or no (whisper it, or /bot yes)");
+            this.bot.whisper(memberNumber, "Did you receive your bondage and locks correctly? Say yes or no — out loud is fine, or whisper it.");
         }, sendDelay);
     }
 
