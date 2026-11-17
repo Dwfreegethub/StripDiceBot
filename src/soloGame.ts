@@ -252,7 +252,9 @@ export class SoloGameManager {
             pending.pendingClothing = [...last];
             this.host.sendLongWhisper(memberNumber,
                 `Last time you wore: ${last.join(", ")}.\n` +
-                `Same outfit? Reply **1** or **same** to start now, or **2** or **new** to go through it item by item.`);
+                `👗 SAME — wear that again and start now\n` +
+                `✏️ NEW — go through it item by item\n` +
+                `Just say it in the room, or whisper it to me.`);
             return;
         }
 
@@ -327,7 +329,7 @@ export class SoloGameManager {
             this.askClothingQuestion(memberNumber);
             return true;
         }
-        this.host.bot.whisper(memberNumber, "Reply **1**/same to reuse it, or **2**/new to declare a different outfit.");
+        this.host.bot.whisper(memberNumber, "Reply SAME to reuse it, or NEW to declare a different outfit.");
         return true;
     }
 
