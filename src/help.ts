@@ -152,7 +152,7 @@ export const HELP_ADMIN: HelpSection = {
         { usage: "solo_reset", text: "List players with active solo games", adminOnly: true },
         { usage: "solo_reset [player name]", text: "Discard a player's solo game with no penalty", adminOnly: true },
         { usage: "feedback list", text: "View a summary of all tracked feedback", adminOnly: true },
-        { usage: "setstatus [playerID] [item#|all] [status]", text: "Set one feedback item's status (numbers from /bot feedback list): pending, reviewing, testing, researching, implemented, partly_implemented, declined, thanks. Resolved ones are whispered to the player once", adminOnly: true },
+        { usage: "setstatus [playerID] [item#|all] [status]", text: "Set one feedback item's status (numbers from /bot feedback list): pending, reviewing, testing, researching, implemented, partly_implemented, declined, thanks, closed (a bug we couldn't reproduce). Resolved ones are whispered to the player once", adminOnly: true },
         { usage: "feedback remove [playerID] [item#]", text: "Delete an accidental feedback item so it is never whispered back", adminOnly: true },
         { usage: "outfits", text: "View submitted outfit suggestions", adminOnly: true },
         { usage: "gamestats", text: "Show cumulative game counts (multiplayer / team / solo / aborted)", adminOnly: true },
