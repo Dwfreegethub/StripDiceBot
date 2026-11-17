@@ -5122,16 +5122,19 @@ export class StripDiceGame implements GameHost {
         return false;
     }
 
-    // Bare yes/no from the veto target, as aliases for !accept/!veto —
-    // consistent with every other yes/no flow in the bot.
+    // The veto target's answer, as aliases for !accept/!veto, whispered or
+    // said out loud. Forgiving about how it's typed: "Yes!", "ok", "nope",
+    // "accept", "veto", "no thanks". Only the target, only in the veto window.
     private tryHandleVetoYesNo(memberNumber: number, msg: string): boolean {
         const pending = this.pendingBondagePick;
         if (!pending || pending.stage !== "veto" || memberNumber !== pending.targetNumber) return false;
-        if (msg === "yes" || msg === "y") {
+        const reply = msg.replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+        const yesNo = this.parseYesNo(reply);
+        if (yesNo === true || /^(i )?(accept|accepted|accept it)$/.test(reply)) {
             this.handleVetoAccept(memberNumber);
             return true;
         }
-        if (msg === "no" || msg === "n") {
+        if (yesNo === false || /^(i )?(veto|veto it|decline|refuse)$/.test(reply)) {
             this.handleVeto(memberNumber);
             return true;
         }
