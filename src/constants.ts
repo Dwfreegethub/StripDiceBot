@@ -49,6 +49,14 @@ export const MIN_RETURN_WINDOW_MS = 90 * 1000;
 // late joiner has to answer the same question) before being treated as "no".
 export const TOYS_CONSENT_TIMEOUT_MS = 60 * 1000;
 
+// How long after a finished game a first-time player is asked whether their
+// answers may be saved for next time — late enough to clear the lock-time
+// vote and the locks-OK check, which also take yes/no.
+export const SAVE_SETTINGS_ASK_DELAY_MS = 3 * 60 * 1000;
+
+// How long that "save your answers?" question stays answerable.
+export const SAVE_SETTINGS_OFFER_TTL_MS = 30 * 60 * 1000;
+
 // How long an admin has to confirm a proxied !feedback (submitted on behalf
 // of another room member) before it's auto-cancelled.
 export const ADMIN_FEEDBACK_PROXY_TIMEOUT_MS = 60 * 1000;

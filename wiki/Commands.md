@@ -33,6 +33,7 @@ Type /bot followed by a command, right in the chat box. Only I see it, so the ro
 | `/bot clothes` · `/bot clothes male` · `/bot clothes female` | Show or switch which clothing list /bot wearing uses |
 | `/bot naked` | Declare you have no clothing on |
 | `/bot same` | Reuse your outfit from last game |
+| `/bot settings` · `/bot settings save` · `/bot settings forget` | Show your saved answers (toys, prize, restraints, outfit), turn saving on, or wipe them. Saved answers let /bot join get you in with one SAME |
 | `/bot ready` | Confirm you are ready to play |
 | `/bot start` | Start the game early |
 | `/bot cancel` | Cancel the countdown |

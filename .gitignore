@@ -31,3 +31,6 @@ tournament.json
 tournament_20*.json
 tournament_game_log.txt
 tournament_disputes.log
+
+# Saved player answers (opt-in, personal)
+player_settings.json
