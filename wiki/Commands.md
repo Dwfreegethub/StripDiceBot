@@ -67,8 +67,9 @@ A whispered game of your own: roll down from a D100, lose an item on every 1, un
 | `/bot removed` | Once you've taken off the item I asked for (or just close your Wardrobe). No rush, the game waits for you. |
 | `/bot scores` · `/bot scores race` · `/bot scores survive` | View solo leaderboards |
 | `/bot scores me` | View your personal solo stats |
+| `/bot settings sensitive yes` · `/bot settings sensitive no` | Whether a lost solo game's bondage may include sensitive items (nipple clamps, chastity, tail plugs). Asked before your first solo game |
 
-Beat the record for your item count and you go free. Miss it and a bondage penalty locks on.
+Beat the record for your item count and you go free. Miss it and a bondage penalty locks on. Before your first solo game I ask whether that may include sensitive items; say no and they're left out.
 
 ## Team Mode (2v2 / 3v3)
 

@@ -143,6 +143,7 @@ export interface SavedSettings {
     prizeConsent?: boolean;
     bondageMode?: BondageMode;
     allowedSlots?: string[];
+    soloSensitiveOK?: boolean; // solo bondage may include sensitive items
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock

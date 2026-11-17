@@ -12,6 +12,7 @@ import {
     REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS,
     SOLO_BASE_PENALTY_MINUTES, SOLO_BONDAGE_DELAY_MS, SOLO_BRACKET_MAX, SOLO_BRACKET_MIN,
     SOLO_DEFAULT_TARGET, SOLO_DICE_MAX, SOLO_INACTIVITY_TIMEOUT_MS, SOLO_REMOVAL_REMINDER_MS,
+    SOLO_SENSITIVE_GROUPS,
 } from "./constants";
 
 // ============================================================
@@ -136,7 +137,35 @@ export class SoloGameManager {
     // Players who were offered a themed bondage path after losing and haven't replied yet.
     private pendingThemeOffer: Map<number, { theme: SoloTheme; penaltyMinutes: number; timer: ReturnType<typeof setTimeout> }> = new Map();
 
+    // Players asked "sensitive items OK?" before a solo game, with the game
+    // they asked for. Answering starts it.
+    private pendingSensitiveQuestion: Map<number, { name: string; mode: SoloMode }> = new Map();
+
     constructor(private readonly host: GameHost) {}
+
+    public isAwaitingSensitiveAnswer(memberNumber: number): boolean {
+        return this.pendingSensitiveQuestion.has(memberNumber);
+    }
+
+    // Yes/no to "may your solo bondage include sensitive items?"; carries on
+    // into the game they asked for.
+    public handleSensitiveAnswer(memberNumber: number, ok: boolean): void {
+        const pending = this.pendingSensitiveQuestion.get(memberNumber);
+        if (!pending) return;
+        this.pendingSensitiveQuestion.delete(memberNumber);
+        this.host.setSoloSensitiveOK(memberNumber, ok);
+        logGameEvent(`[SoloSensitive] ${pending.name} (#${memberNumber}) answered: ${ok ? "yes" : "no"}`);
+        this.host.bot.whisper(memberNumber, ok
+            ? "Got it — sensitive items can be part of your bondage if you lose."
+            : "Got it — I'll leave sensitive items out of your bondage.");
+        this.start(memberNumber, pending.name, pending.mode);
+    }
+
+    // A bondage stage or outfit item is allowed for this player: sensitive
+    // groups only with their OK.
+    private allowsGroup(memberNumber: number, group: string): boolean {
+        return this.host.getSoloSensitiveOK(memberNumber) === true || !SOLO_SENSITIVE_GROUPS.includes(group);
+    }
 
     // ---- queries used by game.ts dispatch --------------------------------
 
@@ -223,6 +252,24 @@ export class SoloGameManager {
             this.host.bot.whisper(memberNumber, "You already have a solo game in progress — /bot roll to continue.");
             return;
         }
+
+        // Consent first: solo bondage can include clamps, chastity and plugs.
+        // Asked once per session (or never again, if saved settings hold it).
+        const sensitiveOK = this.host.getSoloSensitiveOK(memberNumber);
+        if (sensitiveOK === undefined) {
+            this.pendingSoloSetup.delete(memberNumber);
+            this.pendingSensitiveQuestion.set(memberNumber, { name, mode });
+            this.host.bot.whisper(memberNumber,
+                `Before we start: if you lose, I lock you in bondage. May that include sensitive items — nipple clamps, a chastity belt, a tail plug?\n` +
+                `✅ YES — anything goes\n` +
+                `❌ NO — leave those out\n` +
+                `Just say it in the room, or whisper it to me.`);
+            return;
+        }
+        this.pendingSensitiveQuestion.delete(memberNumber);
+        this.host.bot.whisper(memberNumber,
+            `🔒 If you lose: sensitive items ${sensitiveOK ? "allowed" : "left out"}. (Change it: /bot settings sensitive ${sensitiveOK ? "no" : "yes"})`);
+
         const clothingPath = this.host.resolveClothingPath(memberNumber);
         this.pendingSoloSetup.set(memberNumber, { mode, name, clothingPath, clothingQuestionIndex: 0, pendingClothing: [], awaitingOutfitChoice: false });
 
@@ -573,7 +620,8 @@ export class SoloGameManager {
         if (pool.length === 0) return;
 
         const outfit = pool[Math.floor(Math.random() * pool.length)];
-        const items = itemCap !== undefined ? outfit.items.slice(0, itemCap) : outfit.items;
+        const allowed = outfit.items.filter(item => this.allowsGroup(memberNumber, item.group));
+        const items = itemCap !== undefined ? allowed.slice(0, itemCap) : allowed;
         if (items.length === 0) return;
 
         const lockEndTime = Date.now() + penaltyMinutes * 60 * 1000;
@@ -625,7 +673,7 @@ export class SoloGameManager {
     // Assembles BondageItem[] from a SoloTheme (one random item per stage) and
     // applies them with the same spaced lock+verify machinery as applyPenalty.
     private applyThemePenalty(memberNumber: number, theme: SoloTheme, penaltyMinutes: number): void {
-        const items: BondageItem[] = theme.stages.map(stage => {
+        const items: BondageItem[] = theme.stages.filter(stage => this.allowsGroup(memberNumber, stage.group)).map(stage => {
             const name = stage.items[Math.floor(Math.random() * stage.items.length)];
             const property = stage.typeRecord ? { TypeRecord: stage.typeRecord } : {};
             return { group: stage.group, name, color: "Default", property };
@@ -752,6 +800,7 @@ export class SoloGameManager {
     // lost) if they'd made any progress.
     public cleanupOnLeave(memberNumber: number): void {
         this.pendingSoloSetup.delete(memberNumber);
+        this.pendingSensitiveQuestion.delete(memberNumber);
         this.pendingSoloPrizeQuestion.delete(memberNumber);
         this.pendingSoloPrizeDescription.delete(memberNumber);
 

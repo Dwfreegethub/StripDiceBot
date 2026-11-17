@@ -19,6 +19,7 @@ The bot asks about your outfit item by item, or offers last time's. You need **3
 
 * Beat the record for your item count, or set the first one of the day, and you go free.
 * Otherwise a **bondage penalty** locks on: 10 minutes, plus 2 more for each earlier attempt that day. Sometimes the bot offers a themed bondage set instead; answer yes or no.
+* **Sensitive items are your call.** Before your first solo game the bot asks whether the penalty may include nipple clamps, a chastity belt or a tail plug (anything on the breasts, nipples, pelvis or butt). Say no and they're left out of every theme and outfit. Change it anytime with `/bot settings sensitive yes` or `/bot settings sensitive no`.
 
 ## Leaderboards
 

@@ -104,6 +104,8 @@ export class StripDiceGame implements GameHost {
     private playerSettings: Record<string, SavedSettings> = {};
     // First-timers asked "save your answers?" after a game: what would be saved.
     private pendingSaveOffers: Map<number, { snapshot: SavedSettings; expiresAt: number }> = new Map();
+    // Solo "sensitive items OK?" answers this session (saved ones load in too).
+    private soloSensitiveOK: Map<number, boolean> = new Map();
     private gamePassword: string = "";
     // Per-player override of gamePassword for this game's end-game locks.
     // A prize player's locks must all carry the one password !claim hands out,
@@ -568,6 +570,8 @@ export class StripDiceGame implements GameHost {
         "!clothes ": { handler: (mn, _name, _msg, message) => this.handleClothes(mn, message), prefix: true },
         "!naked": { handler: (mn) => this.handleNoWearing(mn) },
         "!same": { handler: (mn) => this.handleSame(mn) },
+        "!settings sensitive yes": { handler: (mn) => this.handleSettingsSensitive(mn, true) },
+        "!settings sensitive no": { handler: (mn) => this.handleSettingsSensitive(mn, false) },
         "!settings save": { handler: (mn, name) => this.handleSettingsSave(mn, name) },
         "!settings forget": { handler: (mn, name) => this.handleSettingsForget(mn, name) },
         "!settings": { handler: (mn) => this.handleSettingsShow(mn) },
@@ -897,6 +901,12 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        // Solo "sensitive items OK?" before the game starts.
+        if (this.solo.isAwaitingSensitiveAnswer(memberNumber) && (msg === "yes" || msg === "y" || msg === "no" || msg === "n")) {
+            this.solo.handleSensitiveAnswer(memberNumber, msg === "yes" || msg === "y");
+            return;
+        }
+
         // Themed bondage offer after a solo loss — !yes applies it, !no falls back to preset.
         if (this.solo.hasThemeOffer(memberNumber) && (msg === "!yes" || msg === "yes" || msg === "!no" || msg === "no")) {
             const accepted = msg === "!yes" || msg === "yes";
@@ -1053,6 +1063,12 @@ export class StripDiceGame implements GameHost {
         // Clothing (multiplayer !wearing Q&A): private, to keep the surprise.
         if (player && player.clothingQuestionIndex !== null && yesNo !== null) {
             this.bot.whisper(memberNumber, keepItSecret);
+            return;
+        }
+
+        // Solo "sensitive items OK?" — out loud is fine, like toys and prize.
+        if (this.solo.isAwaitingSensitiveAnswer(memberNumber) && yesNo !== null) {
+            this.solo.handleSensitiveAnswer(memberNumber, yesNo);
             return;
         }
 
@@ -6992,7 +7008,32 @@ export class StripDiceGame implements GameHost {
             const mn = Number(key);
             if (entry.clothing && entry.clothing.length > 0) this.lastClothing.set(mn, [...entry.clothing]);
             if (entry.clothingPath) this.clothingPathOverrides.set(mn, entry.clothingPath);
+            if (entry.soloSensitiveOK !== undefined) this.soloSensitiveOK.set(mn, entry.soloSensitiveOK);
         }
+    }
+
+    // GameHost: solo "sensitive items OK?" — session memory, saved with
+    // permission.
+    public getSoloSensitiveOK(memberNumber: number): boolean | undefined {
+        return this.soloSensitiveOK.get(memberNumber);
+    }
+
+    public setSoloSensitiveOK(memberNumber: number, ok: boolean): void {
+        this.soloSensitiveOK.set(memberNumber, ok);
+        const saved = this.savedSettingsFor(memberNumber);
+        if (saved) {
+            saved.soloSensitiveOK = ok;
+            saved.updatedAt = centralTimestamp();
+            this.storage.savePlayerSettings(this.playerSettings);
+        }
+    }
+
+    private handleSettingsSensitive(memberNumber: number, ok: boolean): void {
+        this.setSoloSensitiveOK(memberNumber, ok);
+        logGameEvent(`[SoloSensitive] #${memberNumber} set to ${ok ? "yes" : "no"} via /bot settings`);
+        this.bot.whisper(memberNumber, ok
+            ? "Done — solo bondage may include sensitive items (nipple clamps, chastity, tail plugs)."
+            : "Done — solo bondage leaves sensitive items out.");
     }
 
     // The player's saved settings, or null if nothing is saved for them
@@ -7034,6 +7075,8 @@ export class StripDiceGame implements GameHost {
         const clothing = this.lastClothing.get(player.memberNumber);
         if (clothing && clothing.length > 0) s.clothing = [...clothing];
         s.clothingPath = this.resolveClothingPath(player.memberNumber);
+        const solo = this.soloSensitiveOK.get(player.memberNumber);
+        if (solo !== undefined) s.soloSensitiveOK = solo;
         return s;
     }
 
@@ -7105,12 +7148,15 @@ export class StripDiceGame implements GameHost {
 
     private handleSettingsShow(memberNumber: number): void {
         const saved = this.savedSettingsFor(memberNumber);
+        const solo = this.soloSensitiveOK.get(memberNumber);
+        const soloLine = solo === undefined ? "" :
+            `\nSolo: sensitive items ${solo ? "allowed" : "left out"} (/bot settings sensitive ${solo ? "no" : "yes"} to change).`;
         if (!saved) {
             this.bot.whisper(memberNumber,
-                "I don't have any settings saved for you. Type /bot settings save and I'll remember your answers after your next game.");
+                "I don't have any settings saved for you. Type /bot settings save and I'll remember your answers after your next game." + soloLine);
             return;
         }
-        const summary = this.describeSettings(saved);
+        const summary = this.describeSettings(saved) + soloLine;
         this.bot.whisper(memberNumber,
             `Your saved settings:\n${summary || "(nothing yet — they fill in after your next game)"}\n` +
             `They update after each game you finish. /bot settings forget wipes them.`
@@ -7125,6 +7171,8 @@ export class StripDiceGame implements GameHost {
             return;
         }
         this.playerSettings[key] = { name, saveAllowed: true, updatedAt: centralTimestamp() };
+        const solo = this.soloSensitiveOK.get(memberNumber);
+        if (solo !== undefined) this.playerSettings[key].soloSensitiveOK = solo;
         this.storage.savePlayerSettings(this.playerSettings);
         logGameEvent(`[Settings] ${name} (#${memberNumber}) turned saving on`);
         this.bot.whisper(memberNumber, "Saving's on 💾 — I'll remember your answers after your next game.");

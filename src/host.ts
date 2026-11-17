@@ -68,9 +68,16 @@ export interface GameHost {
 
     // The outfit this member last declared, in any mode. Shared with the
     // multiplayer game's "same outfit as last time?" memory, so a declaration
-    // made in one mode carries into the other. In-memory: a restart forgets it.
+    // made in one mode carries into the other. Kept across restarts for
+    // players who agreed to saved settings (player_settings.json).
     getLastClothing(memberNumber: number): string[] | undefined;
     setLastClothing(memberNumber: number, clothing: string[]): void;
+
+    // Whether solo bondage may include sensitive items (SOLO_SENSITIVE_GROUPS),
+    // or undefined if this member hasn't answered yet. Remembered for the
+    // session, and saved for players who agreed to saved settings.
+    getSoloSensitiveOK(memberNumber: number): boolean | undefined;
+    setSoloSensitiveOK(memberNumber: number, ok: boolean): void;
 
     // Item machinery shared with the multiplayer game.
     removeAllItems(memberNumber: number, startDelay?: number): void;
