@@ -732,18 +732,26 @@ export class StripDiceGame implements GameHost {
         if (!this.pendingYesNoJoin.has(memberNumber)) return false;
         const pending = this.pendingYesNoJoin.get(memberNumber)!;
 
-        if (msg === "yes" || msg === "y") {
+        // Forgiving about how people actually type it, in chat or a whisper:
+        // "Yes!", "yes.", "**yes**", "!yes", "yeah", "no toys please",
+        // "cancel" (or "cancle"). Punctuation and emphasis are stripped first.
+        const answer = msg.replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+        const isYes = /^(yes|y|yeah|yea|yep|yup|sure|ok|okay)( please)?$/.test(answer);
+        const isNoToys = /^(yes )?(no toys?|notoys?|without toys|skip( the)? toys)( please)?$/.test(answer);
+        const isCancel = /^(no|n|nope|cancel|cancle|pass|no thanks)$/.test(answer);
+
+        if (isYes) {
             this.pendingYesNoJoin.delete(memberNumber);
             pending.toysConsent = true;
             this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, pending.toysConsent);
             return true;
         }
-        if (msg === "no toys" || msg === "notoys" || msg === "no toy") {
+        if (isNoToys) {
             this.pendingYesNoJoin.delete(memberNumber);
             this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, false);
             return true;
         }
-        if (msg === "no" || msg === "n" || msg === "cancel") {
+        if (isCancel) {
             this.pendingYesNoJoin.delete(memberNumber);
             this.bot.whisper(memberNumber, "No problem! Come back anytime.");
             return true;
@@ -1168,8 +1176,11 @@ export class StripDiceGame implements GameHost {
 
         this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax, toysConsent: true });
         this.bot.whisper(memberNumber,
-            `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end (everyone locked gets a small vote on the time). The winner may also add toys as a prize. ` +
-            `Reply **yes** to join with the full experience, **no toys** to join but skip the toys option, or **cancel** to pass.`
+            `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end (everyone locked gets a small vote on the time). The winner may also add toys as a prize.\n` +
+            `✅ YES — join with the full experience\n` +
+            `🧸 NO TOYS — join, but skip the toys\n` +
+            `❌ CANCEL — pass this time\n` +
+            `Just say it in the room, or whisper it to me.`
         );
     }
 
