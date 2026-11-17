@@ -107,8 +107,9 @@ export const HELP_SOLO: HelpSection = {
         { usage: "removed", text: "Once you've taken off the item I asked for (or just close your Wardrobe). No rush, the game waits for you." },
         { usage: "scores / scores race / scores survive", text: "View solo leaderboards" },
         { usage: "scores me", text: "View your personal solo stats" },
+        { usage: "settings sensitive yes / settings sensitive no", text: "Whether a lost solo game's bondage may include sensitive items (nipple clamps, chastity, tail plugs). Asked before your first solo game" },
     ],
-    outro: "Beat the record for your item count and you go free. Miss it and a bondage penalty locks on.",
+    outro: "Beat the record for your item count and you go free. Miss it and a bondage penalty locks on. Before your first solo game I ask whether that may include sensitive items; say no and they're left out.",
 };
 
 export const HELP_TEAM: HelpSection = {

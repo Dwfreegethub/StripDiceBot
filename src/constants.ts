@@ -227,6 +227,12 @@ export const TIER1_SLOT_GROUPS = [
 export const TIER2_SLOT_GROUPS = ["ItemNipples", "ItemBreast", "ItemPelvis"];
 export const TIER3_SLOT_GROUPS = ["ItemVulva", "ItemButt"]; // code hook — not selectable yet
 
+// Solo bondage leaves items in these groups out unless the player said
+// sensitive items are OK (asked before each solo game, or saved).
+export const SOLO_SENSITIVE_GROUPS = [
+    ...TIER2_SLOT_GROUPS, ...TIER3_SLOT_GROUPS, "ItemNipplesPiercings", "ItemVulvaPiercings",
+];
+
 // ItemMouth2/ItemMouth3 are overflow layers of Mouth: used automatically when
 // ItemMouth is already filled, never exposed as separate picker options.
 export const MOUTH_OVERFLOW_GROUPS = ["ItemMouth", "ItemMouth2", "ItemMouth3"];
