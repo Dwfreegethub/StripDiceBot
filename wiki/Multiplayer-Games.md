@@ -26,6 +26,7 @@
 ## Joining, leaving, coming back
 
 * **Before the start:** anyone can `/bot join`. The host can set the number of players with `/bot players 2 6`.
+* **Played before?** If you let the bot save your answers, joining is two questions: same settings, same outfit. See [Getting Started](Getting-Started#your-next-games-saved-answers).
 * **During a game:** only if an admin has turned on mid-game joining. The game pauses for up to 60 seconds while you get ready.
 * **Leaving the room:** you have **2 rounds** (at least 90 seconds) to come back before you're removed from the game.
 * There's a **5-minute break** between games, so everyone can check their locks went on properly.

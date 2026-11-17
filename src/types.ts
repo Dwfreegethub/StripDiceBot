@@ -124,6 +124,25 @@ export interface Player {
     // "2/new" to the "same outfit as last time?" join whisper. Cleared once
     // they answer (or type any outfit command directly).
     awaitingOutfitChoice: boolean;
+    // The saved answers this player chose to reuse at !join (✅ SAME), or
+    // null when they answered fresh. Fills in their prize, outfit-or-pick
+    // and areas questions so the pre-game Q&A skips them.
+    savedSettings?: SavedSettings | null;
+}
+
+// One player's remembered answers, kept in player_settings.json only with
+// their permission (asked once, after their first game). saveAllowed false
+// means they said no: only that refusal is kept, so they aren't asked again.
+export interface SavedSettings {
+    name: string;
+    saveAllowed: boolean;
+    updatedAt: string;
+    clothing?: string[];
+    clothingPath?: "male" | "female";
+    toysConsent?: boolean;
+    prizeConsent?: boolean;
+    bondageMode?: BondageMode;
+    allowedSlots?: string[];
 }
 
 // Snapshot of a player's lock-application state, captured when the post-lock

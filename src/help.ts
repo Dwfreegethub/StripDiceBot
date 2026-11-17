@@ -73,6 +73,7 @@ export const HELP_PLAYER: HelpSection = {
         { usage: "clothes / clothes male / clothes female", text: "Show or switch which clothing list /bot wearing uses" },
         { usage: "naked", text: "Declare you have no clothing on" },
         { usage: "same", text: "Reuse your outfit from last game" },
+        { usage: "settings / settings save / settings forget", text: "Show your saved answers (toys, prize, restraints, outfit), turn saving on, or wipe them. Saved answers let /bot join get you in with one SAME" },
         { usage: "ready", text: "Confirm you are ready to play" },
         { usage: "start", text: "Start the game early" },
         { usage: "cancel", text: "Cancel the countdown" },

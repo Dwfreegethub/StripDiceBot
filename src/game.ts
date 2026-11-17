@@ -15,12 +15,13 @@ import {
 import {
     GameState, Player, BondageItem, BondageOutfit, BondageMode, PendingBondagePick,
     ItemSettingsLibrary, PendingLockVerification, PendingLockApplyCheck,
-    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry, TournamentGameContext,
+    PlayerRecord, GameLogEntry, CommandDef, ChangelogEntry, TournamentGameContext, SavedSettings,
 } from "./types";
 import {
     TEST_MODE, TEST_PASSWORD, DEFAULT_LOCK_MINUTES,
     JOIN_CONFIRMATION_WINDOW_MS, STARTING_DICE_MAX, SECOND_CHANCE_TIMER_MS,
     JOIN_PAUSE_TIMEOUT_MS, MIN_RETURN_WINDOW_MS, TOYS_CONSENT_TIMEOUT_MS,
+    SAVE_SETTINGS_ASK_DELAY_MS, SAVE_SETTINGS_OFFER_TTL_MS,
     REMOVAL_SLOTS, REMOVAL_SLOT_DELAY_MS, REMOVAL_UNLOCK_GAP_MS, REMOVAL_RETRY_DELAY_MS,
     MAX_REMOVAL_ATTEMPTS, SAFEWORD_VERIFY_DELAY_MS, SAFEWORD_RETRY_DELAYS_MS,
     LOCK_VERIFY_DELAY_MS, MAX_END_GAME_LOCK_RETRIES, END_GAME_EMIT_STAGGER_MS, GAME_COOLDOWN_MS,
@@ -99,6 +100,11 @@ export class StripDiceGame implements GameHost {
     private nameCache: Map<number, string> = new Map();
     private pronounsCache: Map<number, string> = new Map();
     private lastClothing: Map<number, string[]> = new Map();
+    // player_settings.json, keyed by member number: answers players agreed
+    // to have saved, or just their "don't save" (saveAllowed false).
+    private playerSettings: Record<string, SavedSettings> = {};
+    // First-timers asked "save your answers?" after a game: what would be saved.
+    private pendingSaveOffers: Map<number, { snapshot: SavedSettings; expiresAt: number }> = new Map();
     private gamePassword: string = "";
     // Per-player override of gamePassword for this game's end-game locks.
     // A prize player's locks must all carry the one password !claim hands out,
@@ -119,7 +125,7 @@ export class StripDiceGame implements GameHost {
     // Used to block pending_update.txt restarts while players are still locked.
     private activeLockEndTimes: Map<number, number> = new Map();
     private pendingLockVerifications: Map<number, PendingLockVerification> = new Map();
-    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null; toysConsent: boolean }> = new Map();
+    private pendingYesNoJoin: Map<number, { name: string; inlineMin: number | null; inlineMax: number | null; toysConsent: boolean; savedOffer?: SavedSettings }> = new Map();
     private pendingLateJoinConfirmations: Map<number, NodeJS.Timeout> = new Map();
     // Deferred removal timers for players whose 2-round grace period expired
     // before the 90s minimum return window did. Cleared on rejoin or once the
@@ -272,6 +278,7 @@ export class StripDiceGame implements GameHost {
         this.itemSettings = this.storage.loadItemSettings();
         this.seedItemSettingsFromOutfits();
         this.loadPlayerRecords();
+        this.loadPlayerSettings();
         this.storage.pruneGameLog();
     }
 
@@ -580,6 +587,9 @@ export class StripDiceGame implements GameHost {
         "!clothes ": { handler: (mn, _name, _msg, message) => this.handleClothes(mn, message), prefix: true },
         "!naked": { handler: (mn) => this.handleNoWearing(mn) },
         "!same": { handler: (mn) => this.handleSame(mn) },
+        "!settings save": { handler: (mn, name) => this.handleSettingsSave(mn, name) },
+        "!settings forget": { handler: (mn, name) => this.handleSettingsForget(mn, name) },
+        "!settings": { handler: (mn) => this.handleSettingsShow(mn) },
         "!ready": { handler: (mn) => this.handleReady(mn) },
         "!locktime ": { handler: (mn, _name, _msg, message) => this.handleLockTime(mn, message), whisperOnly: true, prefix: true },
         "!lock10": { handler: (mn, name, msg) => this.handleLockPreset(mn, name, msg) },
@@ -775,6 +785,30 @@ export class StripDiceGame implements GameHost {
         if (!this.pendingYesNoJoin.has(memberNumber)) return false;
         const pending = this.pendingYesNoJoin.get(memberNumber)!;
 
+        // "Same settings as last time?" — SAME / CHANGE / CANCEL. A bare "no"
+        // reads as "not these", so it goes to CHANGE (CANCEL is still there).
+        if (pending.savedOffer) {
+            const reply = msg.replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+            if (/^(same|1|yes|y|yeah|yea|yep|yup|sure|ok|okay)( please)?$/.test(reply)) {
+                this.pendingYesNoJoin.delete(memberNumber);
+                logGameEvent(`[Settings] ${name} (#${memberNumber}) joined with saved settings`);
+                this.completeJoin(memberNumber, name, pending.inlineMin, pending.inlineMax, pending.savedOffer.toysConsent, pending.savedOffer);
+                return true;
+            }
+            if (/^(change|2|new|edit|no|n|nope|nah)$/.test(reply)) {
+                pending.savedOffer = undefined;
+                pending.toysConsent = true;
+                this.sendJoinPrompt(memberNumber);
+                return true;
+            }
+            if (/^(cancel|cancle|3|pass|no thanks)$/.test(reply)) {
+                this.pendingYesNoJoin.delete(memberNumber);
+                this.bot.whisper(memberNumber, "No problem! Come back anytime.");
+                return true;
+            }
+            return false;
+        }
+
         // Forgiving about how people actually type it, in chat or a whisper:
         // "Yes!", "yes.", "**yes**", "!yes", "yeah", "no toys please",
         // "cancel" (or "cancle"). Punctuation and emphasis are stripped first.
@@ -809,7 +843,8 @@ export class StripDiceGame implements GameHost {
         if (!player?.awaitingOutfitChoice) return false;
         if (answer === "1" || answer === "same" || answer === "yes") {
             player.awaitingOutfitChoice = false;
-            this.handleSame(memberNumber);
+            // Saved settings + same outfit = nothing left to declare: ready them.
+            this.handleSame(memberNumber, !!player.savedSettings);
             return true;
         }
         if (answer === "2" || answer === "new" || answer === "no") {
@@ -1045,6 +1080,10 @@ export class StripDiceGame implements GameHost {
             return;
         }
 
+        // "Remember your answers?" after a first game. Last, so every other
+        // pending yes/no question gets its answer first.
+        if (this.tryHandleSaveOffer(memberNumber, name, msg, !msg.startsWith("!"))) return;
+
         const handled = this.dispatchCommand(memberNumber, name, message, msg, source);
 
         // A plain whisper that matches nothing stays unanswered (players chat
@@ -1133,6 +1172,9 @@ export class StripDiceGame implements GameHost {
             else this.solo.declineThemeOffer(memberNumber);
             return;
         }
+
+        // Remember your answers? — out loud is fine, but only SAVE / NO SAVE.
+        if (this.tryHandleSaveOffer(memberNumber, name, msg, false)) return;
 
         // Private answers typed in the room: nudge rather than ignore them.
         // Areas allowed (pick mode).
@@ -1342,7 +1384,28 @@ export class StripDiceGame implements GameHost {
             if (!isNaN(n2)) { inlineMax = n2; }
         }
 
+        // Saved answers: question 1 of 2 is "same settings as last time?"
+        // (question 2, the outfit, follows once they're in).
+        const saved = this.savedSettingsFor(memberNumber);
+        if (saved && this.hasCompleteSettings(saved)) {
+            this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax, toysConsent: saved.toysConsent, savedOffer: saved });
+            this.bot.whisper(memberNumber,
+                `Welcome back! 🎲 Your saved settings:\n` +
+                `${this.describeSettings(saved, false)}\n` +
+                `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end.\n` +
+                `✅ SAME — join with these\n` +
+                `✏️ CHANGE — answer the questions again\n` +
+                `❌ CANCEL — pass this time\n` +
+                `Just say it in the room, or whisper it to me.`
+            );
+            return;
+        }
+
         this.pendingYesNoJoin.set(memberNumber, { name, inlineMin, inlineMax, toysConsent: true });
+        this.sendJoinPrompt(memberNumber);
+    }
+
+    private sendJoinPrompt(memberNumber: number): void {
         this.bot.whisper(memberNumber,
             `If you lose everything you'll be bound for ~${this.lockDurationMinutes} min at the end (everyone locked gets a small vote on the time). The winner may also add toys as a prize.\n` +
             `✅ YES — join with the full experience\n` +
@@ -1352,7 +1415,7 @@ export class StripDiceGame implements GameHost {
         );
     }
 
-    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, toysConsent: boolean = true): void {
+    private completeJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, toysConsent: boolean = true, saved: SavedSettings | null = null): void {
         if (!this.checkPlayerPermissions(memberNumber, name)) {
             return;
         }
@@ -1361,16 +1424,16 @@ export class StripDiceGame implements GameHost {
 
         if (midGame && this.toysAllowed) {
             this.gateLateJoinOnToysConsent(memberNumber,
-                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent),
+                () => this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent, saved),
                 () => {} // declined — cancellation whisper already sent, don't add them as a player
             );
             return;
         }
 
-        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent);
+        this.finishCompleteJoin(memberNumber, name, inlineMin, inlineMax, midGame, toysConsent, saved);
     }
 
-    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean, toysConsent: boolean = true): void {
+    private finishCompleteJoin(memberNumber: number, name: string, inlineMin: number | null, inlineMax: number | null, midGame: boolean, toysConsent: boolean = true, saved: SavedSettings | null = null): void {
         const player: Player = {
             memberNumber,
             name,
@@ -1404,6 +1467,7 @@ export class StripDiceGame implements GameHost {
             isGhost: false,
             pendingRemovalBaselineCount: null,
             awaitingOutfitChoice: false,
+            savedSettings: saved,
         };
         this.players.set(memberNumber, player);
 
@@ -1455,8 +1519,10 @@ export class StripDiceGame implements GameHost {
         if (last && last.length > 0) {
             player.awaitingOutfitChoice = true;
             this.bot.whisper(memberNumber,
-                `Welcome back! 🎲 Last game you wore: ${last.join(", ")}.\n` +
-                `Same outfit this time? Reply **1** or **same** — or **2** or **new** to declare a different one.`
+                `${saved ? "Now your outfit" : "Welcome back! 🎲"} — last game you wore: ${last.join(", ")}.\n` +
+                `👗 SAME — wearing that again${saved ? " (you'll be ready straight away)" : ""}\n` +
+                `✏️ NEW — declare a different outfit\n` +
+                `Just say it in the room, or whisper it to me.`
             );
         } else {
             this.bot.whisper(memberNumber,
@@ -1898,6 +1964,11 @@ export class StripDiceGame implements GameHost {
         }
 
         this.clothingPathOverrides.set(memberNumber, arg);
+        const saved = this.savedSettingsFor(memberNumber);
+        if (saved) {
+            saved.clothingPath = arg;
+            this.storage.savePlayerSettings(this.playerSettings);
+        }
 
         // Lists differ in length/items between paths, so any in-progress
         // multiplayer declaration is no longer valid — clear it and have
@@ -2007,7 +2078,7 @@ export class StripDiceGame implements GameHost {
         this.askClothingQuestion(memberNumber);
     }
 
-    private handleSame(memberNumber: number): void {
+    private handleSame(memberNumber: number, autoReady: boolean = false): void {
         const player = this.requirePlayer(memberNumber);
         if (!player) return;
         const last = this.lastClothing.get(memberNumber);
@@ -2019,6 +2090,14 @@ export class StripDiceGame implements GameHost {
         player.isNaked = false;
         player.ready = false;
         player.clothingQuestionIndex = null;
+        if (autoReady) {
+            this.bot.whisper(memberNumber,
+                `Using your last outfit: ${player.clothing.join(", ")}. You're all set!\n` +
+                `(Changed your mind? /bot wearing to redeclare.)`
+            );
+            this.handleReady(memberNumber);
+            return;
+        }
         this.bot.whisper(memberNumber,
             `Using your last outfit: ${player.clothing.join(", ")}.\n` +
             `Type /bot ready when done, or /bot wearing to change.`
@@ -2059,7 +2138,7 @@ export class StripDiceGame implements GameHost {
         player.ready = true;
         player.clothingQuestionIndex = null;
         if (player.clothing.length > 0) {
-            this.lastClothing.set(memberNumber, [...player.clothing]);
+            this.setLastClothing(memberNumber, player.clothing);
         }
 
         if (player.midGameJoin) {
@@ -2960,6 +3039,7 @@ export class StripDiceGame implements GameHost {
             for (const player of this.players.values()) {
                 this.feedback.maybeSuggestFeedback(player.memberNumber);
             }
+            this.rememberSettingsAfterGame();
         } else {
             this.storage.incrementGameCount("aborted");
         }
@@ -3750,8 +3830,15 @@ export class StripDiceGame implements GameHost {
         this.prizeConsentTeams.clear();
 
         this.awaitingPrizeConsent = true;
+        let askedAnyone = false;
         for (const player of this.players.values()) {
             if (player.joinedAfterPregameStart) continue;
+            if (player.savedSettings?.prizeConsent !== undefined) {
+                player.prizeConsent = player.savedSettings.prizeConsent;
+                logGameEvent(`[PrizeConsent] ${player.name} (#${player.memberNumber}) saved answer: ${player.prizeConsent}`);
+                continue;
+            }
+            askedAnyone = true;
             player.prizeConsent = null;
             const teamNote = this.isTeamMode
                 ? " All players on your team must agree for the prize system to activate for your team."
@@ -3760,6 +3847,10 @@ export class StripDiceGame implements GameHost {
                 `🏆 Prize opt-in: Would you like to be a potential prize for the winning team if your team loses? If you say yes, you agree to be claimed — the winners will receive your lock password and a leash to take you wherever they like.${teamNote} (yes/no)`
             );
             logGameEvent(`[PrizeConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        if (!askedAnyone) {
+            this.resolvePrizeConsent();
+            return;
         }
         this.prizeConsentTimer = setTimeout(() => this.resolvePrizeConsent(), TOYS_CONSENT_TIMEOUT_MS);
     }
@@ -4504,13 +4595,24 @@ export class StripDiceGame implements GameHost {
             this.bondageModeTimer = null;
         }
         this.awaitingBondageMode = true;
+        let askedAnyone = false;
         for (const player of this.players.values()) {
             // Late-registration joiners get their own individual question
             // once they're ready (handleReady) — see beginToysConsent.
             if (player.joinedAfterPregameStart) continue;
+            if (player.savedSettings?.bondageMode) {
+                player.bondageMode = player.savedSettings.bondageMode;
+                logGameEvent(`[BondageMode] ${player.name} (#${player.memberNumber}) saved answer: ${player.bondageMode}`);
+                continue;
+            }
+            askedAnyone = true;
             player.bondageMode = null;
             this.sendBondageModeQuestion(player.memberNumber);
             logGameEvent(`[BondageMode] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        if (!askedAnyone) {
+            this.resolveBondageModeSelection();
+            return;
         }
         this.bondageModeTimer = setTimeout(() => this.resolveBondageModeSelection(), BONDAGE_MODE_TIMEOUT_MS);
     }
@@ -4532,6 +4634,12 @@ export class StripDiceGame implements GameHost {
     // Team mode skips it entirely, same as the original roster's version.
     private askLatePrizeConsent(player: Player): void {
         if (this.isTeamMode) return;
+
+        if (player.savedSettings?.prizeConsent !== undefined) {
+            player.prizeConsent = player.savedSettings.prizeConsent;
+            logGameEvent(`[PrizeConsent] ${player.name} (#${player.memberNumber}) saved answer: ${player.prizeConsent} [late join]`);
+            return;
+        }
 
         const existingTimer = this.latePrizeConsentTimers.get(player.memberNumber);
         if (existingTimer) clearTimeout(existingTimer);
@@ -4587,6 +4695,16 @@ export class StripDiceGame implements GameHost {
         if (BC_ITEM_CATALOG.size === 0) {
             // Catalog unavailable — player-pick mode can't work, skip the question.
             player.bondageMode = "outfit";
+            this.tryStartIfEveryoneReady();
+            return;
+        }
+
+        if (player.savedSettings?.bondageMode) {
+            player.bondageMode = player.savedSettings.bondageMode;
+            if (player.bondageMode === "player-pick" && player.savedSettings.allowedSlots) {
+                player.allowedSlots = [...player.savedSettings.allowedSlots];
+            }
+            logGameEvent(`[BondageMode] ${player.name} (#${player.memberNumber}) saved answer: ${player.bondageMode} [late join]`);
             this.tryStartIfEveryoneReady();
             return;
         }
@@ -4694,9 +4812,20 @@ export class StripDiceGame implements GameHost {
             this.slotConsentTimer = null;
         }
         this.awaitingSlotConsent = true;
+        let askedAnyone = false;
         for (const player of pickers) {
+            if (player.savedSettings?.allowedSlots) {
+                player.allowedSlots = [...player.savedSettings.allowedSlots];
+                logGameEvent(`[SlotConsent] ${player.name} (#${player.memberNumber}) saved answer: ${player.allowedSlots.join(",") || "(none)"}`);
+                continue;
+            }
+            askedAnyone = true;
             this.sendSlotConsentQuestion(player.memberNumber);
             logGameEvent(`[SlotConsent] Sent question to ${player.name} (#${player.memberNumber})`);
+        }
+        if (!askedAnyone) {
+            this.resolveSlotConsentPhase();
+            return;
         }
         this.slotConsentTimer = setTimeout(() => this.resolveSlotConsentPhase(), TOYS_CONSENT_TIMEOUT_MS);
     }
@@ -6925,7 +7054,177 @@ export class StripDiceGame implements GameHost {
     }
 
     public setLastClothing(memberNumber: number, clothing: string[]): void {
-        if (clothing.length > 0) this.lastClothing.set(memberNumber, [...clothing]);
+        if (clothing.length === 0) return;
+        this.lastClothing.set(memberNumber, [...clothing]);
+        // Players who agreed to saving keep their outfit across restarts.
+        const saved = this.savedSettingsFor(memberNumber);
+        if (saved) {
+            saved.clothing = [...clothing];
+            saved.clothingPath = this.resolveClothingPath(memberNumber);
+            saved.updatedAt = centralTimestamp();
+            this.storage.savePlayerSettings(this.playerSettings);
+        }
+    }
+
+    // ============================================================
+    // SAVED SETTINGS (player_settings.json)
+    // ============================================================
+    // Asked once, after a player's first finished multiplayer game: "may I
+    // save your answers?" With a yes, /bot join shows them and one SAME
+    // joins with them (question 1), then the outfit is offered (question 2).
+    // Team games don't use them; solo games reuse the saved outfit.
+
+    private loadPlayerSettings(): void {
+        this.playerSettings = this.storage.loadPlayerSettings();
+        for (const [key, entry] of Object.entries(this.playerSettings)) {
+            if (!entry.saveAllowed) continue;
+            const mn = Number(key);
+            if (entry.clothing && entry.clothing.length > 0) this.lastClothing.set(mn, [...entry.clothing]);
+            if (entry.clothingPath) this.clothingPathOverrides.set(mn, entry.clothingPath);
+        }
+    }
+
+    // The player's saved settings, or null if nothing is saved for them
+    // (never asked, or they said no).
+    private savedSettingsFor(memberNumber: number): SavedSettings | null {
+        const entry = this.playerSettings[String(memberNumber)];
+        return entry?.saveAllowed ? entry : null;
+    }
+
+    // Enough to skip every pre-game question: toys, prize, outfit-or-pick,
+    // and (for pick) the areas allowed.
+    private hasCompleteSettings(s: SavedSettings): boolean {
+        if (s.toysConsent === undefined || s.prizeConsent === undefined || !s.bondageMode) return false;
+        return s.bondageMode !== "player-pick" || Array.isArray(s.allowedSlots);
+    }
+
+    private describeSettings(s: SavedSettings, includeOutfit: boolean = true): string {
+        const lines: string[] = [];
+        if (s.toysConsent !== undefined) lines.push(`• Toys from the winner: ${s.toysConsent ? "OK" : "no toys"}`);
+        if (s.prizeConsent !== undefined) lines.push(`• Be a prize if you lose: ${s.prizeConsent ? "yes" : "no"}`);
+        if (s.bondageMode === "player-pick") {
+            const areas = PICK_SLOTS.filter(p => (s.allowedSlots ?? []).includes(p.group)).map(p => p.display);
+            lines.push(`• Restraints: picked by the other players`);
+            lines.push(`• Areas allowed: ${areas.length > 0 ? areas.join(", ") : "none"}`);
+        } else if (s.bondageMode === "outfit") {
+            lines.push(`• Restraints: one of my preset outfits`);
+        }
+        if (includeOutfit && s.clothing && s.clothing.length > 0) lines.push(`• Outfit: ${s.clothing.join(", ")}`);
+        return lines.join("\n");
+    }
+
+    // This game's answers for one player, ready to save.
+    private snapshotSettings(player: Player): SavedSettings {
+        const s: SavedSettings = { name: player.name, saveAllowed: true, updatedAt: centralTimestamp() };
+        if (player.toysConsent !== null) s.toysConsent = player.toysConsent;
+        if (player.prizeConsent !== null) s.prizeConsent = player.prizeConsent;
+        if (player.bondageMode) s.bondageMode = player.bondageMode;
+        if (player.bondageMode === "player-pick") s.allowedSlots = [...player.allowedSlots];
+        const clothing = this.lastClothing.get(player.memberNumber);
+        if (clothing && clothing.length > 0) s.clothing = [...clothing];
+        s.clothingPath = this.resolveClothingPath(player.memberNumber);
+        return s;
+    }
+
+    // End of a finished (non-team) game: update the settings of players who
+    // agreed to saving; ask everyone not yet asked, a little later.
+    private rememberSettingsAfterGame(): void {
+        if (this.isTeamMode) return;
+        let changed = false;
+        for (const player of this.players.values()) {
+            const key = String(player.memberNumber);
+            const entry = this.playerSettings[key];
+            const snapshot = this.snapshotSettings(player);
+            if (entry?.saveAllowed) {
+                this.playerSettings[key] = { ...entry, ...snapshot };
+                changed = true;
+            } else if (!entry) {
+                this.offerToSaveSettings(player.memberNumber, snapshot);
+            }
+        }
+        if (changed) this.storage.savePlayerSettings(this.playerSettings);
+    }
+
+    private offerToSaveSettings(memberNumber: number, snapshot: SavedSettings): void {
+        this.pendingSaveOffers.set(memberNumber, { snapshot, expiresAt: Date.now() + SAVE_SETTINGS_ASK_DELAY_MS + SAVE_SETTINGS_OFFER_TTL_MS });
+        setTimeout(() => {
+            if (!this.pendingSaveOffers.has(memberNumber) || !this.roomMembers.has(memberNumber)) return;
+            this.bot.whisper(memberNumber,
+                `💾 Want me to remember your answers for next time? Then /bot join just shows them, and one SAME gets you in.\n` +
+                `💾 SAVE — remember them\n` +
+                `🚫 NO SAVE — ask me fresh every game\n` +
+                `You can change your mind anytime with /bot settings.`
+            );
+            logGameEvent(`[Settings] Asked #${memberNumber} whether to save their settings`);
+        }, SAVE_SETTINGS_ASK_DELAY_MS);
+    }
+
+    // Answer to "remember your answers?". A plain yes/no counts only when
+    // allowYesNo (whispers, after every other yes/no question had its turn);
+    // out loud it takes the SAVE / NO SAVE words, so a cheer isn't a yes.
+    private tryHandleSaveOffer(memberNumber: number, name: string, msg: string, allowYesNo: boolean): boolean {
+        const offer = this.pendingSaveOffers.get(memberNumber);
+        if (!offer) return false;
+        if (Date.now() > offer.expiresAt) {
+            this.pendingSaveOffers.delete(memberNumber);
+            return false;
+        }
+        const reply = msg.replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+        let agreed: boolean | null = null;
+        if (/^(yes )?(save|save them|save please|please save)$/.test(reply)) agreed = true;
+        else if (/^(no save|nosave|don t save|dont save|do not save|no saving)$/.test(reply)) agreed = false;
+        else if (allowYesNo) agreed = this.parseYesNo(reply);
+        if (agreed === null) return false;
+
+        this.pendingSaveOffers.delete(memberNumber);
+        if (agreed) {
+            this.playerSettings[String(memberNumber)] = { ...offer.snapshot, name, saveAllowed: true, updatedAt: centralTimestamp() };
+            this.bot.whisper(memberNumber,
+                `Saved! 💾 Next time you /bot join I'll show you:\n${this.describeSettings(offer.snapshot)}\n` +
+                `/bot settings shows them anytime; /bot settings forget wipes them.`
+            );
+        } else {
+            this.playerSettings[String(memberNumber)] = { name, saveAllowed: false, updatedAt: centralTimestamp() };
+            this.bot.whisper(memberNumber, "No problem — I won't save anything. (If you change your mind: /bot settings save.)");
+        }
+        logGameEvent(`[Settings] ${name} (#${memberNumber}) ${agreed ? "agreed to" : "declined"} saving settings`);
+        this.storage.savePlayerSettings(this.playerSettings);
+        return true;
+    }
+
+    private handleSettingsShow(memberNumber: number): void {
+        const saved = this.savedSettingsFor(memberNumber);
+        if (!saved) {
+            this.bot.whisper(memberNumber,
+                "I don't have any settings saved for you. Type /bot settings save and I'll remember your answers after your next game.");
+            return;
+        }
+        const summary = this.describeSettings(saved);
+        this.bot.whisper(memberNumber,
+            `Your saved settings:\n${summary || "(nothing yet — they fill in after your next game)"}\n` +
+            `They update after each game you finish. /bot settings forget wipes them.`
+        );
+    }
+
+    private handleSettingsSave(memberNumber: number, name: string): void {
+        const key = String(memberNumber);
+        this.pendingSaveOffers.delete(memberNumber);
+        if (this.playerSettings[key]?.saveAllowed) {
+            this.bot.whisper(memberNumber, "Already on — your answers are saved after each game. /bot settings shows them.");
+            return;
+        }
+        this.playerSettings[key] = { name, saveAllowed: true, updatedAt: centralTimestamp() };
+        this.storage.savePlayerSettings(this.playerSettings);
+        logGameEvent(`[Settings] ${name} (#${memberNumber}) turned saving on`);
+        this.bot.whisper(memberNumber, "Saving's on 💾 — I'll remember your answers after your next game.");
+    }
+
+    private handleSettingsForget(memberNumber: number, name: string): void {
+        this.pendingSaveOffers.delete(memberNumber);
+        this.playerSettings[String(memberNumber)] = { name, saveAllowed: false, updatedAt: centralTimestamp() };
+        this.storage.savePlayerSettings(this.playerSettings);
+        logGameEvent(`[Settings] ${name} (#${memberNumber}) wiped their saved settings`);
+        this.bot.whisper(memberNumber, "Done — your saved settings are gone, and I won't save new ones. (/bot settings save turns it back on.)");
     }
 
     // GameHost: tournament ⇄ solo bridge. The two managers never import each

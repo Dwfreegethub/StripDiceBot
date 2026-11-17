@@ -26,6 +26,14 @@ When the bot asks you something (*"Do you have shoes on? (yes/no)"*), answer by 
 
 When you roll a 1, take the item off in your Wardrobe. Closing the Wardrobe tells the bot you're done, or type `/bot removed`.
 
+## Your next games: saved answers
+
+After your first finished game the bot asks once whether it may remember your answers (toys, prize, how your restraints are chosen, the areas allowed, and your outfit). Say **SAVE** or **NO SAVE**.
+
+With them saved, `/bot join` asks just two things: your saved settings (**SAME**, **CHANGE** to answer the questions again, or **CANCEL**), then your outfit (**SAME** or **NEW**). Same and same, and you're ready. Your answers update after every game you finish.
+
+`/bot settings` shows what's saved, `/bot settings forget` wipes it, and `/bot settings save` turns saving back on.
+
 ## Clothing lists
 
 There are two clothing lists. The bot picks one from your character's pronouns, and you can switch with `/bot clothes male` or `/bot clothes female`.

@@ -11,7 +11,7 @@ import * as path from "path";
 import { log } from "./logger";
 import {
     ChangelogEntry, FeedbackStatusEntry, GameLogEntry, ItemSettingsLibrary, OutfitSuggestion,
-    PlayerRecord, RegisteredPlayer, SoloRecordsData, TournamentState,
+    PlayerRecord, RegisteredPlayer, SavedSettings, SoloRecordsData, TournamentState,
 } from "./types";
 import { CHANGELOG_MAX_ENTRIES, GAME_LOG_RETENTION_MS } from "./constants";
 import { emptySoloRecordsData, utcDateString } from "./util";
@@ -44,6 +44,7 @@ export class BotStorage {
     private readonly tournamentLogPath = path.join(this.baseDir, "tournament_game_log.txt");
     private readonly changelogPath = path.join(this.baseDir, "changelog.json");
     private readonly registeredPlayersPath = path.join(this.baseDir, "registered_players.json");
+    private readonly playerSettingsPath = path.join(this.baseDir, "player_settings.json");
 
     // ---- changelog ---------------------------------------------------
 
@@ -209,6 +210,26 @@ export class BotStorage {
             fs.writeFileSync(this.playerRecordsPath, JSON.stringify(records, null, 2), "utf8");
         } catch (err) {
             log("ERROR: Failed to write players.json: " + err);
+        }
+    }
+
+    // ---- saved player settings (asked-for, not committed) --------------------
+
+    loadPlayerSettings(): Record<string, SavedSettings> {
+        try {
+            if (!fs.existsSync(this.playerSettingsPath)) return {};
+            return JSON.parse(fs.readFileSync(this.playerSettingsPath, "utf8"));
+        } catch (err) {
+            log("WARNING: Could not load player_settings.json — starting with no saved settings: " + err);
+            return {};
+        }
+    }
+
+    savePlayerSettings(settings: Record<string, SavedSettings>): void {
+        try {
+            fs.writeFileSync(this.playerSettingsPath, JSON.stringify(settings, null, 2), "utf8");
+        } catch (err) {
+            log("ERROR: Failed to write player_settings.json: " + err);
         }
     }
 
