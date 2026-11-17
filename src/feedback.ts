@@ -149,7 +149,7 @@ export class FeedbackManager {
 
         this.host.bot.whisper(
             adminMemberNumber,
-            `Did you mean to submit this feedback on behalf of **${target.name}**? Reply **yes** to confirm or **no** to cancel.`
+            `Did you mean to submit this feedback on behalf of ${target.name}? Reply yes to confirm or no to cancel.`
         );
     }
 
