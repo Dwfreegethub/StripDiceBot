@@ -208,7 +208,11 @@ export class BCConnection {
             Group: group,
             Name: name,
             Color: color,
-            Difficulty: 2,
+            // The item's total tightness (BC's item.Difficulty), not a bonus on
+            // top of the asset's own. It used to be 2, below most items' base
+            // (armbinder 10, ball gag 4), so everything went on loose. 50
+            // matches SlaveParking: firm enough that a struggle won't slip it.
+            Difficulty: 50,
             Property: property
         });
     }
