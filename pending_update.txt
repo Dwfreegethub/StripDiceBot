@@ -1,6 +1,8 @@
-2026-08-25T12:00:00
-Pick lists now show which items will actually appear on the player you're binding.
-Some BC restraints only have artwork for certain bodies — a straitjacket, most harnesses and every corset need breasts, chastity belts need a vagina. Applied to a body they don't fit, they still count as one of your seven items but nothing shows up, which is how people ended up "bound" and looking untouched.
-When you're picking, items that can't appear on that person now sink to the bottom of the list under a divider, with the reason next to them (needs breasts, needs a vagina). They're still pickable if you want them. Slots where nothing at all would show are flagged in the slot list, so you don't spend your turn on a dead end.
-This reads the body the character is actually wearing, not their pronouns, so it's right for every combination.
-A batch of items in the catalogue turned out not to exist in this version of BC at all — those are now marked too, instead of quietly ranking near the top.
+2026-11-19T21:50:00
+Saved answers, out-loud replies, and properly tight bondage. Whisper /bot changelog for details.
+Saved answers: after your first finished game I'll ask (a few minutes later) whether to remember your answers. 💾 SAVE keeps your toys, prize, restraint areas and outfit. After that, /bot join asks just two things: same settings? and same outfit? Say SAME to both and you're ready. /bot settings shows what I've saved, /bot settings forget wipes it, and /bot settings save turns saving back on.
+Answer out loud: most of my questions (joining, toys, prize, outfit, veto yes/no, the lock-time vote) can now be answered in the room instead of whispered, however you phrase it. Your clothing list stays a whisper, since that's our little secret.
+Tighter bondage: restraints used to go on looser than BC's normal setting for the item, so they were easy to slip. They now go on at full tightness.
+Solo games: before your first one I ask whether a lost game's bondage may include sensitive items (nipple clamps, chastity, tail plugs). Say no and they're left out. Change it any time with /bot settings sensitive yes or no.
+Commands: every command works as /bot <command>, only I see it, and the old ! commands still work too. /bot help has every rule, and there's a full wiki.
+Feedback: you'll now hear what happened to your !feedback, including "closed" for bugs we couldn't reproduce. Tell me if one comes back.
